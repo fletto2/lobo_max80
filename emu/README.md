@@ -19,7 +19,9 @@ drive connectors (`test_track.c`), the SASI disk (`test_sasi.c`), an
 interrupt right after `LD A,I` (`test_iff.c`), the window's keys
 (`test_keys.c`, with SDL2), and, when `../xcpmz80` has been built, a
 boot of xcpmz80. `test_sound.py` checks beeps recorded with `-s`, and
-`test_frame.py` a frame saved with `-p`.
+`test_frame.py` a frame saved with `-p`. `frame2png.py frame.pgm
+out.png` turns such a frame into a PNG, as `../screenshots/make.sh`
+does.
 
 ## Run
 

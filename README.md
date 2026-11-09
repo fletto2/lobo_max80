@@ -15,6 +15,23 @@ compatible. It came with CP/M 2.2, later CP/M 3, and LDOS.
   MSM5832 clock and an expansion port.
 - ROM: a 512-byte boot ROM that reads one sector and runs it.
 
+## Screenshots
+
+From the emulator. xcpmz80 with its programs, and a folder made and
+entered:
+
+![xcpmz80 at its prompt](screenshots/xcpmz80.png)
+
+The diagnostic disk's menu:
+
+![The diagnostic menu](screenshots/diag.png)
+
+Clone Runner's title, and its first stage in play:
+
+![Clone Runner's title](screenshots/clonerun_title.png)
+
+![Clone Runner in play](screenshots/clonerun_play.png)
+
 ## What is here
 
 - `emu/`: the emulator, in C. It boots the original CP/M 2.2, CP/M 3
@@ -37,6 +54,9 @@ compatible. It came with CP/M 2.2, later CP/M 3, and LDOS.
   in its `README.md`.
 - `tools/`: disk image converters, `.imd` to raw sectors and DMK to
   `.imd`, and the maker of the ZX81 loader's test files.
+- `screenshots/`: the pictures above. `make.sh` makes them again from
+  the emulator, with `emu/frame2png.py`, which turns a frame saved by
+  the emulator's `-p` into a PNG.
 - `reference/rom/max80.e12`: Lobo's v1.3 boot ROM, 512 bytes, included
   for the emulator.
 
