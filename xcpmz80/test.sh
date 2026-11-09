@@ -1,0 +1,709 @@
+#!/bin/sh
+# Tests for xcpmz80. Run from xcpmz80/ after make, with the emulator
+# built in ../emu. Needs mtools. The test disks go to build/test/.
+set -u
+cd "$(dirname "$0")"
+# -K types letters for Caps Lock on, which is how xcpmz80 boots
+EMU='../emu/max80 -K'
+DISK=build/xcpmz80.imd
+SYS=build/xcpmz80.sys
+T=build/test
+fail=0
+rm -rf $T
+mkdir -p $T/out
+
+check() {	# name, text to find, output
+	if printf '%s\n' "$3" | grep -qF -- "$2"; then
+		echo "ok   $1"
+	else
+		echo "FAIL $1: no '$2' in:"
+		printf '%s\n' "$3"
+		fail=1
+	fi
+}
+
+same() {	# name, file, file
+	if cmp -s "$2" "$3"; then
+		echo "ok   $1"
+	else
+		echo "FAIL $1: $2 and $3 differ"
+		fail=1
+	fi
+}
+
+mkdisk() {	# out.imd, files...
+	out=$1
+	shift
+	python3 tools/mkdisk.py $SYS "$out" --raw "${out%.imd}.img" "$@"
+}
+
+getfile() {	# image.imd, CP/M name, out file: a file from a saved image
+	python3 ../tools/imd2raw.py "$1" "${1%.imd}.img" >/dev/null &&
+		mcopy -o -i "${1%.imd}.img" "::$2" "$3"
+}
+
+fatok() {	# name, raw image: the FAT volume is consistent
+	if r=$(python3 tools/fatcheck.py "$2"); then
+		echo "ok   $1"
+	else
+		echo "FAIL $1:"
+		printf '%s\n' "$r"
+		fail=1
+	fi
+}
+
+out=$(mdir -i build/xcpmz80.img :: 2>&1)
+check "the disk is a FAT volume mtools reads" "Serial Number is 4D58-3830" "$out"
+
+out=$($EMU -a "$DISK" -t 5)
+check "boot to sign-on" "XCP/M-Z80 v0.2 for the Lobo MAX-80" "$out"
+check "finds all 128K" "MAX-80, 128K, 55K TPA" "$out"
+check "boot to prompt" 'A:\>' "$out"
+
+out=$($EMU -a "$DISK" -t 15 -e 'A:\>' -k 'hello\rDir *.COM\r')
+check "keys echo, unshifted letters lower case" 'A:\>hello' "$out"
+check "command answered as CP/M does" "HELLO?" "$out"
+check "SHIFT gives upper case" 'A:\>Dir *.COM' "$out"
+
+out=$($EMU -a "$DISK" -t 10 -e 'A:\>' -k "$(printf 'ab\010c')\\r")
+check "BS rubs out" "AC?" "$out"
+
+keys=""
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do keys="${keys}cmd$i\\r"; done
+out=$($EMU -a "$DISK" -t 40 -e 'A:\>' -k "${keys}Hi! (x*y)=<z>?\\r")
+check "scrolls past 24 lines" "CMD14?" "$out"
+check "shifted punctuation, TRS-80 layout" 'A:\>Hi! (x*y)=<z>?' "$out"
+printf '%s\n' "$out" | grep -q "CMD1?" &&
+	{ echo "FAIL the first lines should have scrolled off"; fail=1; }
+
+printf 'Hello from a text file.\r\nSecond line.\r\n\032' >$T/HELLO.TXT
+
+
+# Lobo's console codes (a Soroc IQ-120's): ESC = row col, ESC T, ESC )
+# and 0Ch, cursor right. The second style is the inverse font.
+printf 'a\014b\r\nab\033=\045\050XY\r\nrow2 \033Tgone\r\n\033)dim\033(\r\n' >$T/ESC.TXT
+mkdisk $T/esc.imd $T/ESC.TXT
+out=$($EMU -a $T/esc.imd -T -t 10 -e 'A:\>' -k 'type esc.txt\r' -p $T/out/esc.pgm)
+check "0Ch moves the cursor right" "a b" "$out"
+check "ESC = puts the cursor at a row and column" "ab      XY" "$out"
+check "ESC T erases to the end of the line" "row2 gone" "$out"
+python3 -c "import sys; t = bytes(range(0x21, 0x7f)); sys.stdout.buffer.write(b'\x1b)' + t[:47] + b'\r\n' + t[47:] + b'\x1b(\r\n')" >$T/ESC2.TXT
+mkdisk $T/esc2.imd $T/ESC2.TXT
+out=$($EMU -a $T/esc2.imd -T -t 10 -e 'A:\>' -k 'type esc2.txt\r')
+check "-T reads every second style character, the hand-drawn ones too" \
+	'!"#$%&'"'"'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNO' "$out"
+check "and the rest" 'PQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~' "$out"
+printf '\033*L0\r\nL1\r\nL2\r\nL3\033=! \033ENEW\033=  \033R\033=( \033Y' >$T/EL.TXT
+mkdisk $T/el.imd $T/EL.TXT
+out=$($EMU -a $T/el.imd -T -t 10 -e 'A:\>' -k 'type el.txt\r' | tr '\n' '|')
+check "ESC * clears, ESC E inserts a line, ESC R deletes one" "NEW|L1|L2|L3|" "$out"
+
+
+# Programs typed through the emulator's key socket
+if [ "$(uname)" = Linux ]; then
+	# The C programs, built with SDCC when it is there: CTEST
+	# checks the CP/M C library, ADVENT plays, saves and restores
+	if make -s -C c >/dev/null 2>&1; then
+		C=c/build
+		mkdisk $T/ct.imd $C/CTEST.COM $C/CLIB.SYS
+		out=$(python3 tools/session.py "-a $T/ct.imd" @10)
+		check "the kernel loads CLIB.SYS into B2" "C library loaded" "$out"
+		out=$(python3 tools/session.py "-a $T/ct.imd -w a:$T/out/ct.imd" \
+			'ctest\r' @60 'Walrus\r' @10)
+		check "C: a line from the console, read by the library" "got Walrus" "$out"
+		getfile $T/out/ct.imd CTEST.LOG $T/out/CTEST.LOG
+		out=$(cat $T/out/CTEST.LOG)
+		check "C: initialized and zeroed data" "init 1234 zero 0" "$out"
+		check "C: printf formats" "fmt [  -42] [7   ] [00be] [123456789] [str] [abc] [Z] [65535]" "$out"
+		check "C: printf flags, *, precision, %p" "fmt2 [+5] [ 5] [0xff] [010] [ab    ] [   7] [03] [1234]" "$out"
+		check "C: sprintf and sscanf" "sscanf 3 17 abc -5" "$out"
+		check "C: snprintf cuts and counts" "snprintf truncat 5" "$out"
+		check "C: sscanf %i, %[, widths, %n" "scan 4 12 31 abc def 15" "$out"
+		check "C: sscanf %*d and %o" "scan2 4 511" "$out"
+		check "C: a text file written and read by lines" "lines 300" "$out"
+		check "C: fseek, a write in the middle, ftell, SEEK_END" "bin 188 85 301 1024" "$out"
+		check "C: a missing file" "missing null" "$out"
+		check "C: the string functions" "str 6 -1 0 def /c cdef 2" "$out"
+		check "C: ctype" "ctype 1011 Az" "$out"
+		check "C: memmove both ways, memset, memcmp" "mem aabcfghx -1" "$out"
+		check "C: atoi, atol, strtoul, strtol, abs" "num -12 100000 ff -16 5" "$out"
+		check "C: qsort and bsearch" "qsort 123579 7" "$out"
+		check "C: setjmp and longjmp" "longjmp 42" "$out"
+		check "C: malloc reuses a freed block, realloc" "heap dup reused grown" "$out"
+		check "C: mktime and strftime" "time 1793536496 2026-11-01 12:34:56 Sun 305" "$out"
+		check "C: gmtime and asctime" "asctime Sun Nov  1 12:34:56 2026" "$out"
+		check "C: strerror" "errno No such file" "$out"
+		check "C: open, write, lseek, read, access" "fd 2 fd 0" "$out"
+		check "C: a file's size, the directory search" "find 5" "$out"
+		check "C: rename" "rename -1 0" "$out"
+		check "C: ungetc and fscanf" "fscanf l 0" "$out"
+		check "C: a library call gives back the interrupts on, and off" "iff 1 1 0" "$out"
+		mkdisk $T/ct0.imd $C/CTEST.COM
+		out=$(python3 tools/session.py "-a $T/ct0.imd" 'ctest\r' @20)
+		check "C: with no CLIB.SYS a program says so" "Needs xcpmz80 and its C library, CLIB.SYS" "$out"
+		mkdisk $T/adv.imd $C/CLIB.SYS $C/ADVENT.COM $C/ADVENT1.TXT $C/ADVENT2.TXT \
+			$C/ADVENT3.TXT $C/ADVENT4.TXT
+		out=$(python3 tools/session.py "-a $T/adv.imd" 'advent\r' @40 'n\r' @20 \
+			'in\r' @20 'take lamp\r' @20 'inventory\r' @20 'suspend\r' @20 \
+			'mygame\r' @40 'advent -r\r' @40 'mygame\r' @30 'xyzzy\r' @20)
+		check "ADVENT reads a room from ADVENT1.TXT" "You are inside a building, a well house for a large spring." "$out"
+		check "and takes the lamp" "Brass lantern" "$out"
+		check "and a game saved is restored" "Game restored from mygame.adv" "$out"
+		check "where it was" "You're inside building." "$out"
+		check "and XYZZY goes on from there" "It is now pitch dark." "$out"
+		# ZORK: MojoZork plays a version 3 story through its page
+		# cache, saves and restores. The stories are Infocom's and never
+		# in this repo, so this runs only when ZORK_STORIES names a
+		# folder that has them. They are copied outside the repo for the
+		# disk.
+		ZS=${ZORK_STORIES:-/nonexistent}
+		if [ -f $ZS/mini_zork_i_the_great_underground_empire.dat ] &&
+		    [ -f $ZS/zork_i_the_great_underground_empire.dat ]; then
+			ZT=$(mktemp -d)
+			cp $ZS/mini_zork_i_the_great_underground_empire.dat $ZT/MINIZORK.DAT
+			cp $ZS/zork_i_the_great_underground_empire.dat $ZT/ZORK1.DAT
+			mkdisk $T/zk.imd $C/CLIB.SYS $C/ZORK.COM $ZT/MINIZORK.DAT \
+				$ZT/ZORK1.DAT >/dev/null
+			rm -rf $ZT
+			ZP='A:\>|>|Save file name:|Restore file name:'
+			out=$($EMU -a $T/zk.imd -T -t 30 -e "$ZP" \
+				-k 'zork minizork.dat\ropen mailbox\rread leaflet\r')
+			check "ZORK starts mini-zork" "West of House" "$out"
+			check "and opens the mailbox" "Opening the small mailbox reveals a leaflet." "$out"
+			check "and reads the leaflet" '"WELCOME TO ZORK, a game of adventure' "$out"
+			out=$($EMU -a $T/zk.imd -T -t 60 -e "$ZP" -w a:$T/out/zk.imd \
+				-k 'zork minizork.dat\ropen mailbox\rtake leaflet\rnorth\rsave\rmygame\rdrop leaflet\rinventory\rrestore\rmygame\rinventory\rlook\r')
+			check "and saves a game by name" "Save file name: mygame" "$out"
+			check "and drops the leaflet after" "You are empty-handed." "$out"
+			check "and restores the game" "Restore file name: mygame" "$out"
+			check "with the leaflet carried" "  A leaflet" "$out"
+			check "where it was" "You are facing the north side of a white house." "$out"
+			getfile $T/out/zk.imd MYGAME.SAV $T/out/MYGAME.SAV
+			check "and the save is MYGAME.SAV" "8704" "$(wc -c <$T/out/MYGAME.SAV)"
+			out=$($EMU -a $T/zk.imd -T -t 40 -e "$ZP" \
+				-k 'zork zork1.dat\ropen mailbox\rread leaflet\r')
+			check "ZORK plays Zork I, 84K in a 55K TPA" "Revision 88 / Serial number 840726" "$out"
+			check "and reads the leaflet from its pages" '"WELCOME TO ZORK!' "$out"
+			out=$($EMU -a $T/zk.imd -T -t 40 -e "$ZP" \
+				-k 'zork zork1.dat\rnorth\rinventory\r')
+			check "and goes north" "You are facing the north side of a white house." "$out"
+			check "and takes inventory" "You are empty-handed." "$out"
+			out=$($EMU -a $T/zk.imd -T -t 60 -e "$ZP" -k 'zork zork1.dat\r$verify\r')
+			check "and VERIFY reads all of the story file" "The disk is correct." "$out"
+		else
+			echo "skip ZORK: no stories in $ZS"
+		fi
+		# BASE64: a file from the host, decoded, and one encoded
+		# to the screen and SIOA, decoded by the host side. A file is
+		# whole records, as in CP/M: the host's 11000 bytes come back as
+		# 11008, the last 8 ^Z
+		python3 -c "import random; r = random.Random(64)
+open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
+		{ head -c 6000 $C/ADVENT1.TXT; cat $T/R2K.BIN
+			head -c 3000 /dev/zero; } >$T/T.BIN
+		{ cat $T/T.BIN; printf '\032\032\032\032\032\032\032\032'; } >$T/T.PAD
+		$C/base64_host $T/T.BIN >$T/T.TXT 2>/dev/null
+		# CP/M 3's DEVICE copies the console to SIOA for the encode
+		mkdisk $T/b64.imd $C/CLIB.SYS $C/BASE64.COM ${B64X:-} $T/T.TXT \
+			$T/T.BIN >/dev/null
+		out=$($EMU -a $T/b64.imd -T -t 300 -e 'A:\>' -o a:$T/out/b64ser.txt \
+			-k "base64 -d u.bin t.txt\\r${B64K:-}" \
+			-w a:$T/out/b64.imd)
+		getfile $T/out/b64.imd U.BIN $T/out/U.BIN
+		n=$(cmp $T/out/U.BIN $T/T.PAD && echo same)
+		check "BASE64 -D decodes the host's text" "same" "$n"
+		# The page module on the host, page.c and page.s on the
+		# Z80 core: down and up, jumps, 3000 random edits and saves
+		# checked against a model, and a file of LF lines saved as it was
+		mkdir -p $T/pg $T/pz
+		out=$($C/page_host $T/pg 1000 1 2>&1 && echo passed)
+		check "the page module in C passes its host test" "passed" "$out"
+		out=$($C/page_z80host $T/pz 1000 1 2>&1 && echo passed)
+		check "and in Z80 code on the emulator's core" "passed" "$out"
+		# EMACS: the arrows (ESC [ C, B, A on the socket) and
+		# ^D, a search ended by ESC, ^K ^K and ^Y, ^P ^E and backspace,
+		# ^X ^S saves. Then ^X ^C on a changed buffer asks first
+		printf 'The first line of text.\nA second line, with a word to find.\nThe third and last line.\n' >$T/EM.TXT
+		mkdisk $T/em.imd $C/CLIB.SYS $C/EMACS.COM $T/EM.TXT >/dev/null
+		out=$(python3 tools/session.py "-a $T/em.imd -w a:$T/out/em.imd" \
+			'emacs em.txt\r' @40 '\x1b[C' '\x1b[C' '\x1b[C' 'X' '\x1b[B' \
+			'\x04' '\x13word\x1b' 'Y' '\x1b[B' '\x01\x0b\x0b' '\x1b[A' '\x19' \
+			'\x10\x05' '\x08' @10 '\x18\x13' @30)
+		check "EMACS shows the mode line" "== MicroEMACS 3.6 () == EM.TXT == File: EM.TXT ==" "$out"
+		check "and the text, edited" "A seond line, with a wordY to find." "$out"
+		check "and saves it" "[Wrote 3 lines]" "$out"
+		getfile $T/out/em.imd EM.TXT $T/out/EM.TXT
+		printf 'TheX first line of text.\nThe third and last line\nA seond line, with a wordY to find.\n' >$T/EM.OK
+		tr -d '\r\032' <$T/out/EM.TXT >$T/out/EM.LF
+		same "and the file has the moves, insert, delete, search, kill and yank" $T/EM.OK $T/out/EM.LF
+		out=$(python3 tools/session.py "-a $T/em.imd" 'emacs em.txt\r' @40 \
+			'more' '\x18\x03' @10)
+		check "EMACS asks before it quits with a change" "Modified buffers exist. Leave anyway [y/n]?" "$out"
+		out=$(python3 tools/session.py "-a $T/em.imd" 'emacs em.txt\r' @40 \
+			'more' '\x18\x03' @10 'y' @20 'dir em.txt\r' @10)
+		check "and on y goes back to the shell" "A: EM       TXT" "$out"
+		# The back arrow rubs out in a prompt, as at A:\>:
+		# ^X^W NEWX, back, .TXT writes NEW.TXT
+		out=$(python3 tools/session.py "-a $T/em.imd" 'emacs em.txt\r' @40 \
+			'\x18\x17' @5 'newx' '\x1b[D' '.txt\r' @20 '\x18\x03' @20 'dir new.txt\r' @10)
+		check "EMACS: the back arrow rubs out in a prompt" "A: NEW      TXT" "$out"
+		# A file bigger than the memory, paged through a window:
+		# 1000 lines, 55K. Its end and back, a read through writes no
+		# work file, a search and M-G far below the window, the mark
+		# dropped, a change left in the work file, and edits at the top,
+		# middle and end saved byte for byte
+		awk 'BEGIN { for (i = 0; i < 1000; i++)
+			printf "Line %04d of the big file, some words to fill it out.\r\n", i }' >$T/EMBIG.TXT
+		mkdisk $T/emb.imd $C/CLIB.SYS $C/EMACS.COM $T/EMBIG.TXT >/dev/null
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80)
+		check "EMACS pages a big file" "lines, the rest paged from disk]" "$out"
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+			'\x1b>' @200)
+		check "and goes to its end" "Line 0999 of the big file" "$out"
+		out=$(python3 tools/session.py "-a $T/emb.imd -w a:$T/out/emb1.imd" \
+			'emacs embig.txt\r' @80 '\x1b>' @200 '\x1b<' @200)
+		check "and back" "Line 0001 of the big file" "$out"
+		python3 ../tools/imd2raw.py $T/out/emb1.imd $T/out/emb1.img >/dev/null
+		out=$(mdir -i $T/out/emb1.img :: 2>&1)
+		check "the read through leaves the file" "EMBIG    TXT     55000" "$out"
+		case "$out" in
+		*'$$W'*) echo "FAIL and makes no work file:"; printf '%s\n' "$out"; fail=1 ;;
+		*) echo "ok   and makes no work file" ;;
+		esac
+		out=$(python3 tools/session.py "-a $T/emb.imd -w a:$T/out/emb3.imd" \
+			'emacs embig.txt\r' @80 '\x0e\x05 X' '\x1b>' @200)
+		python3 ../tools/imd2raw.py $T/out/emb3.imd $T/out/emb3.img >/dev/null
+		out=$(mdir -i $T/out/emb3.img :: 2>&1)
+		check "a change the window leaves goes to the work file" 'EMBIG    $$W' "$out"
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+			'\x13Line 0900\x1b' @300)
+		check "a search finds text far below the window" "Line 0901 of the big file" "$out"
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+			'\x15700\x1bg' @300)
+		check "M-G goes to a line far below" "ine 0699 of the big file" "$out"
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+			'\x1b ' '\x1b>' @300)
+		check "the mark is dropped when the window moves" "[Mark dropped, the window moved]" "$out"
+		out=$(python3 tools/session.py "-a $T/emb.imd -w a:$T/out/emb2.imd" \
+			'emacs embig.txt\r' @80 '\x0e\x0e\x05 TOP' '\x15500\x1bg' @300 \
+			'\x05 MID' '\x1b>' @300 '\x10\x05 END' '\x18\x13' @300)
+		check "edits at the top, middle and end are saved" "[Wrote 1000 lines]" "$out"
+		getfile $T/out/emb2.imd EMBIG.TXT $T/out/EMBIG.TXT
+		awk 'BEGIN { for (i = 0; i < 1000; i++) {
+			printf "Line %04d of the big file, some words to fill it out.", i
+			if (i == 2) printf " TOP"
+			if (i == 499) printf " MID"
+			if (i == 999) printf " END"
+			printf "\r\n" } }' >$T/EMBIG.OK
+		n=$(wc -c <$T/EMBIG.OK)
+		printf '%0*d' $(( (128 - n % 128) % 128 )) 0 | tr 0 '\032' >>$T/EMBIG.OK
+		same "byte for byte" $T/EMBIG.OK $T/out/EMBIG.TXT
+		python3 ../tools/imd2raw.py $T/out/emb2.imd $T/out/emb2.img >/dev/null
+		out=$(mdir -i $T/out/emb2.img :: 2>&1)
+		case "$out" in
+		*'$$'*) echo "FAIL and leaves no work or temporary file:"; printf '%s\n' "$out"; fail=1 ;;
+		*) echo "ok   and leaves no work or temporary file" ;;
+		esac
+		# VI: STEVIE. w x, j and i, $ and a, 0 k l l x, the arrows
+		# (ESC [ B, C, D, A on the socket) and x and i, G dd, 1G p, o
+		# then u, a search by a regexp then x, :w
+		printf 'one two three\nfour five six\nseven eight nine\nten eleven twelve\n' >$T/VI.TXT
+		mkdisk $T/vi.imd $C/CLIB.SYS $C/VI.COM $T/VI.TXT >/dev/null
+		out=$(python3 tools/session.py "-a $T/vi.imd -w a:$T/out/vi.imd" \
+			'vi vi.txt\r' @40 'w' 'x' 'j' 'iA\x1b' '$' 'aB\x1b' '0' 'k' 'l' 'l' \
+			'x' '\x1b[B' '\x1b[C' 'x' '\x1b[D' '\x1b[A' 'iC\x1b' 'G' 'dd' '1G' \
+			'p' 'oNEW\x1b' 'u' '/e.g\r' 'x' ':w\r' @20)
+		check "VI shows the text, edited" "fouA five sixB" "$out"
+		check "and saves it" '"VI.TXT" 4 lines, 62 characters' "$out"
+		getfile $T/out/vi.imd VI.TXT $T/out/VI.TXT
+		{ printf 'onC wo three\r\nten eleven twelve\r\nfouA five sixB\r\nseven ight nine\r\n'
+			printf '%062d' 0 | tr 0 '\032'; } >$T/VI.OK
+		same "and the file has the moves, insert, delete, put, undo and search" \
+			$T/VI.OK $T/out/VI.TXT
+		out=$(python3 tools/session.py "-a $T/vi.imd" 'vi vi.txt\r' @40 ':q\r' @20 \
+			'dir vi.txt\r' @10)
+		check "VI quits on :q with no change" "A: VI       TXT" "$out"
+		out=$(python3 tools/session.py "-a $T/vi.imd" 'vi vi.txt\r' @40 'x' ':q\r' @20)
+		check "and on a change refuses" "No write since last change (use ! to override)" "$out"
+		out=$(python3 tools/session.py "-a $T/vi.imd -w a:$T/out/vi2.imd" \
+			'vi vi.txt\r' @40 'x' ':q!\r' @20 'dir vi.txt\r' @10)
+		check "and :q! quits all the same" "A: VI       TXT" "$out"
+		getfile $T/out/vi2.imd VI.TXT $T/out/VI2.TXT
+		same "without writing the file" $T/VI.TXT $T/out/VI2.TXT
+		# The back arrow rubs out while typing and on the : line, as at
+		# A:\>: XYZ, two back, Q, then :wqx, one back
+		out=$(python3 tools/session.py "-a $T/vi.imd -w a:$T/out/vi3.imd" \
+			'vi vi.txt\r' @40 'iXYZ' '\x1b[D' '\x1b[D' 'Q\x1b' ':wqx' '\x1b[D' '\r' @20 \
+			'dir vi.txt\r' @10)
+		check "VI: the back arrow rubs out on the : line" "A: VI       TXT" "$out"
+		getfile $T/out/vi3.imd VI.TXT $T/out/VI3.TXT
+		check "and while typing" "XQone two three" "$(head -1 $T/out/VI3.TXT)"
+		# A file bigger than the memory, paged through a window:
+		# 1000 lines, 55K. Its end and back, a read through writes no
+		# work file, a change left in the work file, a search, G and :N
+		# far below the window, undo after the window moved, ranges
+		# bigger than the window refused, and edits at the top, middle
+		# and end and a :s over a range saved byte for byte, the old
+		# file kept as .BAK with :set bk
+		awk 'BEGIN { for (i = 0; i < 1000; i++)
+			printf "Line %04d of the big file, some words to fill it out.\r\n", i }' >$T/VIBIG.TXT
+		mkdisk $T/vib.imd $C/CLIB.SYS $C/VI.COM $T/VIBIG.TXT >/dev/null
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 'G' @200 \
+			'\x07' @10)
+		check "VI pages a big file, and goes to its end" "ine 0999 of the big file" "$out"
+		check "and counts its lines" '"VIBIG.TXT" line 1000 of 1000 -- 100 % --' "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib1.imd" \
+			'vi vibig.txt\r' @80 'G' @200 '1G' @200 '\x07' @10)
+		check "and back" '"VIBIG.TXT" line 1 of 1000 -- 0 % --' "$out"
+		python3 ../tools/imd2raw.py $T/out/vib1.imd $T/out/vib1.img >/dev/null
+		out=$(mdir -i $T/out/vib1.img :: 2>&1)
+		check "the read through leaves the file" "VIBIG    TXT     55000" "$out"
+		case "$out" in
+		*'$$W'*) echo "FAIL and makes no work file:"; printf '%s\n' "$out"; fail=1 ;;
+		*) echo "ok   and makes no work file" ;;
+		esac
+		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib2.imd" \
+			'vi vibig.txt\r' @80 'jA X\x1b' 'G' @200)
+		python3 ../tools/imd2raw.py $T/out/vib2.imd $T/out/vib2.img >/dev/null
+		out=$(mdir -i $T/out/vib2.img :: 2>&1)
+		check "a change the window leaves goes to the work file" 'VIBIG    $$W' "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+			'/Line 0900\r' @300 '\x07' @10)
+		check "a search finds text far below the window" '"VIBIG.TXT" line 901 of 1000' "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+			':700\r' @200 '\x07' @10)
+		check ":N goes to a line far below" '"VIBIG.TXT" line 700 of 1000' "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib3.imd" \
+			'vi vibig.txt\r' @80 '3G' 'dd' 'G' @200 'u' @200 ':w\r' @300)
+		check "undo works after the window moved" '"VIBIG.TXT" 1000 lines' "$out"
+		getfile $T/out/vib3.imd VIBIG.TXT $T/out/VIBIG3.TXT
+		cp $T/VIBIG.TXT $T/VIBIG3.OK
+		n=$(wc -c <$T/VIBIG3.OK)
+		printf '%0*d' $(( (128 - n % 128) % 128 )) 0 | tr 0 '\032' >>$T/VIBIG3.OK
+		same "and puts the line back" $T/VIBIG3.OK $T/out/VIBIG3.TXT
+		# :r and :e with a file paged: a file read into a paged one
+		# frees parts of the window, one too big for the memory goes in
+		# not at all and leaves the text unchanged, and :e goes from a
+		# paged file to a small or a paged one and back
+		awk 'BEGIN { for (i = 0; i < 30; i++)
+			printf "Medium %04d of a file read into the big one.\r\n", i }' >$T/VIMED.TXT
+		awk 'BEGIN { for (i = 0; i < 800; i++)
+			printf "Other %04d of the second big file, more words to fill.\r\n", i }' >$T/VIOTH.TXT
+		printf 'small one\r\nsmall two\r\nsmall three\r\n' >$T/VISML.TXT
+		mkdisk $T/vie.imd $C/CLIB.SYS $C/VI.COM $T/VIBIG.TXT $T/VIMED.TXT \
+			$T/VIOTH.TXT $T/VISML.TXT >/dev/null
+		out=$(python3 tools/session.py "-a $T/vie.imd -w a:$T/out/vie1.imd" \
+			'vi vibig.txt\r' @80 '500G' @100 ':r vimed.txt\r' @150 ':w\r' @300)
+		check ":r reads a file into a paged one" '"VIBIG.TXT" 1030 lines' "$out"
+		getfile $T/out/vie1.imd VIBIG.TXT $T/out/VIBIGR.TXT
+		{ head -n 500 $T/VIBIG.TXT; cat $T/VIMED.TXT; tail -n 500 $T/VIBIG.TXT; } >$T/VIBIGR.OK
+		n=$(wc -c <$T/VIBIGR.OK)
+		printf '%0*d' $(( (128 - n % 128) % 128 )) 0 | tr 0 '\032' >>$T/VIBIGR.OK
+		same "and saves it in its place" $T/VIBIGR.OK $T/out/VIBIGR.TXT
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' @80 \
+			'3G' ':r vioth.txt\r' @300)
+		check ":r of a big file into a paged one is refused" '"vioth.txt" Out of memory, not read' "$out"
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' @80 \
+			'3G' ':r vioth.txt\r' @300 '\x07' @10)
+		check "and leaves the text unchanged" '"VIBIG.TXT" line 3 of 1000 -- 0 % --' "$out"
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' @40 \
+			':r vibig.txt\r' @200)
+		check ":r of a big file into a small one is refused" '"vibig.txt" Out of memory, not read' "$out"
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' @40 \
+			':r vibig.txt\r' @200 '\x07' @10)
+		check "and leaves it unchanged" '"VISML.TXT" line 1 of 3 -- 33 % --' "$out"
+		out=$(python3 tools/session.py "-a $T/vie.imd -w a:$T/out/vie2.imd" \
+			'vi vibig.txt\r' @80 'jA X\x1b' 'G' @200 ':e! visml.txt\r' @100 '\x07' @10)
+		check ":e! leaves a changed paged file for a small one" '"visml.txt" line 1 of 3' "$out"
+		python3 ../tools/imd2raw.py $T/out/vie2.imd $T/out/vie2.img >/dev/null
+		out=$(mdir -i $T/out/vie2.img :: 2>&1)
+		check "the paged file is as it was" "VIBIG    TXT     55000" "$out"
+		case "$out" in
+		*'$$W'*) echo "FAIL and its work file goes:"; printf '%s\n' "$out"; fail=1 ;;
+		*) echo "ok   and its work file goes" ;;
+		esac
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' @80 \
+			':e vioth.txt\r' @100 'G' @200 '\x07' @10)
+		check ":e goes from a paged file to another" '"vioth.txt" line 800 of 800' "$out"
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' @40 \
+			':e vibig.txt\r' @100 'G' @200 '\x07' @10)
+		check ":e goes from a small file to a paged one" '"vibig.txt" line 1000 of 1000' "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+			':1,$d\r' @100)
+		check "a range bigger than the window is refused" "Range bigger than the window" "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+			'dG' @100)
+		check "and so is a motion past it" "Range bigger than the window" "$out"
+		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib4.imd" \
+			'vi vibig.txt\r' @80 'jj' 'A TOP\x1b' ':5,6s/Line/Row/\r' @50 \
+			':500\r' @200 'A MID\x1b' 'G' @200 'A END\x1b' @50 ':set bk\r' @20 ':w\r' @600)
+		check "edits at the top, middle and end are saved" '"VIBIG.TXT" 1000 lines' "$out"
+		getfile $T/out/vib4.imd VIBIG.TXT $T/out/VIBIG.TXT
+		awk 'BEGIN { for (i = 0; i < 1000; i++) {
+			printf "%s %04d of the big file, some words to fill it out.",
+				(i == 4 || i == 5) ? "Row" : "Line", i
+			if (i == 2) printf " TOP"
+			if (i == 499) printf " MID"
+			if (i == 999) printf " END"
+			printf "\r\n" } }' >$T/VIBIG.OK
+		n=$(wc -c <$T/VIBIG.OK)
+		printf '%0*d' $(( (128 - n % 128) % 128 )) 0 | tr 0 '\032' >>$T/VIBIG.OK
+		same "byte for byte" $T/VIBIG.OK $T/out/VIBIG.TXT
+		python3 ../tools/imd2raw.py $T/out/vib4.imd $T/out/vib4.img >/dev/null
+		out=$(mdir -i $T/out/vib4.img :: 2>&1)
+		check "and the old file is kept as .BAK" "VIBIG    BAK     55000" "$out"
+		case "$out" in
+		*'$$'*) echo "FAIL and leaves no work or temporary file:"; printf '%s\n' "$out"; fail=1 ;;
+		*) echo "ok   and leaves no work or temporary file" ;;
+		esac
+		# The apps disk: boots, loads CLIB.SYS, and runs the programs on
+		# it, on 8-inch and 5.25-inch
+		make -s apps >/dev/null 2>&1
+		out=$(python3 tools/session.py "-a build/apps.imd" @10 'dir\r' @20 'zork\r' @20)
+		check "the apps disk loads CLIB.SYS" "C library loaded" "$out"
+		check "and has the C programs" "CLIB     SYS : VI       COM : EMACS    COM" "$out"
+		check "and ZORK, with no story" "Usage: ZORK STORY.DAT, a Z-machine version 3 story" "$out"
+		out=$($EMU -a build/apps.imd -T -t 60 -e 'A:\>|instructions?' -k 'advent\r')
+		check "and ADVENT, with its text" "Would you like instructions?" "$out"
+		out=$(python3 tools/session.py "-D 1 -a build/apps_525.imd" @10 'clock\r' @20)
+		check "the 5.25-inch apps disk loads CLIB.SYS" "C library loaded" "$out"
+		check "and runs CLOCK" "$(date +%m/%d/%y) " "$out"
+		out=$(python3 tools/session.py "-D 1 -a build/apps_525.imd" @10 'vi x.txt\r' @40)
+		check "and VI" '"X.TXT" [New File]' "$out"
+	else
+		echo "skip the C programs: no SDCC"
+	fi
+else
+	echo "skip the tests through the key socket: Linux only"
+fi
+
+
+# emu/test_iff.c runs iffget's bytes against the NMOS quirk: these
+# must be the ones assembled, the jump aside
+if python3 -c "
+import re, sys
+sys.exit(not re.search(rb'\xed\x57\xea..\xed\x57\xf3\x3e\x00\xe0\x3d\xc9',
+                       open('$SYS', 'rb').read(), re.S))"; then
+	echo "ok   iffget is what emu/test_iff.c tests"
+else
+	echo "FAIL iffget differs from emu/test_iff.c"
+	fail=1
+fi
+
+# CLOCK reads the clock chip. The emulator's
+# clock starts at the host's time.
+mkdisk $T/clk.imd build/CLOCK.COM
+out=$($EMU -a $T/clk.imd -T -t 15 -e 'A:\>' -k 'clock\r')
+check "CLOCK reads the date from the clock chip" "$(date +%m/%d/%y) " "$out"
+n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} [0-2][0-9]:[0-5][0-9]:[0-5][0-9]$')
+check "and the time, every digit" "1" "$n"
+
+# MORE: a screen of 23 lines, Space the next, Enter one more, Q
+# stops. A tab goes to the next 8 columns, a long line wraps.
+for i in $(seq 1 60); do printf 'line %d\r\n' $i; done >$T/MT.TXT
+printf '\tx\t%0100d\r\nlast\r\n\032' 0 >>$T/MT.TXT
+mkdisk $T/more.imd build/MORE.COM $T/MT.TXT >/dev/null
+last2() {	# the last two lines with text on them, on one line
+	printf '%s\n' "$1" | grep -v '^ *$' | tail -2 | tr '\n' ' '
+}
+out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 ' ' @20 '\r' @20)
+check "MORE stops at --More--, Space a screen, Enter a line" "line 47 --More-- " "$(last2 "$out")"
+out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 ' ' @20 ' ' @20)
+check "and shows tabs and the end" "        x       0000" "$out"
+check "and ends at the end" "last A:\> " "$(last2 "$out")"
+out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'q' @20)
+check "and Q stops it" "line 23 A:\> " "$(last2 "$out")"
+
+
+# 5-inch steps: 6 ms, the FDC's rate 0, with DIP switch 1 down, 30 ms,
+# rate 3, with it up. The boot ROM's own seeks are 1Bh either way.
+[ -f build/xcpmz80_525.imd ] || make -s 525 >/dev/null
+$EMU -T -D 1 -a build/xcpmz80_525.imd -G $T/st6.log -e 'A:\>' -k 'DIR\r' -t 8 >/dev/null 2>&1
+$EMU -T -D 0x81 -a build/xcpmz80_525.imd -G $T/st30.log -e 'A:\>' -k 'DIR\r' -t 8 >/dev/null 2>&1
+check "5-inch: the kernel restores at 6 ms" "cmd 08" "$(cat $T/st6.log)"
+check "and seeks at 6 ms" "cmd 18" "$(cat $T/st6.log)"
+check "with DIP switch 1 up, none at 6 ms" "count 0" "count $(grep -c 'cmd 08\|cmd 18' $T/st30.log)"
+check "but restores at 30" "cmd 0b drive 0 cyl 2" "$(cat $T/st30.log)"
+
+# A system older than its source makes no disk
+mkdir -p $T/st/src $T/st/build
+cp $SYS $T/st/build/xcpmz80.sys
+touch -d 2000-01-01 $T/st/build/xcpmz80.sys
+touch $T/st/src/xcpmz80.asm
+out=$(python3 tools/mkdisk.py $T/st/build/xcpmz80.sys $T/st/a.imd 2>&1)
+check "mkdisk.py refuses a system older than src/" "older than src/" "$out"
+check "and writes no disk" "none" "$(test -e $T/st/a.imd && echo made || echo none)"
+touch $T/st/build/xcpmz80.sys
+python3 tools/mkdisk.py $T/st/build/xcpmz80.sys $T/st/a.imd
+check "and takes it once built" "made" "$(test -s $T/st/a.imd && echo made)"
+
+# COPY fills the TPA from the source, then writes it all, so between
+# floppies the heads move once a fill: 150001 bytes, three
+# fills, to B: and to a new name on A:, byte exact and the FATs clean.
+python3 -c "import random; r = random.Random(191); open('$T/HUGE.DAT', 'wb').write(bytes(r.randrange(256) for _ in range(150001)))"
+head -c 61440 $T/HUGE.DAT >$T/MID.DAT
+python3 tools/mkdisk.py $SYS --525 720 $T/cpa.imd $T/HUGE.DAT $T/MID.DAT >/dev/null
+python3 tools/mkdisk.py $SYS --525 720 $T/cpb.imd >/dev/null
+rm -f $T/out/cpa.imd $T/out/cpb.imd
+$EMU -T -D 1 -a $T/cpa.imd -b $T/cpb.imd -w a:$T/out/cpa.imd -w b:$T/out/cpb.imd -t 600 \
+	-e 'A:\>' -k 'COPY HUGE.DAT B:\rCOPY HUGE.DAT COPY2.DAT\r' >/dev/null 2>&1
+getfile $T/out/cpb.imd HUGE.DAT $T/out/HUGE.B
+getfile $T/out/cpa.imd COPY2.DAT $T/out/HUGE.A
+same "COPY of 150001 bytes to B: is byte exact" $T/HUGE.DAT $T/out/HUGE.B
+same "and to a new name on A:" $T/HUGE.DAT $T/out/HUGE.A
+fatok "and B: is clean" $T/out/cpb.img
+fatok "and A: is clean" $T/out/cpa.img
+out=$($EMU -T -D 1 -M -a $T/cpa.imd -b $T/cpb.imd -t 300 -e 'A:\>' -k 'COPY MID.DAT B:\r' 2>&1)
+n=$(echo "$out" | sed -n 's/.*sectors, \([0-9]*\) steps.*/\1/p')
+check "and 60K from A: to B: takes under 300 steps" "under" "$( [ "${n:-9999}" -lt 300 ] && echo under || echo "$n steps")"
+
+# Folders: MD, CD, PWD and RD, the prompt, DIR and LS, paths in
+mkdir -p $T/o2
+# COPY, TYPE and ERA, programs from the root, a folder past its first
+# cluster, the errors, and what mtools sees
+out=$($EMU -a "$DISK" -t 60 -e 'A:\>|A:\GAMES>|A:\GAMES\OLD>' -w a:$T/out/fd1.imd \
+	-k 'md games\rcopy more.com games\\m.com\rcd games\rmd old\rcd old\rpwd\rcd ..\rdir\rls\r')
+check "MD and CD: the prompt shows the folder" 'A:\GAMES>md old' "$out"
+check "CD into a folder in a folder" 'A:\GAMES\OLD>pwd' "$out"
+check "CD .. goes up" 'A:\GAMES>dir' "$out"
+check "DIR shows a folder as NAME\\" "A: M        COM : OLD\\" "$out"
+check "LS shows <DIR>" "OLD\\         <DIR>" "$out"
+out=$($EMU -a $T/out/fd1.imd -t 60 -e 'A:\>|A:\GAMES>' -w a:$T/o2/fd.imd \
+	-k 'cd games\rcopy \\clock.com c.com\rcd \\\rdir\rtype games\\nothere.txt\rcd nothere\rmd games\rmd x*\rrd games\r')
+check "the root's DIR shows the folder" "A: XCPM     FNT : THIN     FNT : INVERSE  FNT : GAMES\\" "$out"
+check "a path to no file" "No file" "$out"
+check "CD to no folder" "No folder" "$out"
+check "MD of a name taken" "Exists" "$out"
+check "MD of a wildcard" "Bad name" "$out"
+check "RD of a folder with files" "Not empty" "$out"
+python3 ../tools/imd2raw.py $T/o2/fd.imd $T/o2/fd.img >/dev/null
+fatok "the folders are a clean FAT volume" $T/o2/fd.img
+out=$(mdir -/ -i $T/o2/fd.img ::GAMES 2>&1)
+check "mtools reads the folder and the folder in it" "Directory for ::/GAMES/OLD" "$out"
+check "and the copies in it" "C        COM       131" "$out"
+mcopy -o -i $T/o2/fd.img ::GAMES/M.COM $T/out/M.COM
+same "COPY into a folder is byte exact" build/MORE.COM $T/out/M.COM
+out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>|A:\GAMES>' -k 'cd games\rc\rclock\r')
+check "COPY \\NAME from the root, and it and CLOCK, not in the folder, run" "2" \
+	"$(printf '%s\n' "$out" | grep -c '^[0-9][0-9]/[0-9][0-9]/[0-9][0-9] ')"
+check "the folder stays through the warm boots" 'A:\GAMES>clock' "$out"
+out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>' -k 'save 1 games\rren games=more.com\rdir\r')
+check "SAVE to a folder's name makes no file" "No file" "$out"
+check "nor does REN" "No file, or the new name is taken" "$out"
+check "and the folder is still alone" "INVERSE  FNT : GAMES\\" "$out"
+
+# A folder grows past its first cluster, ERA a path empties it, RD
+# removes it, and RD of the current folder is refused
+k='md big\rcd big\r'
+for i in $(seq 1 40); do k="${k}save 1 f$i.com\\r"; done
+out=$($EMU -a "$DISK" -t 200 -e 'A:\>|A:\BIG>|ALL (Y/N)?' -w a:$T/out/fb.imd \
+	-k "${k}rd \\\\big\\rcd ..\\rls big\\\\f4*.*\\rera big\\\\*.*\\ry\\E\\Prd big\\rdir\\r")
+check "40 files in a folder" "A:\\BIG>save 1 f40.com" "$out"
+check "RD of the current folder" "In use" "$out"
+check "LS of a path" "F40.COM      256" "$out"
+check "ERA of a path, RD, and the folder is gone" "A: XCPM     FNT : THIN     FNT : INVERSE  FNT" "$(printf '%s\n' "$out" | tail -3)"
+printf '%s\n' "$out" | tail -3 | grep -q 'BIG\\' &&
+	{ echo "FAIL BIG\\ should be gone"; fail=1; }
+python3 ../tools/imd2raw.py $T/out/fb.imd $T/out/fb.img >/dev/null
+fatok "and the volume is clean, every cluster back" $T/out/fb.img
+
+# A drive in a folder whose disk changes, here by FORMAT, goes back to
+# the root
+mkdisk $T/fdb.imd >/dev/null
+out=$($EMU -a "$DISK" -b $T/fdb.imd -t 300 -e 'A:\>|B:\X>|B:\>|Format B: and lose its files (Y/N)?' \
+	-k 'md b:x\rcd b:x\rb:\rformat b:\ry')
+check "a drive in a folder" 'B:\X>format b:' "$out"
+check "back to the root when its disk changes" 'B:\>' "$(printf '%s\n' "$out" | grep -A1 '^Formatted' | tail -1)"
+
+# Folders made by mtools on a hard disk, read here. The BDOS calls 118
+# MKDIR, 119 RMDIR, 124 CHDIR and 125 GETCWD from a program, whose CD
+# stays after it, and the file a program makes in its folder.
+python3 tools/mkdisk.py $SYS --hd 2 $T/fh.img $T/HELLO.TXT >/dev/null
+mmd -i $T/fh.img ::PC ::PC/DEEP
+mcopy -i $T/fh.img $T/HELLO.TXT ::PC/DEEP/HI.TXT
+cat >$T/fd.asm <<'EOF'
+	org	100h
+	ld	c,118
+	ld	de,p1
+	call	bdos
+	ld	c,118
+	ld	de,p2
+	call	bdos
+	ld	c,124
+	ld	de,p2
+	call	bdos
+	ld	c,125
+	ld	de,buf
+	call	5
+	ld	hl,buf
+pr:	ld	a,(hl)
+	or	a
+	jr	z,pd
+	push	hl
+	ld	e,a
+	ld	c,2
+	call	5
+	pop	hl
+	inc	hl
+	jr	pr
+pd:	ld	c,22			; a file here
+	ld	de,fcb
+	call	bdos
+	ld	c,16
+	ld	de,fcb
+	call	bdos
+	ld	c,124
+	ld	de,up
+	call	bdos
+	ld	c,119			; SUB has a file
+	ld	de,sub
+	call	bdos
+	ld	c,119			; and NOPE is not there
+	ld	de,nope
+	call	bdos
+	ret
+bdos:	call	5			; then A in hex and a space
+	push	af
+	rrca
+	rrca
+	rrca
+	rrca
+	call	nib
+	pop	af
+	call	nib
+	ld	e,' '
+	ld	c,2
+	jp	5
+nib:	and	0Fh
+	add	a,90h
+	daa
+	adc	a,40h
+	daa
+	ld	e,a
+	ld	c,2
+	jp	5
+p1:	db	"TOOLS",0
+p2:	db	"tools/sub",0
+up:	db	"..",0
+sub:	db	"SUB",0
+nope:	db	"NOPE",0
+fcb:	db	0,"MADE    DAT"
+	ds	24
+buf:	ds	64
+EOF
+(cd $T && sjasmplus --nologo --msg=war --raw=FD.COM fd.asm >/dev/null)
+mcopy -i $T/fh.img $T/FD.COM ::FD.COM
+out=$($EMU -D 7 -h $T/fh.img -t 60 -e 'A:\>|A:\TOOLS>|A:\TOOLS\SUB>|A:\PC\DEEP>' -w h:$T/out/fh.img \
+	-k 'dir\rcd pc\\deep\rtype hi.txt\rcd \\\rfd\rdir\rcd sub\rdir\r')
+check "DIR shows mtools's folder" "PC\\" "$out"
+check "CD and TYPE in mtools's folders" "Second line." "$out"
+check "BDOS 118, 124 and 125 from a program" '00 00 00 \TOOLS\SUB00 00 00 FF FF' "$out"
+check "and its CD stays after it" 'A:\TOOLS>dir' "$out"
+check "the file it made is in the folder" "A: MADE     DAT" "$out"
+out=$(mdir -/ -i $T/out/fh.img ::TOOLS 2>&1)
+check "mtools reads the folders BDOS 118 made" "Directory for ::/TOOLS/SUB" "$out"
+check "and the file in them" "MADE     DAT" "$out"
+fatok "and the hard disk is clean" $T/out/fh.img
+
+
+exit $fail

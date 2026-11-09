@@ -1,0 +1,41 @@
+License of the xcpmz80 console font
+
+The console font, src/font.bin, is made from unscii-8 by
+tools/mkfont.py. unscii-8 is in the public domain. src/font.bin is also
+in the public domain. It is not covered by the MIT license in LICENSE,
+which covers the rest of xcpmz80.
+
+Font: unscii-8, version 2.1, the 8x8 variant of Unscii
+Author: viznut (Ville-Matias Heikkila)
+Home page: http://viznut.fi/unscii/ (also http://www.pelulamu.net/unscii/)
+File used: http://viznut.fi/unscii/unscii-8.hex, kept here as
+tools/unscii-8.hex, unmodified
+SHA-256 of that file:
+03094f7fbab7085cf6a6b624cee61e47e71ce5d0c2f308c2f4436afdc17f776c
+
+The license, in the author's words, from unscii.txt in
+unscii-2.1-src.tar.gz on the home page:
+
+    Everything made by me (viznut) is in the Public Domain.
+
+    The first source font, Fixedsys Excelsior, is also in the Public
+    Domain.
+
+    Those pieces that come from the Unifont project (unifont.hex,
+    hex2bdf.pl) are under GPL. For this reason, unscii-16-full also
+    falls under GPL.
+
+And from the home page:
+
+    "unscii-16-full" falls under GPL because of how Unifont is licensed;
+    the other variants are in the Public Domain.
+
+unscii-8 is not unscii-16-full and holds no Unifont glyphs, so it is in
+the public domain. No GPL part of Unscii is used here.
+
+What mkfont.py changes, also placed in the public domain: it takes the
+ASCII glyphs 20h-7Eh as they are and U+2592 (medium shade) for 7Fh,
+the cursor. It adds a second style for the MAX-80 font RAM, 20h-5Fh at
+80h-BFh and 60h-7Fh at 00h-1Fh, drawn thin (the rightmost dot of each
+run of dots cleared) or, with --inverse, inverted. src/font.bin is the
+thin face with glyphs redrawn by hand, also public domain.

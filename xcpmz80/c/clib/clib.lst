@@ -1,0 +1,191 @@
+# The C library resident in B2: its functions, by number. A number
+# never changes and is never used again, new ones go at the end, so a
+# program keeps working with a newer CLIB.SYS. Each line: the number, the
+# name a program calls, the signature (clib/marshal.c), and the
+# library's function when it has another name.
+0	__clib_init	v iiii
+# stdio
+1	fopen	v ss
+2	freopen	f ssf
+3	fdopen	f is
+4	fclose	v f
+5	fflush	v f
+6	fgetc	v f
+7	fputc	v if
+8	ungetc	v if
+9	fgets	p0 B1if
+10	gets	p0 d
+11	fputs	v sf
+12	puts	v s
+13	putchar	v i
+14	getchar	v
+15	fread	v iiif	__r_fread
+16	fwrite	v iiif	__r_fwrite
+17	feof	v f
+18	ferror	v f
+19	clearerr	v f
+20	fileno	v f
+21	fseek	v fli
+22	ftell	v f
+23	rewind	v f
+24	fgetpos	v fo4
+25	fsetpos	v fI4
+26	setbuf	v fi
+27	setvbuf	v fiii
+28	printf	v F
+29	fprintf	v fF
+30	sprintf	v dF
+31	snprintf	v B1iF
+32	vprintf	v FV
+33	vfprintf	v fFV
+34	vsprintf	v dFV
+35	vsnprintf	v B1iFV
+36	scanf	v G
+37	fscanf	v fG
+38	sscanf	v sG
+39	vscanf	v GW
+40	vfscanf	v fGW
+41	vsscanf	v sGW
+42	perror	v s
+43	remove	v s
+44	rename	v ss
+45	tmpnam	v i	__r_tmpnam
+46	tmpfile	f
+# string.h, strings.h
+47	strlen	v i	__r_strlen
+48	strcpy	v ii	__r_strcpy
+49	strcmp	v ss
+50	strchr	p0 si
+51	memcpy	v iii	__r_memcpy
+52	memmove	v iii	__r_memmove
+53	memset	v iii	__r_memset
+54	memcmp	v b2b2i
+55	memchr	p0 b2ii
+56	memrchr	p0 b2ii
+57	memccpy	p0 B3b3ii
+58	mempcpy	p0 B2b2i
+59	strncpy	p0 B2si
+60	strcat	p0 Ss
+61	strncat	p0 Ssi
+62	strncmp	v ssi
+63	strcasecmp	v ss
+64	strncasecmp	v ssi
+65	strcoll	v ss
+66	strxfrm	v B2si
+67	strrchr	p0 si
+68	strchrnul	p0 si
+69	strspn	v ss
+70	strcspn	v ss
+71	strpbrk	p0 ss
+72	strstr	p0 ss
+73	strcasestr	p0 ss
+74	strtok	v is	__r_strtok
+75	strtok_r	v isi	__r_strtok_r
+76	strsep	v is	__r_strsep
+77	strdup	v s	__r_strdup
+78	strndup	v si	__r_strndup
+79	strnlen	v si
+80	stpcpy	p0 ds
+81	stpncpy	p0 B2si
+82	strlcpy	v B2si
+83	strlcat	v x2si
+84	strupr	p0 S
+85	strlwr	p0 S
+86	strrev	p0 S
+87	strerror	r i
+88	bzero	v ii	__r_bzero
+89	bcopy	v iii	__r_bcopy
+90	bcmp	v b2b2i
+91	index	p0 si
+92	rindex	p0 si
+93	ffs	v i
+# stdlib.h
+94	malloc	v i
+95	calloc	v ii
+96	realloc	v ii
+97	free	v i
+98	__heapfree	v
+99	__clib_exit	v i	exit
+100	_exit	v i
+101	abort	v
+102	getenv	v s
+103	system	v s
+104	abs	v i
+105	labs	v l
+106	atoi	v s
+107	atol	v s
+108	strtol	v sei
+109	strtoul	v sei
+110	itoa	p1 idi
+111	utoa	p1 idi
+112	ltoa	p1 ldi
+113	ultoa	p1 ldi
+114	rand	v
+115	srand	v i
+116	random	v
+117	srandom	v i
+# ctype.h
+118	isalnum	v i
+119	isalpha	v i
+120	isascii	v i
+121	isblank	v i
+122	iscntrl	v i
+123	isdigit	v i
+124	isgraph	v i
+125	islower	v i
+126	isprint	v i
+127	ispunct	v i
+128	isspace	v i
+129	isupper	v i
+130	isxdigit	v i
+131	tolower	v i
+132	toupper	v i
+133	toascii	v i
+# time.h
+134	time	v o4
+135	clock	v
+136	difftime	v ll
+137	mktime	v T
+138	gmtime	t I4
+139	localtime	t I4
+140	gmtime_r	p1 I4T
+141	localtime_r	p1 I4T
+# 142 asctime, 143 ctime, 144 strftime: kept for them. They are in the
+# program's side (clibr.lib), as B2 is full.
+# assert.h, err.h
+145	__assert	v ssi
+146	warn	v F
+147	warnx	v F
+148	err	v iF
+149	errx	v iF
+# unistd.h, fcntl.h
+150	open	v si
+151	creat	v si
+152	read	v iii	__r_read
+153	write	v iii	__r_write
+154	close	v i
+155	lseek	v ili
+156	unlink	v s
+157	access	v si
+158	isatty	v i
+159	sleep	v i
+160	usleep	v l
+161	chdir	v s
+162	getcwd	p0 B1i
+# conio.h
+163	kbhit	v
+164	getch	v
+165	getche	v
+166	putch	v i
+167	cputs	v s
+168	cprintf	v F
+169	cgets	v i	__r_cgets
+# cpm.h
+170	cpm_version	v
+171	cpm_getdrive	v
+172	cpm_setdrive	v i
+173	cpm_getuser	v
+174	cpm_setuser	v i
+175	cpm_findfirst	v sd
+176	cpm_findnext	v d
+177	cpm_filesize	v s

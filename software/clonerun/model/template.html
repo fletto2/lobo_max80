@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Clone Runner model</title>
+<style>
+  :root { --bg: #0b0b0b; --fg: #e8e8e8; --accent: #b5461f; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center;
+         font-family: "Courier New", monospace; overflow: hidden; touch-action: none; user-select: none; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block;
+           box-shadow: 0 0 0 2px #222, 0 8px 40px rgba(0,0,0,.6); }
+  #pad { display: none; width: 100%; max-width: 640px; padding: 12px 16px; box-sizing: border-box;
+         justify-content: space-between; align-items: center; }
+  body.touch #pad { display: flex; }
+  .grid { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 52px); gap: 4px; }
+  .btn { background: #222; border: 2px solid #444; border-radius: 10px; color: var(--fg);
+         font: bold 20px "Courier New", monospace; display: flex; align-items: center; justify-content: center; }
+  .btn:active { background: var(--accent); }
+  .digs { display: flex; gap: 10px; align-items: center; }
+  .digs .btn { width: 64px; height: 64px; border-radius: 50%; font-size: 14px; }
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<div id="pad">
+  <div class="grid">
+    <span></span><div class="btn" data-dir="up">&#9650;</div><span></span>
+    <div class="btn" data-dir="left">&#9664;</div><div class="btn" data-act="pause">II</div><div class="btn" data-dir="right">&#9654;</div>
+    <span></span><div class="btn" data-dir="down">&#9660;</div><span></span>
+  </div>
+  <div class="digs">
+    <div class="btn" data-dig="left">DIG&#9664;</div>
+    <div class="btn" data-dig="right">&#9654;DIG</div>
+  </div>
+</div>
+<script id="level-data" type="text/plain">
+@@LEVELS@@
+</script>
+<script>
+@@ENGINE@@
+</script>
+<script>
+@@MAIN@@
+</script>
+</body>
+</html>
