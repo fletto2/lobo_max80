@@ -32,6 +32,17 @@ Clone Runner's title, and its first stage in play:
 
 ![Clone Runner in play](screenshots/clonerun_play.png)
 
+The Game Boy Tetris port, which is built from a copy of the cartridge
+and is not in this release:
+
+![Tetris in play](screenshots/tetris.png)
+
+ZX81 games under xcpmz80's ZX81.COM, Pipepanic and Mine81:
+
+![Pipepanic's title](screenshots/zx81_pipepanic.png)
+
+![Mine81's title](screenshots/zx81_mine81.png)
+
 ## What is here
 
 - `emu/`: the emulator, in C. It boots the original CP/M 2.2, CP/M 3
