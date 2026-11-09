@@ -7,8 +7,8 @@
 # as they are:
 # - Clone Runner, Lode Runner's stages: the file LODERUNNER_LEVELS
 #   names, by default ../software/clonerun/private/levels.txt.
-# - Tetris, the port's source and the Game Boy ROM it is built from:
-#   ../port/ and the file TETRIS_GB names, by default ../port/Tetris.gb.
+# - Tetris, the Game Boy ROM it is built from: the file TETRIS_GB
+#   names, by default ../port/Tetris.gb.
 # - The ZX81 games, a ZX81 ROM for their shapes: the file ZX81_ROM
 #   names, as for xcpmz80's apps disk.
 # Needs what the builds need (a C compiler, sjasmplus, SDCC for the C

@@ -32,8 +32,8 @@ Clone Runner's title, and its first stage in play:
 
 ![Clone Runner in play](screenshots/clonerun_play.png)
 
-The Game Boy Tetris port, which is built from a copy of the cartridge
-and is not in this release:
+The Game Boy Tetris port, in `port/`, which you build from your own
+copy of the cartridge:
 
 ![Tetris in play](screenshots/tetris.png)
 
@@ -63,6 +63,10 @@ ZX81 games under xcpmz80's ZX81.COM, Pipepanic and Mine81:
   xcpmz80, a port of Lode Runner. The original's stages are not
   included. `build.sh` reads them from a file you supply, as described
   in its `README.md`.
+- `port/`: Tetris, the Game Boy game, ported to the MAX-80 for CP/M
+  2.2 and xcpmz80. The source is ours. The game's numbers are lifted
+  from your own copy of the cartridge when you build it, so no byte
+  of Nintendo's is included. Its `README.md` says how.
 - `tools/`: disk image converters, `.imd` to raw sectors and DMK to
   `.imd`, and the maker of the ZX81 loader's test files.
 - `screenshots/`: the pictures above. `make.sh` makes them again from
@@ -106,8 +110,8 @@ its tests.
 
 ## License
 
-The emulator, diag, monitor, xcpmz80 and Clone Runner are MIT, in
-each folder's `LICENSE`. The scripts in `tools/` are MIT on the terms
+The emulator, diag, monitor, xcpmz80, Clone Runner and the Tetris port
+are MIT, in each folder's `LICENSE`. The scripts in `tools/` are MIT on the terms
 in `emu/LICENSE`. The programs on the xcpmz80 apps disk keep
 their own licenses, given in `xcpmz80/README.md` and beside each one:
 MicroEMACS 3.6, STEVIE and Colossal Cave Adventure are public domain,
