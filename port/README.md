@@ -28,9 +28,10 @@ puts it on xcpmz80 boot disks: `build/tetris.imd` for an 8-inch drive,
 
 The title, ENTER to go on, DOWN held for hard mode. The level select:
 the arrows and ENTER, Z back. In the game the arrows move and drop, Z
-and UP turn, ENTER pauses, SPACE shows or hides NEXT. A, S and D also
-work as LEFT, DOWN and RIGHT, Q as Z and E as UP. After GAME OVER,
-ENTER goes back to the level select. ESC quits.
+and UP turn, ENTER or ESC pauses and goes on again, SPACE shows or
+hides NEXT. A, S and D also work as LEFT, DOWN and RIGHT, Q as Z and E
+as UP. After GAME OVER, ENTER goes back to the level select. BREAK
+quits, and ESC does on the title, the level select and GAME OVER.
 
 The screen is 40 double width columns of 8-line cells, two pages of
 video RAM swapped each frame, with the glyphs in font RAM.

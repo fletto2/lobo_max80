@@ -4,9 +4,9 @@
 ; tables.asm, which is never shared.
 ;
 ; The title, ENTER to go on, DOWN held for hard mode. The level select,
-; the arrows and ENTER, Z back. In the game ENTER pauses, SPACE shows or
-; hides NEXT, after GAME OVER ENTER goes back to the level select. ESC
-; quits.
+; the arrows and ENTER, Z back. In the game SPACE shows or
+; hides NEXT, ENTER or ESC pauses, after GAME OVER ENTER goes back to
+; the level select. BREAK quits, and ESC outside play.
 ;
 ; Built with TEST defined, for the emulator tests, it also shows a
 ; test pattern on rows 22 and 23: which page is on screen (PAGE 0 or
