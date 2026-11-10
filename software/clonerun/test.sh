@@ -462,12 +462,13 @@ for t in 'nnnp:003:N, N, N, P' '\R\R\L\R\R:004:RIGHT, RIGHT, LEFT, RIGHT, RIGHT'
 	fi
 done
 
-# F1 in the game does not reach the prompt as Caps Lock: the r
-# comes back in capitals, with -T's own text, as at boot
+# F1 in the game does not reach the prompt as Caps Lock: dir comes
+# back in capitals, with -T's own text, as at boot. A second's pause
+# first, as keys typed while the game ends are lost
 if [ -f $B/CLONERUN.COM ]; then
-	out=$($EMU -a $T/xc.imd -T -t 30 -e "$P|$HELP|$PHELP|$THELP|$OVER" -k 'CLONERUN\rs\1\e\edir\r' | grep -v '^ *$' | tail -3)
+	out=$($EMU -a $T/xc.imd -T -t 30 -e "$P|$HELP|$PHELP|$THELP|$OVER" -k 'CLONERUN\rs\1\e\e\Pdir\r' | grep -v '^ *$' | tail -3)
 	case "$out" in
-	*'A:\>R'*) ok "F1 in the game leaves Caps Lock as it was" ;;
+	*'A:\>DIR'*) ok "F1 in the game leaves Caps Lock as it was" ;;
 	*) bad "Caps Lock after F1 in the game: $out" /dev/null ;;
 	esac
 fi

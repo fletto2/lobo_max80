@@ -187,8 +187,9 @@ for l in sys.stdin:
 }
 a=$(cnt 5 '')
 b=$(cnt 9 '')
-out=$(python3 -c "r=(${b:-0}-${a:-0})/4; print('near' if 3200<r<3900 else 'off %d'%r)")
+out=$(python3 -c "r=(${b:-0}-${a:-0})/4; print('near %d' % r if 3200<r<3900 else 'off %d' % r)")
 check "ZX81 speed: about 0.81 MHz for the game" "near" "$out"
+echo "     $out passes a second, 3540 wanted"
 a=$(cnt 5 ' /F')
 b=$(cnt 7 ' /F')
 out=$(python3 -c "r=((${b:-0}-${a:-0})&65535)/2; print('faster' if r>4500 else 'off %d'%r)")

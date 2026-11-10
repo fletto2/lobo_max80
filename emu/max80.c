@@ -3533,13 +3533,17 @@ int main(int argc, char **argv)
 	unsigned long long ticks = 0, max_ticks = seconds * 60, irqs = 1;
 	char text[16384];
 
+	/* Each tick ends TICK_T cycles after the last, counted on cpu.cycles,
+	   which takes the wait states and -V's stretch too, so the sound
+	   and the run time keep step with the CPU */
+	unsigned long long tick_end = cpu.cycles;
 	for (;;) {
-		long t = 0;
-		unsigned long long from = cpu.cycles;
+		unsigned long long from = tick_end;
 		unsigned long beeps_before = beep_count;
 		int16_t snd[TICK_SAMPLES];
-		while (t < TICK_T) {
-			t += z80_step(&cpu);
+		tick_end += TICK_T;
+		while (cpu.cycles < tick_end) {
+			z80_step(&cpu);
 			if (sio_ie)	/* /INT is the tick and the SIO */
 				cpu.irq = tick_flag || sio_int();
 			if (cpu.cycles >= irqs * IRQ_NUM / IRQ_DEN) {

@@ -38,7 +38,7 @@ XCOL	equ	4		; the 32 columns start here, in the 40
 R2EVEN	equ	61h		; CRTC R2 showing the even characters
 TPS	equ	61		; ticks a second, near enough
 FPS	equ	50		; the ZX81's frames a second
-BRAKE	equ	43		; x 1024 T-states to hold in two ticks, less the
+BRAKE	equ	38		; x 1024 T-states to hold in two ticks, less the
 				; wait for the blank, for 13,300 a tick to the game
 
 	org	100h
