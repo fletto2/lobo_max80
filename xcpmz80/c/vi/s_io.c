@@ -301,6 +301,18 @@ screen_refresh(int type)
     }
 
     if (!RedrawingDisabled) {
+#if defined(MAX80) && defined(T_END_L)
+	/*
+	 * Each remaining row gets its '@' or '~' and the rest of it
+	 * erased, a row at a time, so no row goes blank before its mark
+	 * comes back, as it did with the screen cleared first.
+	 */
+	for (; row < total_rows; row++) {
+	    windgoto(row, 0);
+	    outchar(*ptr);
+	    toutstr(T_END_L);
+	}
+#else
 	if (row < total_rows) {
 	    /* Clear the rest of the screen. */
 #ifdef T_END_D
@@ -314,6 +326,7 @@ screen_refresh(int type)
 	/* put '@'s or '~'s on the remaining rows */
 	for (; row < total_rows; row++)
 	    outstr(ptr);
+#endif
 
 	s_cursor_on();
     }
