@@ -63,6 +63,33 @@ void gettrav(int loc)
 }
 #ifndef BUILTIN
 /*
+	Prints a file up to a character, a line at a time: one call into the
+	library to read a line and one to print it, not two for every
+	character, which made the text slow to come out on xcpmz80.
+*/
+static char prline[132];
+
+static int prupto(FILE *fdi, char uptoc)
+{
+	char *s;
+	char *d;
+	char stop;
+
+	while (fgets(prline, sizeof prline, fdi) != NULL) {
+		d = prline;
+		for (s = prline; *s != '\0' && *s != uptoc; s++)
+			if (*s != '\r')
+				*d++ = *s;
+		stop = *s;
+		*d = '\0';
+		fputs(prline, stdout);
+		if (stop)
+			return 1;
+	}
+	return 0;
+}
+
+/*
 	Function to scan a file up to a specified
 	point and either print or return a string.
 */
@@ -70,18 +97,15 @@ int rdupto(FILE *fdi, char uptoc, char print, char *string)
 {
 	int c;
 
+	if (print)
+		return prupto(fdi, uptoc);
 	while ((c = fgetc(fdi)) != uptoc) {
 		if (c == EOF)
 			return 0;
-		if (c == '\r')
-			continue;
-		if (print)
-			fputc(c, stdout);
-		else
+		if (c != '\r')
 			*string++ = c;
 	}
-	if (!print)
-		*string = '\0';
+	*string = '\0';
 	return 1;
 }
 

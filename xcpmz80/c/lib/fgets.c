@@ -6,15 +6,41 @@
 char *fgets(char *buf, int n, FILE *f) __LIB
 {
 	int c, i = 0;
+	unsigned char k;
 
 	while (i < n - 1) {
-		c = fgetc(f);
-		if (c == EOF)
+		/* The console, a byte put back, the end or a file not open
+		   for reading: a byte at a time, as fgetc has them */
+		if (f->unget != EOF || (f->flags & (F_CON | F_EOF)) ||
+		    !(f->flags & F_READ)) {
+			c = fgetc(f);
+			if (c == EOF)
+				break;
+			buf[i++] = c;
+			if (c == '\n')
+				break;
+			continue;
+		}
+		/* A file: the rest of the record in its buffer at once, the
+		   record checked once, not for every byte, as fgetc reads */
+		if (__loadrec(f) == EOF)
 			break;
-		buf[i++] = c;
-		if (c == '\n')
-			break;
+		k = (unsigned char)f->pos & 127;
+		do {
+			c = (unsigned char)f->buf[k++];
+			if ((f->flags & F_TEXT) && c == 0x1a) {
+				f->flags |= F_EOF;
+				goto done;
+			}
+			f->pos++;
+			if ((f->flags & F_TEXT) && c == '\r')
+				continue;
+			buf[i++] = c;
+			if (c == '\n')
+				goto done;
+		} while (k < 128 && i < n - 1);
 	}
+done:
 	if (i == 0)
 		return NULL;
 	buf[i] = 0;
