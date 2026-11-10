@@ -22,10 +22,6 @@ entered:
 
 ![xcpmz80 at its prompt](screenshots/xcpmz80.png)
 
-The diagnostic disk's menu:
-
-![The diagnostic menu](screenshots/diag.png)
-
 Clone Runner's title, and its first stage in play:
 
 ![Clone Runner's title](screenshots/clonerun_title.png)
@@ -48,12 +44,6 @@ ZX81 games under xcpmz80's ZX81.COM, Pipepanic and Mine81:
 - `emu/`: the emulator, in C. It boots the original CP/M 2.2, CP/M 3
   and LDOS disks, and everything below. It draws in an SDL2 window, or
   in the terminal without SDL2.
-- `diag/`: a diagnostic boot disk with no OS. It tests video RAM, font
-  RAM, main RAM, banking, the keyboard, the drives, video timing, the DIP
-  switches, the serial and printer ports, the clock and the expansion
-  bus.
-- `monitor/`: a machine code monitor on its own boot disk: dump, edit,
-  fill, move, search, go, S-records over the serial port, a RAM test.
 - `xcpmz80/`: a CP/M compatible OS that keeps its files on FAT12 disks,
   so a PC reads and writes them. Its apps disk has MicroEMACS, STEVIE
   (vi), Colossal Cave Adventure, MojoZork, a C library resident in the
@@ -75,8 +65,12 @@ ZX81 games under xcpmz80's ZX81.COM, Pipepanic and Mine81:
 - `reference/rom/max80.e12`: Lobo's v1.3 boot ROM, 512 bytes, included
   for the emulator.
 
-The `README.md` in each of `emu/`, `diag/`, `monitor/`, `xcpmz80/` and
-`software/clonerun/` says how to build it, test it and use it.
+The `README.md` in each of `emu/`, `xcpmz80/`, `software/clonerun/`
+and `port/` says how to build it, test it and use it.
+
+The diagnostic disk and the boot disk monitor are in their own repo,
+[max80_diagrom](https://github.com/fletto2/max80_diagrom), and run in
+this emulator.
 
 ## Disk images
 
@@ -110,8 +104,8 @@ its tests.
 
 ## License
 
-The emulator, diag, monitor, xcpmz80, Clone Runner and the Tetris port
-are MIT, in each folder's `LICENSE`. The scripts in `tools/` are MIT on the terms
+The emulator, xcpmz80, Clone Runner and the Tetris port are MIT, in
+each folder's `LICENSE`. The scripts in `tools/` are MIT on the terms
 in `emu/LICENSE`. The programs on the xcpmz80 apps disk keep
 their own licenses, given in `xcpmz80/README.md` and beside each one:
 MicroEMACS 3.6, STEVIE and Colossal Cave Adventure are public domain,

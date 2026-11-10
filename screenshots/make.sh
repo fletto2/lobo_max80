@@ -1,10 +1,10 @@
 #!/bin/sh
 # Makes the screenshots in this folder from the emulator, so they can be
-# made again after a change: the diagnostic's menu, xcpmz80 with its
-# programs, Clone Runner's title and its first stage in play, the Game
-# Boy Tetris port in play and two ZX81 games under ZX81.COM. Some need
-# files that are not included, and without them their pictures are left
-# as they are:
+# made again after a change: the diagnostic's menu (where diag/ is
+# here), xcpmz80 with its programs, Clone Runner's title and its first
+# stage in play, the Game Boy Tetris port in play and two ZX81 games
+# under ZX81.COM. Some need files that are not included, and without
+# them their pictures are left as they are:
 # - Clone Runner, Lode Runner's stages: the file LODERUNNER_LEVELS
 #   names, by default ../software/clonerun/private/levels.txt.
 # - Tetris, the Game Boy ROM it is built from: the file TETRIS_GB
@@ -20,7 +20,6 @@ T=$(mktemp -d) || exit 1
 trap 'rm -rf "$T"' EXIT
 
 make -C "$R/emu" >/dev/null || exit 1
-make -C "$R/diag" >/dev/null || exit 1
 make -C "$R/xcpmz80" all cprogs build/ZX81.COM >/dev/null || exit 1
 
 cd "$R/emu" || exit 1
@@ -33,7 +32,11 @@ shot() {	# NAME, then the emulator's options: a frame after the run
 	echo "$n.png"
 }
 
-shot diag -a "$R/diag/build/diag.imd" -t 6
+# The diagnostic's menu, where diag/ is here
+if [ -d "$R/diag" ]; then
+	make -C "$R/diag" >/dev/null || exit 1
+	shot diag -a "$R/diag/build/diag.imd" -t 6
+fi
 
 # xcpmz80 on a disk of its programs, with no ROM or story of anyone's
 X=$R/xcpmz80
