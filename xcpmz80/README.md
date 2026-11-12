@@ -97,6 +97,8 @@ A floppy written by FORMAT reads the same way after
   boots, `--ds` a double sided 8-inch one, `--hd
   MB` a hard disk image for the emulator's `-h`.
 - `tools/mkfont.py`: makes the fonts from `tools/unscii-8.hex`.
+- `tools/swapfont.py`: makes `BOLD.FNT`, `src/font.bin` with its two
+  styles swapped, for the apps disks.
 - `tools/fatcheck.py`: checks a FAT volume as fsck does, folders
   included, for the tests.
 - `tools/session.py`: types keys into the emulator through its key

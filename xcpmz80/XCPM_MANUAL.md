@@ -43,7 +43,8 @@ waits for a key. While typing:
 A word that is not a built-in command runs the program of that name:
 `ZORK` runs `ZORK.COM`, from the current folder of the current drive or
 of A:, and if it is in neither, from the top folder of those drives. If
-there is no `.COM` but there is a `.SUB`, it runs that as a batch file.
+there is no `.COM` but there is a `.SUB` or a `.BAT`, it runs that as a
+batch file.
 
 `B:` on its own makes B: the current drive.
 
@@ -170,7 +171,13 @@ by the words after the name:
     A:\>SUBMIT BUILD HELLO
 
 runs `BUILD.SUB` with `$1` as `HELLO`. Typing `BUILD HELLO` does the
-same. CP/M's own SUBMIT.COM and XSUB also work.
+same. A `.BAT` file is the same as a `.SUB` to the shell, run by its
+name. CP/M's own SUBMIT.COM and XSUB also work.
+
+At a cold boot, `AUTOEXEC.BAT` on the boot disk runs by itself, after
+the sign-on, with no parameters: commands to set things up, a font to
+load or a program to start. A batch left unfinished by a reset goes on
+instead. To start without it, boot another disk.
 
 ## Programs on the boot disk
 
@@ -185,6 +192,9 @@ the type you give. A font file is 1K (characters 00h to 7Fh) or 2K
 - `XCPM.FNT`: the system's own font. `LDFONT XCPM` puts it back.
 - `THIN.FNT`: the same, with a thin second style.
 - `INVERSE.FNT`: the same, with an inverse second style.
+- `BOLD.FNT`, on the apps disks: the system's font with its two styles
+  swapped, thin text and a full second style, for programs that print
+  bold in the second style. Not on the boot disk.
 
 The font stays until you restart.
 

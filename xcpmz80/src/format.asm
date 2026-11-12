@@ -624,11 +624,11 @@ ft_4:	ld	a,(fmttrk)
 ; (FEh, track, side 0, sector, size 2) and its CRC (F7h), 22 x 4Eh,
 ; 12 x 00h, 3 x F5h, FBh, 512 x E5h, the CRC, 18 x 4Eh. 4Eh to the end.
 trkbuild:
-	ld	e,2			; slots a cylinder, so that a step and
+	ld	e,0			; slots a cylinder, so that a step and
 	ld	a,(ix+D_KIND)		; the settle find its first sector:
-	dec	a			; 2 on 5-inch, 3 on 8-inch
-	jr	nz,tk_0
-	inc	e
+	dec	a			; 0 on 5-inch (measured best),
+	jr	nz,tk_0			; 3 on 8-inch
+	ld	e,3
 tk_0:	ld	a,(fmttrk)
 	ld	b,a
 	xor	a

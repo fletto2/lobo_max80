@@ -1,7 +1,8 @@
 ; xcpmz80 shell. Runs in A2. The command line of CP/M's CCP with
 ; CP/M's built-in commands and the Unix names of the same ones. A
 ; command that is not built in runs NAME.COM, from the current drive
-; or A:, or NAME.SUB as a batch file.
+; or A:, or NAME.SUB or NAME.BAT as a batch file. A:AUTOEXEC.BAT runs
+; at a cold boot.
 ; Batch lines come from A:$$$.SUB, last record first, as CP/M 2.2's
 ; SUBMIT writes it, so its SUBMIT.COM works too.
 
@@ -1044,7 +1045,7 @@ ch_1:	call	pmsg
 	db	"CD [path], PWD          change or show the folder",0Dh,0Ah
 	db	"MD, MKDIR path          make a folder",0Dh,0Ah
 	db	"RD, RMDIR path          remove an empty folder",0Dh,0Ah
-	db	"NAME                    run NAME.COM or NAME.SUB",0Dh,0Ah
+	db	"NAME                    run NAME.COM, NAME.SUB or NAME.BAT",0Dh,0Ah
 	db	"SUBMIT name             run NAME.SUB, $1 to $9 from the line",0Dh,0Ah
 	db	"HELP topic              CP/M 3's HELP.COM",0
 	jp	shell
@@ -1115,11 +1116,27 @@ sl_kill: ld	hl,subname
 	call	cfcbset
 	jp	fdelete
 
-; NAME.SUB with the tail as $1-$9: write A:$$$.SUB, lines last first.
-; Carry if there is no NAME.SUB.
-runsub:	ld	hl,cmdfcb
+; At a cold boot with no batch waiting: A:AUTOEXEC.BAT, if there is
+; one, as a batch with no parameters. Carry if there is none.
+autoex:	ld	hl,autonm
+	ld	de,cmdfcb
+	ld	bc,12
+	ldir
+	ld	(cmdtail),hl		; at the 0 after the name
+	ld	hl,batext
+	jr	runsb
+autonm:	db	0,"AUTOEXEC   ",0
+
+; NAME.SUB, or NAME.BAT, with the tail as $1-$9: write A:$$$.SUB,
+; lines last first. Carry if there is neither.
+runsub:	ld	hl,subext
+	call	runsb
+	ret	nc
+	ld	hl,batext
+runsb:	push	hl
+	ld	hl,cmdfcb
 	call	cfcbset
-	ld	hl,subext
+	pop	hl
 	call	fextq
 	jr	z,ru_1
 	ld	a,(cmdfcb)		; on A: too
@@ -1203,6 +1220,7 @@ ru_9:	call	fclose
 	or	a
 	ret
 subext:	db	"SUB"
+batext:	db	"BAT"
 
 ; HL = the start of line BC of subbuf
 subnth:	ld	hl,subbuf

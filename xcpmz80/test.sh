@@ -691,6 +691,16 @@ out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'q' @20)
 check "and Q stops it" "line 23 A:\> " "$(last2 "$out")"
 
 
+# BOLD.FNT, the system's font with its styles swapped: thin text
+make -s build/BOLD.FNT
+mkdisk $T/bf.imd build/LDFONT.COM build/BOLD.FNT >/dev/null
+out=$($EMU -a $T/bf.imd -T -t 20 -p $T/out/bf.pgm -e 'A:\>' -k 'ldfont bold\rdir\r')
+check "LDFONT loads BOLD.FNT" "Font loaded" "$out"
+printf '%s\n' "$out" >$T/out/bf.txt
+r=$(python3 ../emu/test_frame.py $T/out/bf.pgm $T/out/bf.txt build/BOLD.FNT)
+check "and the screen shows its thin main style" ", 0 rows wrong" "$r"
+
+
 # 5-inch steps: 6 ms, the FDC's rate 0, with DIP switch 1 down, 30 ms,
 # rate 3, with it up. The boot ROM's own seeks are 1Bh either way.
 [ -f build/xcpmz80_525.imd ] || make -s 525 >/dev/null
@@ -785,6 +795,14 @@ python3 ../tools/imd2raw.py $T/out/mv.imd $T/out/mv.img >/dev/null
 fatok "the moves leave a clean FAT volume" $T/out/mv.img
 mcopy -o -i $T/out/mv.img ::GAMES/MORE.COM $T/out/MV.COM
 same "and the moved file is byte exact" build/MORE.COM $T/out/MV.COM
+
+# AUTOEXEC.BAT runs at a cold boot, and NAME.BAT by its name
+printf 'dir *.fnt\r\nver\r\n' >$T/AUTOEXEC.BAT
+mkdisk $T/ae.imd build/XCPM.FNT $T/AUTOEXEC.BAT >/dev/null
+out=$($EMU -a $T/ae.imd -T -t 20 -e 'A:\>' -k 'autoexec\r')
+check "AUTOEXEC.BAT runs at boot" "A:\>DIR *.FNT" "$out"
+check "and by its name" "A:\>autoexec" "$out"
+check "twice in all" "2" "$(printf '%s\n' "$out" | grep -c 'A: XCPM     FNT')"
 
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused

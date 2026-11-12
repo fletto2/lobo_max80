@@ -20,6 +20,9 @@ build/xcpmz80.sys: $(SRC)
 # INVERSE.FNT
 APPS = build/LDFONT.COM build/GLYPHS.COM build/CLOCK.COM build/MORE.COM build/BENCH.COM
 FONTS = build/XCPM.FNT build/THIN.FNT build/INVERSE.FNT
+# BOLD.FNT, the two styles swapped, goes on the apps disks and in dist,
+# not on the boot disk
+XFONTS = build/BOLD.FNT
 
 build/ZX81.COM: apps/zx81/zx81.asm apps/zx81/hw.inc
 	mkdir -p build
@@ -53,6 +56,10 @@ build/THIN.FNT: src/font.bin
 	mkdir -p build
 	cp src/font.bin $@
 
+build/BOLD.FNT: src/font.bin tools/swapfont.py
+	mkdir -p build
+	python3 tools/swapfont.py src/font.bin $@
+
 build/INVERSE.FNT: src/font_inverse.bin
 	mkdir -p build
 	cp src/font_inverse.bin $@
@@ -83,7 +90,7 @@ CPROGS = $(C)/CLIB.SYS $(C)/VI.COM $(C)/EMACS.COM $(C)/ADVENT.COM \
 ZX81_ROM ?= zx81.rom
 ZX81 = build/ZX81.COM $(wildcard apps/zx81/games/*.P) \
 	$(if $(wildcard $(ZX81_ROM)),build/ZX81.ROM)
-APPDISK ?= $(APPS) $(CPROGS) $(FONTS) $(ZX81)
+APPDISK ?= $(APPS) $(CPROGS) $(FONTS) $(ZX81) $(XFONTS)
 apps: build/apps.imd build/apps_525.imd build/apps_720.imd
 
 $(CPROGS): cprogs

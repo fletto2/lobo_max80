@@ -29,6 +29,11 @@ kmain:	ld	hl,BSS			; zero the variables
 	ld	(shdrv),a
 	call	clrtpa
 	call	clibload
+	call	subchk			; a batch left waiting goes on, or
+	ld	a,(subact)		; else AUTOEXEC.BAT
+	or	a
+	jp	nz,shell
+	call	autoex
 	jp	kw_1
 
 ; ucopy, upeek and upoke reach the TPA again, outside any BDOS call
