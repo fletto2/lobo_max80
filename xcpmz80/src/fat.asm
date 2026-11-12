@@ -118,6 +118,10 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	(ix+D_SPT),a
 	ld	a,(iy+1Ah)
 	ld	(ix+D_HEADS),a
+	call	freeptr			; free clusters: counted when asked
+	ld	(hl),0FFh
+	inc	hl
+	ld	(hl),0FFh
 	ld	(ix+D_HINT),2
 	ld	(ix+D_HINT+1),0
 	ld	(ix+D_MNT),1
@@ -320,6 +324,10 @@ fa_3:	ld	(ix+D_HINT),l
 	ld	de,0FFFFh		; end of chain (FAT12 keeps 12 bits)
 	call	fatset
 	pop	hl
+	ret	nz
+	ld	a,-1			; one fewer free
+	call	freeadj
+	xor	a
 	ret
 
 ; Free the chain starting at HL
@@ -335,6 +343,8 @@ fatfree: call	fateoc
 	call	fatset
 	pop	hl
 	ret	nz
+	ld	a,1			; one more free
+	call	freeadj
 	jr	fatfree
 ff9:	xor	a
 	ret
@@ -364,7 +374,25 @@ cs2:	ld	e,(ix+D_DATASEC)
 
 ; Count the free clusters: HL
 fatcount:
-	ld	de,0
+	call	freeptr			; counted since the mount?
+	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+	ld	a,d
+	and	e
+	inc	a
+	jr	z,fcn_0
+	ex	de,hl
+	ret
+fcn_0:	push	hl			; no: count them, and keep it
+	call	fcn_s
+	pop	hl
+	ld	(hl),d
+	dec	hl
+	ld	(hl),e
+	ex	de,hl
+	ret
+fcn_s:	ld	de,0
 	ld	hl,2
 fcn_1:	push	de
 	push	hl
@@ -378,5 +406,49 @@ fcn_1:	push	de
 fcn_2:	inc	hl
 	call	fateoc			; keeps DE
 	jr	nc,fcn_1
-	ex	de,hl
+	ret
+
+; HL = drive IX's free count in dfree. Keeps BC and DE.
+freeptr: push	de
+	push	ix
+	pop	hl
+	ld	de,-drvtab		; drive * DSZ, DSZ 32
+	add	hl,de
+	ld	a,l
+	rrca
+	rrca
+	rrca
+	rrca
+	and	0Eh			; drive * 2, NDRV up to 8
+	ld	l,a
+	ld	h,0
+	ld	de,dfree
+	add	hl,de
+	pop	de
+	ret
+
+; The count, if kept, one less (A = -1) or more (A = 1). Keeps BC, DE, HL.
+freeadj: push	hl
+	push	de
+	ld	e,a
+	call	freeptr
+	ld	a,(hl)
+	inc	hl
+	and	(hl)
+	inc	a
+	jr	z,fj_9			; not counted
+	dec	hl
+	ld	a,e			; D = E's sign, for the high byte
+	rla
+	sbc	a,a
+	ld	d,a
+	ld	a,(hl)
+	add	a,e
+	ld	(hl),a
+	inc	hl
+	ld	a,(hl)
+	adc	a,d
+	ld	(hl),a
+fj_9:	pop	de
+	pop	hl
 	ret

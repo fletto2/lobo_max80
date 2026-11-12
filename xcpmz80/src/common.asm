@@ -781,7 +781,7 @@ bfast:	cp	2
 	jr	nz,bf_k
 	ld	a,e
 	cp	0FDh
-	jr	c,bf_out		; FDh-FFh read
+	jr	c,bf_6o			; FDh-FFh read
 bf_k:	ld	a,c
 	jp	be_0
 bf_2:	ld	a,e
@@ -803,7 +803,12 @@ bf_out:	ld	(usersp),sp		; on the BDOS's stack, as CP/M's: a
 	ld	sp,(kstk)		; program may keep only a few bytes
 	ld	c,e
 	call	kraw
-	ld	sp,(usersp)
+	jr	bf_ret
+bf_6o:	ld	(usersp),sp		; 6 writes as CP/M's: to the console
+	ld	sp,(kstk)		; alone, not the printer, and the
+	ld	c,e			; column is left as it is
+	call	conout
+bf_ret:	ld	sp,(usersp)
 	ld	hl,0
 	ld	a,l
 	ld	b,h

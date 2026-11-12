@@ -171,7 +171,7 @@ f0:	jp	wboot
 ; Console
 
 ; 1: read a character, with echo
-f1:	call	conin
+f1:	call	xconin			; a patched CONIN too, as 6 and 10
 	push	af
 	call	echo
 	pop	af
@@ -225,7 +225,7 @@ f6:	inc	a
 	inc	a
 	jr	z,f6_fd
 	ld	c,e
-	jp	kraw
+	jp	conout
 f6_ff:	call	xconst
 	ret	z			; 0, in bret
 f6_fd:	call	xconin
@@ -1615,20 +1615,39 @@ f50_ret: ld	(bret),hl		; SELDSK, SECTRAN, DEVTBL, DRVTBL
 	jp	retA
 
 
-; 99: truncate the file to R0-R2 records
+; 99: truncate the file, R0-R1 its last record, as CP/M 3. FFh, the
+; file unchanged, for a record past its end.
 f99:	call	ranset
 	jp	nz,dskerr
 	ld	a,(CFCB+F_NAME+8)	; t1': the file is R/O
 	rla
 	ld	a,E_ROFILE
 	jp	c,dskerr
-	ld	hl,(CFCB+F_R0)		; the new size: (R0-R2) * 128 bytes
+	ld	hl,(CFCB+F_R0)		; the new size: (R + 1) * 128 bytes
+	inc	hl
+	ld	a,h
+	or	l
+	jr	z,f99_x
 	ld	a,h
 	ld	h,l
 	ld	l,0
 	srl	a
 	rr	h
 	rr	l
+	ld	c,a			; C:HL
+	push	hl
+	ld	hl,(CFCB+F_SIZE)	; within the file's last record?
+	ld	a,(CFCB+F_SIZE+2)
+	ld	de,127
+	add	hl,de
+	adc	a,0
+	pop	de
+	or	a
+	sbc	hl,de
+	sbc	a,c
+	jr	c,f99_x
+	ex	de,hl
+	ld	a,c
 	ld	(CFCB+F_SIZE),hl
 	ld	(CFCB+F_SIZE+2),a
 	xor	a
@@ -1642,6 +1661,8 @@ f99:	call	ranset
 	jp	nz,dskerr
 	xor	a			; the FCB back: it holds the size
 	jp	fcbout36
+f99_x:	ld	a,0FFh
+	jp	retA
 
 
 ; 102: read the file's date stamps into the FCB, CP/M 3 style: create
@@ -1770,7 +1791,9 @@ f152:	ex	de,hl
 	ld	de,CBUF
 	ld	bc,4
 	call	ucopy
-	ld	hl,(CBUF+2)		; the FCB's address: ucopybig uses CBUF
+	ld	hl,(CBUF)		; the text's address and the FCB's, kept:
+	push	hl			; ucopybig uses CBUF
+	ld	hl,(CBUF+2)
 	push	hl
 	ld	hl,(CBUF)		; the text, 128 bytes of it
 	ld	de,pbuf
@@ -1809,22 +1832,31 @@ pp_2:	pop	de			; the FCB's address
 	call	ucopy
 	pop	hl
 	pop	de
-	call	skipsp			; the end of the line?
-	or	a
-	jr	z,pp_end
+	push	hl			; as CP/M 3's: past the blanks, the end
+	call	skipsp			; of the line is 0, another delimiter
+	or	a			; its address, else the place just
+	jr	z,pp_e2			; after the name
 	cp	0Dh
-	jr	z,pp_end
-	ld	de,pbuf			; else its address in the text
+	jr	z,pp_e2
+	call	isdelim
+	jr	z,pp_d
+	pop	hl
+	push	hl
+pp_d:	pop	af
+	ld	de,pbuf			; its address in the text
 	or	a
 	sbc	hl,de
-	ld	de,(CBUF)
+	pop	de
 	add	hl,de
 	ld	(bret),hl
 	ret
-pp_end:	ld	hl,0
+pp_e2:	pop	hl
+	pop	hl
+	ld	hl,0
 	ld	(bret),hl
 	ret
 pp_bad:	pop	de
+	pop	de
 	ld	hl,0FFFFh
 	ld	(bret),hl
 	ret

@@ -597,6 +597,12 @@ xmkdir:	ld	a,1
 	ret	nz
 	call	dnew			; its entry
 	jr	z,mkd_1
+	push	af			; none: the cluster goes back
+	ld	hl,(dcl)
+	call	fatfree
+	pop	bc
+	ret	nz
+	ld	a,b
 	cp	R_NOFILE
 	ret	nz
 	ld	a,E_FULL

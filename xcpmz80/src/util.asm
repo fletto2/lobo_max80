@@ -114,7 +114,7 @@ id_1:	push	hl
 	pop	bc
 	pop	hl
 	ret
-delims:	db	"=_.:;<>,|[]+/"
+delims:	db	"=.:;<>,|[]+/"		; not _, which FAT names hold
 ndelim	equ	$-delims
 
 ; Parse a file name at HL into the 12 bytes at DE: drive (0 default,

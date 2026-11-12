@@ -254,7 +254,9 @@ stub:	call	0005h
 ; Warm boot, from wboot in common: SP at STKTOP, A2 low. Write what
 ; is waiting, let the floppies be read again, and back to the shell
 ; on the drive it was on.
-kwboot:	call	kwcom
+kwboot:	xor	a			; ^C at the prompt: UP is the shell's alone,
+	ld	(lnhist),a		; not a chained program's function 10
+	call	kwcom
 	call	rsxfree
 	call	pzero
 kw_0:	ld	a,(chainf)		; function 47: a command to run next

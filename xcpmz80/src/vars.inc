@@ -113,8 +113,8 @@ PZLEN		equ	0B0h
 pzbuf		equ	prdest+2
 argfcb		equ	pzbuf+PZLEN
 argend		equ	argfcb+12
-ncount		equ	argend+2
-lsattr		equ	ncount+1
+ncount		equ	argend+2	; 16 bits for DIR and LS, 8 for COPY
+lsattr		equ	ncount+2
 renew		equ	lsattr+1
 reold		equ	renew+12
 savepg		equ	reold+12
@@ -168,7 +168,9 @@ rsxbias		equ	rsxent+2	; rsxload: the page to add, and the base
 rsxhdr		equ	chainbuf	; a .COM file's header record, 128 bytes:
 					; only while the shell loads, after
 					; kwboot has taken a 47 command
-bufdat		equ	rsxbias+2
+dfree		equ	rsxbias+2	; each drive's free clusters, FFFFh not
+					; counted since the mount, NDRV * 2
+bufdat		equ	dfree+NDRV*2
 fmtbuf		equ	FMTBUF			; a track, FMTSZ bytes
 BSSEND		equ	bufdat+NBUF*512
 	assert	BSSEND <= 8000h

@@ -867,7 +867,10 @@ ftrunc:	ld	hl,(CFCB+F_SIZE)	; sectors = (size + 511) / 512
 	ld	(CFCB+F_CLUS),de
 	ld	(CFCB+F_CCL),de
 	jp	fatfree
-tr_3:	ld	b,h			; walk to the last cluster kept
+tr_3:	ld	a,d			; no chain: nothing to cut
+	or	e
+	ret	z
+	ld	b,h			; walk to the last cluster kept
 	ld	c,l
 	ex	de,hl
 tr_4:	dec	bc

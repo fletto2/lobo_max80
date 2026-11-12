@@ -841,6 +841,38 @@ rm -f $T/out/lst.txt
 $EMU -a $T/ha.imd -T -t 20 -l $T/out/lst.txt -e 'A:\>' \
 	-k "$(printf '\020')$(printf 'a%.0s' $(seq 76))\\L$(printf '\030')\r" >/dev/null
 check "the back arrow at a wrapped row prints no form feed" "=0=" "=$(tr -cd '\014' <$T/out/lst.txt | wc -c | tr -d ' ')="
+# The shell's commands: _ in a name, no SAVE, TYPE or REN without a
+# whole name, SAVE past 127 pages, DIR of a folder shows its folders,
+# REN on the old name's drive, a batch file too long for the buffer
+echo hello >$T/READ_ME.TXT
+echo x >$T/A.TXT
+echo old >$T/OLD.TXT
+mkdisk $T/sh1.imd $T/A.TXT $T/READ_ME.TXT >/dev/null
+mkdisk $T/sh2.imd $T/OLD.TXT >/dev/null
+out=$($EMU -a $T/sh1.imd -T -t 30 -e 'A:\>' -k 'type read_me.txt\r')
+check "TYPE takes a name with _ in it" "hello" "$out"
+out=$($EMU -a $T/sh1.imd -b $T/sh2.imd -T -t 60 -e 'A:\>' -k 'save 2\rsave 2 *.txt\rtype\rsave 200 big.com\rls\rmd games\rmd games\\sub\rdir games\\\rren new.txt=b:old.txt\rdir b:\r')
+check "SAVE with no name is refused" "SAVE?" "$out"
+check "and TYPE with none" "TYPE?" "$out"
+check "SAVE 2 left A.TXT as it was" "A.TXT        2" "$out"
+check "SAVE 200 saves 200 pages" "BIG.COM      51200" "$out"
+check "DIR of a folder shows the folders in it" "A: SUB\\" "$out"
+check "REN works on the old name's drive" "B: NEW      TXT" "$out"
+awk 'BEGIN { for (i = 0; i < 300; i++) print "rem line " i }' | sed 's/$/\r/' >$T/LONG.SUB
+mkdisk $T/sh3.imd $T/LONG.SUB >/dev/null
+out=$($EMU -a $T/sh3.imd -T -t 30 -e 'A:\>' -k 'long\r')
+check "a batch file over 2K is refused whole" "Batch file too long" "$out"
+# FREE counts the clusters once a mount and keeps the count as files
+# come and go: the same as a count after a reboot, and as mtools'
+python3 tools/mkdisk.py $SYS $T/fr.imd --pc 1440 >/dev/null
+out=$($EMU -a $T/fr.imd -T -t 40 -w a:$T/out/fr.imd -e 'A:\>' \
+	-k 'free\rsave 10 a.com\rsave 20 b.com\rera a.com\rmd x\rmd y\rrd x\rsave 7 y\\c.com\rfree\r')
+k1=$(printf '%s\n' "$out" | grep -a 'K free' | tail -1)
+out=$($EMU -a $T/out/fr.imd -T -t 20 -e 'A:\>' -k 'free\r')
+check "FREE's kept count is a fresh count's" "$k1" "$out"
+python3 ../tools/imd2raw.py $T/out/fr.imd $T/out/fr.img >/dev/null
+k2=$(mdir -i $T/out/fr.img :: | grep -a 'bytes free' | tr -d ' ' | sed 's/bytesfree//')
+check "and mtools'" "A: $((k2 / 1024))K free" "$k1"
 
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused

@@ -128,7 +128,7 @@ on an error.
 | `REN new=old` | rename a file in its folder |
 | `MV old new` | rename a file, or move it: `MV GAME.COM GAMES` into a folder, `MV GAMES\GAME.COM \` out of one, `MV *.TXT DOCS` several, `MV GAME.COM B:` to another drive, which copies it and then erases it |
 | `COPY from to`, `CP` | copy a file, byte for byte. `COPY A:GAME.COM B:` keeps the name |
-| `SAVE n name` | save n pages (256 bytes each) of memory from 0100h as a file |
+| `SAVE n name` | save n pages (256 bytes each) of memory from 0100h as a file, whose whole name, no wildcard, must be given |
 | `USER n` | set the user number. FAT has no user areas, so every file shows in every one |
 | `FREE [d:]` | show the free space on a disk |
 | `CLS` or `CLEAR` | clear the screen |
@@ -175,7 +175,7 @@ sector without waiting a whole turn for the next one:
 
 ### Batch files
 
-A `.SUB` file holds one command per line. `$1` to `$9` are replaced
+A `.SUB` file holds one command per line, 2K in all at most. `$1` to `$9` are replaced
 by the words after the name:
 
     A:\>SUBMIT BUILD HELLO

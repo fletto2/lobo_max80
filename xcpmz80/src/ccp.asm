@@ -287,10 +287,31 @@ argcp:	push	de
 	ret
 
 ; argpat, the count zeroed, and the first entry
-dirbeg:	call	argpat
-	xor	a
-	ld	(ncount),a
+dirbeg:	ld	a,(dsdirs)		; a path's walk clears it
+	push	af
+	call	argpat
+	pop	af
+	ld	(dsdirs),a
+	ld	hl,0
+	ld	(ncount),hl
 	jp	dsfirst
+
+; argpat for one file: a name, no wildcard, else What?
+arg1:	call	argpat
+	ld	hl,argfcb+1
+	; fall into nowild
+
+; The 11-byte name at HL: none, or a ? in it, is What?
+nowild:	ld	a,(hl)
+	cp	' '
+	jp	z,dc_what
+	ld	b,11
+nw_1:	ld	a,(hl)
+	cp	'?'
+	jp	z,dc_what
+	inc	hl
+	djnz	nw_1
+	ret
 
 ; Parse a file name argument at HL into argfcb, '*.*' if there is
 ; none, and mount its drive. HL ends after it. Errors go to sherr.
@@ -363,9 +384,9 @@ cd_3:	call	space
 	call	space
 	ld	b,3
 	call	pchars
-cd_5:	ld	a,(ncount)
-	inc	a
-	ld	(ncount),a
+cd_5:	ld	hl,(ncount)
+	inc	hl
+	ld	(ncount),hl
 	call	kbreak
 cd_4:	call	dsnext
 	jr	cd_1
@@ -383,8 +404,9 @@ cd_p:	ld	a,(scb+SCB_COL)
 	jr	cd_p
 cd_9:	cp	R_NOFILE
 	jp	nz,sherr
-	ld	a,(ncount)
-	or	a
+	ld	hl,(ncount)
+	ld	a,h
+	or	l
 	jp	nz,shell
 	call	crlf
 	call	pmsg
@@ -473,17 +495,16 @@ ls_3:	ld	a,(lsattr)
 	jr	z,ls_4
 	call	pmsg
 	db	" SYS",0
-ls_4:	ld	hl,ncount
-	inc	(hl)
+ls_4:	ld	hl,(ncount)
+	inc	hl
+	ld	(ncount),hl
 	call	kbreak
 ls_n:	call	dsnext
 	jp	ls_1
 ls_9:	cp	R_NOFILE
 	jp	nz,sherr
 	call	crlf
-	ld	a,(ncount)
-	ld	l,a
-	ld	h,0
+	ld	hl,(ncount)
 	call	pdec
 	call	pmsg
 	db	" files, ",0
@@ -553,10 +574,24 @@ cren:	ld	de,renew
 	inc	hl
 	ld	de,reold
 	call	argcp
-rename:	ld	hl,reold
+rename:	ld	hl,renew+1		; whole names, no wildcards
+	call	nowild
+	ld	hl,reold+1
+	call	nowild
+	ld	hl,reold
 	call	cfcbset
-	ld	a,(renew)		; one drive: the old name's
+	ld	a,(reold)		; one drive: the old name's, or the
+	or	a			; new one's if only it has one
+	ld	a,(renew)
+	jr	nz,rn_1
 	ld	(CFCB),a
+	jr	rn_2
+rn_1:	or	a			; both: the same one
+	jr	z,rn_2
+	ld	hl,reold
+	cp	(hl)
+	jp	nz,dc_what
+rn_2:
 	ld	hl,renew+1
 	ld	de,CFCB+17
 	ld	bc,11
@@ -571,7 +606,7 @@ rename:	ld	hl,reold
 	jp	shell
 
 ; TYPE name: the text up to ^Z
-ctype:	call	argpat
+ctype:	call	arg1
 	ld	hl,argfcb
 	call	cfcbset
 	call	fopen
@@ -605,19 +640,26 @@ csave:	call	skipsp
 	call	getnum
 	jp	c,dc_what
 	ld	(savepg),a
-	call	argpat
+	call	arg1
 	ld	hl,argfcb
 	call	cfcbset
 	call	fmake
 	call	fchk
 	ld	hl,0100h
 	ld	(prdest),hl
+	ld	hl,0			; records: pages * 2, up to 510
+sv_0:	push	hl
 	ld	a,(savepg)
-	add	a,a
-	ld	b,a
-	ld	hl,0
+	ld	e,a
+	ld	d,0
+	ex	de,hl
+	add	hl,hl
+	ex	de,hl
+	or	a
+	sbc	hl,de
+	pop	hl
 	jr	z,sv_9
-sv_1:	push	bc
+	push	bc
 	push	hl
 	ld	hl,(prdest)
 	ld	de,CBUF
@@ -631,7 +673,7 @@ sv_1:	push	bc
 	pop	bc
 	jp	nz,sherr
 	inc	hl
-	djnz	sv_1
+	jr	sv_0
 sv_9:	call	fclose
 	jp	nz,sherr
 	jp	shell
@@ -1174,7 +1216,7 @@ ru_2:	push	hl
 	or	a
 	sbc	hl,de
 	pop	hl
-	jr	c,ru_3
+	jr	c,ru_big
 	push	hl
 	ld	hl,CBUF
 	ld	bc,128
@@ -1182,6 +1224,10 @@ ru_2:	push	hl
 	pop	hl
 	inc	hl
 	jr	ru_2
+ru_big:	call	crlf			; not cut short: none of it runs
+	call	pmsg
+	db	"Batch file too long",0
+	jp	shell
 ru_3:	ld	a,1Ah			; ends at ^Z
 	ld	(de),a
 	ld	hl,(cmdtail)		; the parameters: words of the tail
