@@ -170,7 +170,11 @@ rsxhdr		equ	chainbuf	; a .COM file's header record, 128 bytes:
 					; kwboot has taken a 47 command
 dfree		equ	rsxbias+2	; each drive's free clusters, FFFFh not
 					; counted since the mount, NDRV * 2
-bufdat		equ	dfree+NDRV*2
+dscdir		equ	dfree+NDRV*2	; dsub's place in a folder's chain: the
+dscix		equ	dscdir+2	; folder, its drive's IX (0 none),
+dscord		equ	dscix+2		; the cluster's place in the chain,
+dsccl		equ	dscord+2	; and the cluster
+bufdat		equ	dsccl+2
 fmtbuf		equ	FMTBUF			; a track, FMTSZ bytes
 BSSEND		equ	bufdat+NBUF*512
 	assert	BSSEND <= 8000h

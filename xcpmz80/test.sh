@@ -294,6 +294,7 @@ if [ "$(uname)" = Linux ]; then
 		check "C: qsort and bsearch" "qsort 123579 7" "$out"
 		check "C: setjmp and longjmp" "longjmp 42" "$out"
 		check "C: malloc reuses a freed block, realloc" "heap dup reused grown" "$out"
+		check "C: malloc past a small hole, and a block freed after" "hole refit above" "$out"
 		check "C: mktime and strftime" "time 1793536496 2026-11-01 12:34:56 Sun 305" "$out"
 		check "C: gmtime and asctime" "asctime Sun Nov  1 12:34:56 2026" "$out"
 		check "C: strerror" "errno No such file" "$out"
@@ -862,6 +863,18 @@ awk 'BEGIN { for (i = 0; i < 300; i++) print "rem line " i }' | sed 's/$/\r/' >$
 mkdisk $T/sh3.imd $T/LONG.SUB >/dev/null
 out=$($EMU -a $T/sh3.imd -T -t 30 -e 'A:\>' -k 'long\r')
 check "a batch file over 2K is refused whole" "Batch file too long" "$out"
+# The search tries each drive once: on A: the current drive and A: are
+# one. A .COM, a .SUB and a .BAT on A: run from A: and from B:, and a
+# name in none of them is asked about.
+printf 'type a:read_me.txt\r\n' >$T/HI.SUB
+printf 'ver\r\n' >$T/BYE.BAT
+mkdisk $T/pa.imd $T/HI.SUB $T/BYE.BAT $T/READ_ME.TXT build/MORE.COM >/dev/null
+mkdisk $T/pb.imd $T/OLD.TXT >/dev/null
+out=$($EMU -a $T/pa.imd -b $T/pb.imd -T -t 60 -e 'A:\>|B:\>' -k 'hi\rnosuch\rb:\rhi\rbye\rmore a:read_me.txt\r')
+n=$(printf '%s\n' "$out" | grep -c '^hello')
+check "a .SUB on A: runs from A: and B:, and a .COM" "=3=" "=$n="
+check "a .BAT on A: from B:" "=1=" "=$(printf '%s\n' "$out" | grep -c 'MAX-80, 128K$')="
+check "a name on no drive is asked about" "NOSUCH?" "$out"
 # FREE counts the clusters once a mount and keeps the count as files
 # come and go: the same as a count after a reboot, and as mtools'
 python3 tools/mkdisk.py $SYS $T/fr.imd --pc 1440 >/dev/null
@@ -873,6 +886,19 @@ check "FREE's kept count is a fresh count's" "$k1" "$out"
 python3 ../tools/imd2raw.py $T/out/fr.imd $T/out/fr.img >/dev/null
 k2=$(mdir -i $T/out/fr.img :: | grep -a 'bytes free' | tr -d ' ' | sed 's/bytesfree//')
 check "and mtools'" "A: $((k2 / 1024))K free" "$k1"
+# A folder of 300 entries, 19 clusters: the walk along its chain goes on
+# from where the last one ended. Files made, found and erased far
+# along it, a second folder, and one removed, leave the volume clean.
+for i in $(seq 1 300); do echo $i >$T/F$i.TXT; done
+python3 tools/mkdisk.py $SYS $T/fo.imd --pc 1440 --in SUB $(for i in $(seq 1 300); do echo $T/F$i.TXT; done) >/dev/null
+out=$($EMU -a $T/fo.imd -T -t 300 -w a:$T/out/fo.imd -e 'A:\>' \
+	-k 'save 1 sub\\zz.com\rmd sub\\in\rsave 1 sub\\in\\y.com\rera sub\\f150.txt\rrd sub\\in\rera sub\\in\\y.com\rrd sub\\in\rtype sub\\f299.txt\rls sub\\zz.com\r')
+check "a file made at the end of a long folder is found" "ZZ.COM       256" "$out"
+check "and one far along it is read" "299" "$out"
+out=$($EMU -a $T/out/fo.imd -T -t 300 -e 'A:\>' -k 'ls sub\\f1*.txt\r')
+check "and its files are counted, F150 gone" "110 files" "$out"
+python3 ../tools/imd2raw.py $T/out/fo.imd $T/out/fo.img >/dev/null
+fatok "and the volume is clean" $T/out/fo.img
 
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused

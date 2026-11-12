@@ -122,6 +122,8 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	(hl),0FFh
 	inc	hl
 	ld	(hl),0FFh
+	ld	hl,0			; and a folder's place on another disk
+	ld	(dscix),hl
 	ld	(ix+D_HINT),2
 	ld	(ix+D_HINT+1),0
 	ld	(ix+D_MNT),1
@@ -330,8 +332,13 @@ fa_3:	ld	(ix+D_HINT),l
 	xor	a
 	ret
 
-; Free the chain starting at HL
-fatfree: call	fateoc
+; Free the chain starting at HL. dsub's place in a folder goes: the
+; chain it was in may be this one.
+fatfree: push	hl
+	ld	hl,0
+	ld	(dscix),hl
+	pop	hl
+ffr_1:	call	fateoc
 	jr	c,ff9
 	push	hl
 	call	fatget
@@ -345,7 +352,7 @@ fatfree: call	fateoc
 	ret	nz
 	ld	a,1			; one more free
 	call	freeadj
-	jr	fatfree
+	jr	ffr_1
 ff9:	xor	a
 	ret
 

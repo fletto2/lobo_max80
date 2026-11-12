@@ -9,6 +9,9 @@
  */
 
 #include "stevie.h"
+#ifdef MAX80
+#include <cpm.h>
+#endif
 
 /*
  * Altered for xcpmz80: readfile() and writeit() read and write with
@@ -18,7 +21,8 @@
  * is read as far as it goes, and its name kept in Partial, so that
  * writeit() will not write the part over the whole file. A file read into
  * the text with :r goes in whole or not at all, and readfile()
- * gives 2 when it did not.
+ * gives 2 when it did not. A file plainly bigger than the free memory
+ * goes straight to the window, not read in until memory runs out first.
  */
 
 char           *Partial = NULL;	/* the file read in part, or NULL */
@@ -70,6 +74,18 @@ readfile(char *fname, LPtr *fromp, bool_t nochangename)
 	Partial = NULL;
 	pg_close();		/* the work file of the last one goes */
     }
+
+#ifdef MAX80
+    /* bigger than the memory: straight to the window */
+    if (wasempty && !nochangename
+	&& cpm_filesize(fname) > (long) __heapfree() && pgopen(fname)) {
+	s_refresh(NOT_VALID);
+	sprintf(IObuff, "\"%s\" %u lines, the rest paged from disk",
+		fname, cntllines(Filemem, Fileend) - 1);
+	msg(IObuff);
+	return FALSE;
+    }
+#endif
 
     f = fopen(fname, "r");
     if (f == NULL) {

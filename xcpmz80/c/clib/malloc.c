@@ -17,10 +17,16 @@ static unsigned int top;
  * line, as the editors do, finds its room at once, not by reading every
  * header from the heap's start, each through the bank switch */
 static unsigned int low;
+/* No free block below top holds nofit bytes or more: a walk from low
+ * found none, and only free makes a free block bigger. A request that
+ * size or more goes to the top at once, past a small hole that keeps
+ * low down, as VI's freed first line does */
+static unsigned int nofit = 0xFFFF;
 
 void __clib_heap(unsigned int start) __LIB
 {
 	top = low = (start + 1) & ~1u;
+	nofit = 0xFFFF;
 }
 
 unsigned int __clib_heaptop(void) __LIB
@@ -60,6 +66,8 @@ void *malloc(size_t n) __LIB
 		return NULL;
 	}
 	sz = (n + 3) & ~1u;
+	if (sz >= nofit)
+		goto attop;
 	for (b = low; b < top; b += h & ~USED) {
 		h = HDR(b);
 		if (h & USED) {
@@ -82,6 +90,8 @@ void *malloc(size_t n) __LIB
 			return (void *)(b + 2);
 		}
 	}
+	nofit = sz;
+attop:
 	if (top > limit() || sz > limit() - top) {
 		errno = ENOMEM;
 		return NULL;
@@ -104,6 +114,7 @@ void free(void *p) __LIB
 	SETHDR(b, HDR(b) & ~USED);
 	if (b < low)
 		low = b;
+	nofit = 0xFFFF;
 	merge(b);
 }
 

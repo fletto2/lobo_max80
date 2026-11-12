@@ -93,7 +93,9 @@ cc_ok:	pop	hl
 	ret
 
 ; Entry HL of folder dircl, not the root: as dirent. dlast is the last
-; cluster of the chain walked, for dgrow.
+; cluster of the chain walked, for dgrow. The walk goes on from where
+; the last one in this folder ended when the entry is at or past it,
+; so a scan is not a walk from the start for every sector.
 dsub:	ld	a,l
 	and	0Fh
 	ld	(didx),a
@@ -105,9 +107,29 @@ dsub:	ld	a,l
 	push	af			; its sector in its cluster
 	ld	b,(ix+D_SPCSH)
 	call	shrb			; HL = the cluster's place in the chain
+	push	hl
 	ld	b,h
 	ld	c,l
-	ld	hl,(dircl)
+	ld	hl,(dircl)		; the folder walked last, on this drive,
+	ld	de,(dscdir)		; and not past here?
+	or	a
+	sbc	hl,de
+	jr	nz,dsu_0
+	push	ix
+	pop	hl
+	ld	de,(dscix)
+	sbc	hl,de
+	jr	nz,dsu_0
+	ld	h,b
+	ld	l,c
+	ld	de,(dscord)
+	sbc	hl,de
+	jr	c,dsu_0
+	ld	b,h			; on from there
+	ld	c,l
+	ld	hl,(dsccl)
+	jr	dsu_1
+dsu_0:	ld	hl,(dircl)		; from the start
 dsu_1:	ld	(dlast),hl
 	ld	a,b
 	or	c
@@ -120,7 +142,15 @@ dsu_1:	ld	(dlast),hl
 	jr	c,dsu_x			; past the end of the folder
 	dec	bc
 	jr	dsu_1
-dsu_2:	call	clsec
+dsu_2:	ld	(dsccl),hl		; kept for the next
+	pop	de
+	ld	(dscord),de
+	ld	de,(dircl)
+	ld	(dscdir),de
+	push	ix
+	pop	de
+	ld	(dscix),de
+	call	clsec
 	pop	af
 	ld	l,a
 	ld	h,0
@@ -132,8 +162,10 @@ dsu_2:	call	clsec
 	ld	a,(didx)
 	jp	deoff
 dsu_x:	pop	af
+	pop	af
 	jp	ds_end
 dsu_e:	ld	b,a
+	pop	af
 	pop	af
 	ld	a,b
 	or	a

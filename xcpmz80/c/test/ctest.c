@@ -160,6 +160,17 @@ int main(void)
 		say("heap %s %s %s\n", p, r == q ? "reused" : "new",
 			realloc(p, 200) ? "grown" : "null");
 	}
+	{
+		/* a small hole keeps the search low; a block freed after a
+		 * search found nothing is still found */
+		char *h = malloc(6), *x = malloc(6), *a = malloc(40), *y = malloc(6), *s, *r;
+		free(h);
+		s = malloc(40);
+		free(a);
+		r = malloc(40);
+		say("hole %s %s\n", r == a ? "refit" : "top",
+			s > y && x ? "above" : "below");
+	}
 	say("malloc %s\n", malloc(20000) ? "ok" : "null");
 	{
 		char w[20];

@@ -1192,10 +1192,14 @@ runsb:	push	hl
 	pop	hl
 	call	fextq
 	jr	z,ru_1
-	ld	a,(cmdfcb)		; on A: too
+	ld	a,(cmdfcb)		; on A: too, if not on A: already
 	or	a
 	scf
 	ret	nz
+	ld	a,(scb+SCB_DRV)
+	or	a
+	scf
+	ret	z
 	ld	a,1
 	ld	(CFCB),a
 	call	fopenq

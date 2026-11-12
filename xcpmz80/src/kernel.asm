@@ -359,8 +359,23 @@ rp_p1:	ld	a,(hl)
 	jr	z,rp_pe
 	push	hl
 	push	bc
+	call	rpdrv			; a drive tried before, as the current
+	ld	c,a			; drive and A: when on A:, once only
+	ld	de,scb+SCB_PATH
+rp_p3:	ld	a,e
+	cp	l
+	jr	z,rp_p4
+	ld	a,(de)
+	call	rpdrv
+	cp	c
+	jr	z,rp_dup
+	inc	de
+	jr	rp_p3
+rp_p4:	ld	a,c
 	call	rp_try
-	pop	bc
+	jr	rp_p5
+rp_dup:	or	0FFh			; NZ: not found there
+rp_p5:	pop	bc
 	pop	hl
 	jr	z,rp_1
 	inc	hl
@@ -380,6 +395,14 @@ rp_p2:	or	(hl)
 rp_e:	xor	a
 	ld	(rootf),a
 	scf
+	ret
+
+	assert	high (scb+SCB_PATH) = high (scb+SCB_PATH+3)	; rp_p3 checks E
+; A = a path entry's drive, 1-16, 0 the current one: the drive, 1-16
+rpdrv:	or	a
+	ret	nz
+	ld	a,(scb+SCB_DRV)
+	inc	a
 	ret
 
 ; Open the .COM named in cmdfcb on drive A (0 the current one) in CFCB

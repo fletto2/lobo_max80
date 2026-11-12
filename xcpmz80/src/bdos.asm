@@ -242,13 +242,13 @@ f8:	ld	hl,0003h
 
 ; 9: print the string at DE up to the delimiter ('$')
 f9:	ex	de,hl
-f9_1:	ld	de,CBUF			; a chunk at a time into CBUF
-	ld	bc,128
-	call	ucopy			; HL moves on to the next chunk
-	ld	de,CBUF
+f9_1:	ld	de,CBUF			; 32 bytes at a time into CBUF: most
+	ld	bc,32			; strings are short, and a copy of 128
+	call	ucopy			; cost more than printing them
+	ld	de,CBUF			; HL moves on to the next chunk
 	ld	a,(scb+SCB_DELIM)
 	ld	c,a
-	ld	b,128
+	ld	b,32
 f9_2:	ld	a,(de)
 	cp	c
 	ret	z
@@ -507,7 +507,15 @@ co1:	call	kputc
 	ret
 
 ; 11: console status: 1 if a key is waiting
-f11:	call	xconst
+f11:	ld	a,(scb+SCB_CMODE)	; mode bit 0: 1 only for a ^C waiting,
+	rra				; as CP/M 3's
+	jr	nc,f11_n
+	call	kpeek
+	cp	3
+	ret	nz
+	ld	a,1
+	jp	retA
+f11_n:	call	xconst
 	ret	z
 	ld	a,1
 	jp	retA

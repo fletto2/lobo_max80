@@ -51,7 +51,9 @@ COMMON_ORG:
 	db	0,0,0,0,0,0		; serial number
 bdosent: ld	a,c
 	cp	7
-	jp	c,bfast			; 2 and 6 may not need the kernel
+	jp	c,bfast			; 2, 6 and 11 may not need the kernel
+	cp	11
+	jp	z,bf_11
 be_0:	cp	LIBFN			; A = C
 	jr	z,libent
 	ld	(usersp),sp
@@ -804,6 +806,35 @@ bf_out:	ld	(usersp),sp		; on the BDOS's stack, as CP/M's: a
 	ld	c,e
 	call	kraw
 	jr	bf_ret
+; 11 from here, nothing on the program's stack, when the kernel would
+; only look at the key ring: not ^C-only status (mode bit 0), the
+; console in from the keyboard alone, CONST not patched
+bf_11:	ld	a,(scb+SCB_CMODE)
+	rra
+	jr	c,bf_k
+	ld	a,(scb+SCB_CIVEC+1)
+	cp	80h
+	jr	nz,bf_k
+	ld	a,(scb+SCB_CIVEC)
+	or	a
+	jr	nz,bf_k
+	ld	hl,(biostab+7)
+	ld	a,l
+	cp	low const
+	jr	nz,bf_k
+	ld	a,h
+	cp	high const
+	jr	nz,bf_k
+	ld	a,(KTAKE)
+	ld	b,a
+	ld	a,(KFILL)
+	sub	b
+	jr	z,bf_11z
+	ld	a,1
+bf_11z:	ld	l,a
+	ld	h,0
+	ld	b,h
+	ret
 bf_6o:	ld	(usersp),sp		; 6 writes as CP/M's: to the console
 	ld	sp,(kstk)		; alone, not the printer, and the
 	ld	c,e			; column is left as it is
