@@ -312,9 +312,11 @@ rl1:	ld	hl,rl1
 	cp	1Eh			; the back arrow, 08h on Lobo's 5.25-inch
 	jr	z,rlbs			; CP/M 2.2
 	cp	18h			; ^X
-	jr	z,rlkill
+	jp	z,rlkill
+	cp	1Ch			; UP, at the shell's prompt
+	jp	z,rlup
 	cp	15h			; ^U
-	jr	z,rlkill
+	jp	z,rlkill
 	cp	12h			; ^R
 	jr	z,rlretype
 	cp	05h			; ^E
@@ -354,18 +356,64 @@ rlprn:	ld	a,(scb+SCB_LIST)
 rlretype: call	crlf
 	ld	a,(lnstart)
 	or	a
-	jr	z,rltype
+	jp	z,rltype
 	ld	b,a
 rr1:	call	space
 	djnz	rr1
-	jr	rltype
+	jp	rltype
+
+; Rub out the last character: a printable one away from the start of a
+; screen row goes by BS, space, BS, so the rest of the line stays as it
+; is, and at the start of a wrapped row it steps up to the end of the
+; row above. A control character shown as ^X or a tab retypes
+; the line.
 rlbs:	ld	a,(lnlen)
 	or	a
 	ret	z
 	dec	a
-	db	0FEh			; cp n: skips the xor
+	ld	b,a
+	ld	e,a
+	ld	d,0
+	ld	hl,linebuf
+	add	hl,de
+	ld	a,(hl)
+	cp	' '
+	jr	c,rlbs_2
+	cp	7Fh
+	jr	nc,rlbs_2
+	ld	a,(scb+SCB_COL)
+	or	a
+	jr	z,rlbs_2
+rlbs_1:	sub	COLS
+	jr	z,rlbs_up
+	jr	nc,rlbs_1
+	ld	a,b
+	ld	(lnlen),a
+	ld	a,08h
+	call	kputc
+	call	space
+	ld	a,08h
+	jp	kputc
+rlbs_up: ld	a,b			; at the start of a wrapped row: the
+	ld	(lnlen),a		; last column of the row above
+	call	rlrow
+	call	space			; which wraps back down
+	call	rlrow
+	ld	hl,scb+SCB_COL		; one column less than before the space
+	dec	(hl)
+	dec	(hl)
+	ret
+rlrow:	ld	a,0Bh			; up, and right to the last column
+	call	kputc
+	ld	b,COLS-1
+rlrw_1:	ld	a,0Ch
+	call	kputc
+	djnz	rlrw_1
+	ret
+rlbs_2:	ld	a,b
+	jr	rlset
 rlkill:	xor	a
-	ld	(lnlen),a		; simplest right: retype what is left
+rlset:	ld	(lnlen),a		; simplest right: retype what is left
 
 ; Wipe the line on the screen back to where it started, and type it.
 ; kputc and space keep HL.
@@ -400,6 +448,23 @@ rty_1:	ld	a,(hl)
 	inc	hl
 	djnz	rty_1
 	ret
+
+; UP at the shell's prompt: the last line it ran, in place of this one
+rlup:	ld	b,a
+	ld	a,(lnhist)
+	or	a
+	ld	a,b
+	jp	z,rl2			; elsewhere 1Ch goes in as ^\
+	ld	a,(histlen)
+	or	a
+	ret	z
+	ld	c,a
+	ld	b,0
+	ld	hl,histbuf
+	ld	de,linebuf
+	ldir
+	ld	a,(histlen)
+	jp	rlset
 
 ; Echo A as the line editor shows it: control characters as ^X, tabs
 ; expanded. Note the furthest column reached in lnend. Keeps BC.

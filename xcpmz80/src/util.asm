@@ -25,34 +25,6 @@ kp_tab:	ld	c,' '
 	pop	bc
 	ret
 
-; C to the console and, with ^P on, the printer. Keeps the column.
-kraw:	push	af
-	call	conout
-	ld	a,(scb+SCB_LIST)
-	or	a
-	call	nz,list
-	ld	a,c
-	cp	' '
-	jr	nc,krw_1
-	cp	0Dh
-	jr	z,krw_cr
-	cp	08h
-	jr	nz,krw_9
-	ld	a,(scb+SCB_COL)
-	or	a
-	jr	z,krw_9
-	dec	a
-	jr	krw_2
-krw_cr:	xor	a
-	jr	krw_2
-krw_1:	cp	7Fh
-	jr	z,krw_9
-	ld	a,(scb+SCB_COL)
-	inc	a
-krw_2:	ld	(scb+SCB_COL),a
-krw_9:	pop	af
-	ret
-
 ; Print the NUL-ended string at HL. HL ends past the NUL.
 pstr:	ld	a,(hl)
 	inc	hl

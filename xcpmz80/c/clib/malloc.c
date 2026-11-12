@@ -12,11 +12,15 @@
 #define USED	1u
 #define STACK	1024
 
-static unsigned int first, top;
+static unsigned int top;
+/* No free block starts below low: a program that allocates line after
+ * line, as the editors do, finds its room at once, not by reading every
+ * header from the heap's start, each through the bank switch */
+static unsigned int low;
 
 void __clib_heap(unsigned int start) __LIB
 {
-	first = top = (start + 1) & ~1u;
+	top = low = (start + 1) & ~1u;
 }
 
 unsigned int __clib_heaptop(void) __LIB
@@ -56,9 +60,13 @@ void *malloc(size_t n) __LIB
 		return NULL;
 	}
 	sz = (n + 3) & ~1u;
-	for (b = first; b < top; b = NEXTB(b)) {
-		if (HDR(b) & USED)
+	for (b = low; b < top; b += h & ~USED) {
+		h = HDR(b);
+		if (h & USED) {
+			if (b == low)
+				low = b + (h & ~USED);
 			continue;
+		}
 		merge(b);
 		if (b >= top)
 			break;
@@ -69,6 +77,8 @@ void *malloc(size_t n) __LIB
 				h = sz;
 			}
 			SETHDR(b, h | USED);
+			if (b == low)
+				low = b + h;
 			return (void *)(b + 2);
 		}
 	}
@@ -79,6 +89,8 @@ void *malloc(size_t n) __LIB
 	b = top;
 	SETHDR(b, sz | USED);
 	top = b + sz;
+	if (low == b)
+		low = top;
 	return (void *)(b + 2);
 }
 
@@ -90,6 +102,8 @@ void free(void *p) __LIB
 		return;
 	b = (unsigned int)p - 2;
 	SETHDR(b, HDR(b) & ~USED);
+	if (b < low)
+		low = b;
 	merge(b);
 }
 

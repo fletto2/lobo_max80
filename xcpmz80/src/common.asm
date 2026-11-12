@@ -32,6 +32,9 @@ UBANK		equ	CVARS+2Ch	; the caller's low bank, for ucopy
 LIBIFF		equ	CVARS+2Dh	; 0 not in the C library, else 1 + its IFF
 UIFF		equ	CVARS+2Eh	; the IFF under umap, 0 off
 KCAPS		equ	CVARS+2Fh	; 0 Caps Lock on, as at boot, 20h off
+CURHL		equ	CVARS+30h	; the cell curon last put the cursor on
+TICKS		equ	CVARS+32h	; counts the ticks, for the blink
+BLINKO		equ	CVARS+33h	; nonzero: the blink has the cursor off
 RSXSTK		equ	CVARS+100h	; rsxcall's stack, from CVARS+80h
 RSXSTUB		equ	0040h		; in page zero: call 0005h, jp rsxret
 
@@ -47,7 +50,9 @@ COMMON_ORG:
 ; and buffers work. Function LIBFN is a call into the C library.
 	db	0,0,0,0,0,0		; serial number
 bdosent: ld	a,c
-	cp	LIBFN
+	cp	7
+	jp	c,bfast			; 2 and 6 may not need the kernel
+be_0:	cp	LIBFN			; A = C
 	jr	z,libent
 	ld	(usersp),sp
 	ld	sp,(kstk)
@@ -767,6 +772,71 @@ rt1:	ld	(PIODA),a
 rt2:	ld	(hl),c
 	ret
 
+; Functions 2 and 6 writing a character, the most called, done here
+; without the kernel mapped in, as its f2 and f6 do them. A tab, which
+; kputc expands, and a ^S waiting go there.
+bfast:	cp	2
+	jr	z,bf_2
+	cp	6
+	jr	nz,bf_k
+	ld	a,e
+	cp	0FDh
+	jr	c,bf_out		; FDh-FFh read
+bf_k:	ld	a,c
+	jp	be_0
+bf_2:	ld	a,e
+	cp	09h
+	jr	z,bf_k
+	ld	a,(scb+SCB_CMODE)	; as brkchk, with kpeek's look at the
+	and	02h			; key ring here, nothing on the
+	jr	nz,bf_out		; program's stack
+	ld	a,(KTAKE)
+	ld	l,a
+	ld	a,(KFILL)
+	cp	l
+	jr	z,bf_out
+	ld	h,high KRING
+	ld	a,(hl)
+	cp	13h
+	jr	z,bf_k
+bf_out:	ld	(usersp),sp		; on the BDOS's stack, as CP/M's: a
+	ld	sp,(kstk)		; program may keep only a few bytes
+	ld	c,e
+	call	kraw
+	ld	sp,(usersp)
+	ld	hl,0
+	ld	a,l
+	ld	b,h
+	ret
+
+; C to the console and, with ^P on, the printer. Keeps the column.
+kraw:	push	af
+	call	conout
+	ld	a,(scb+SCB_LIST)
+	or	a
+	call	nz,list
+	ld	a,c
+	cp	' '
+	jr	nc,krw_1
+	cp	0Dh
+	jr	z,krw_cr
+	cp	08h
+	jr	nz,krw_9
+	ld	a,(scb+SCB_COL)
+	or	a
+	jr	z,krw_9
+	dec	a
+	jr	krw_2
+krw_cr:	xor	a
+	jr	krw_2
+krw_1:	cp	7Fh
+	jr	z,krw_9
+	ld	a,(scb+SCB_COL)
+	inc	a
+krw_2:	ld	(scb+SCB_COL),a
+krw_9:	pop	af
+	ret
+
 ; ------------------------------------------------------------------
 ; Console output. C = character. Keeps every register. The codes of
 ; Lobo's CP/M 3 BIOS (XCHARIO), a Soroc IQ-120's, which
@@ -797,12 +867,23 @@ crtout:	push	af
 	jr	nc,co_pr
 	add	a,0C0h
 co_pr:	ld	(hl),a			; HL is the cursor cell, from curoff
-	ld	hl,CURCOL
-	inc	(hl)
-	ld	a,(hl)
+	ld	a,(CURCOL)
+	inc	a
 	cp	COLS
-	jr	c,co_done
-	ld	(hl),0
+	jr	nc,co_wrap
+	ld	(CURCOL),a
+	inc	hl			; the next cell is the cursor's, with
+	ld	a,h			; no need to work it out again: F3FFh
+	cp	0F4h			; goes on at FC00h, FFFFh at F000h
+	jr	nz,co_pr1
+	ld	h,0FCh
+co_pr1:	or	a
+	jr	nz,co_pr2
+	ld	h,0F0h
+co_pr2:	call	curonh
+	jr	co_end
+co_wrap: xor	a
+	ld	(CURCOL),a
 	call	linefeed
 	jr	co_done
 co_ctl:	ld	hl,co_done		; the control codes return to co_done
@@ -865,7 +946,7 @@ co_home: xor	a
 	ld	(CURCOL),a
 	ret
 co_done: call	curon
-	ld	a,(VLCOPY)
+co_end:	ld	a,(VLCOPY)
 	ld	(VLATCH),a
 	pop	hl
 	pop	de
@@ -891,9 +972,9 @@ co_esc:	ld	hl,co_done
 	cp	'T'
 	jr	z,eol
 	cp	'E'
-	jr	z,insline
+	jp	z,insline
 	cp	'R'
-	jr	z,delline
+	jp	z,delline
 	cp	'('
 	jr	z,co_nrm
 	cp	')'
@@ -947,19 +1028,49 @@ eos_1:	inc	a
 	ld	a,c
 	jr	eos_1
 eol:	ld	de,(CURROW)		; E = the row, D = the column
-eol_1:	push	de
-	call	celladdr
-	pop	de
+	call	celloff
+	ld	a,(CURCOL)
+	ld	b,a
+	ld	a,COLS
+	sub	b
+	ld	b,a			; B = the cells to the end of the row
+	push	hl
+	ld	e,b
+	dec	e
+	ld	d,0
+	add	hl,de			; the last one's offset
+	ld	a,h
+	pop	hl
+	xor	h
+	and	04h
+	jr	nz,eol_1		; across a 1K half: a cell at a time
+	call	vaddr
 	ld	(hl),' '
-	inc	d
-	ld	a,d
-	cp	COLS
-	jr	c,eol_1
+	dec	b
+	ret	z
+	ld	d,h
+	ld	e,l
+	inc	de
+	ld	c,b
+	ld	b,0
+	ldir
+	ret
+eol_1:	push	hl
+	call	vaddr
+	ld	(hl),' '
+	pop	hl
+	inc	hl
+	djnz	eol_1
 	ret
 
 ; Insert a blank line at the cursor row, the rows below it down one;
-; delete the cursor row, the rows below it up one
-insline: ld	b,ROWS-1		; row B = row B - 1, from the bottom
+; delete the cursor row, the rows below it up one. Above the middle row
+; the rows above the cursor are fewer: they move instead, and the
+; CRTC's start address moves a row, the 2K of video RAM a ring.
+insline: ld	a,(CURROW)
+	cp	ROWS/2
+	jr	c,il_up
+	ld	b,ROWS-1		; row B = row B - 1, from the bottom
 il_1:	ld	a,(CURROW)
 	cp	b
 	jr	nc,rowblank		; the cursor row, in A
@@ -967,8 +1078,20 @@ il_1:	ld	a,(CURROW)
 	dec	b
 	call	rowcopy
 	jr	il_1
-delline: ld	a,(CURROW)		; row B = row B + 1, from the top
-	ld	b,a
+il_up:	call	rscroll			; every row down one, then
+	ld	b,0			; row B = row B + 1 down to the cursor's
+il_2:	ld	a,(CURROW)
+	cp	b
+	ld	a,b
+	jr	z,rowblank
+	ld	c,b
+	inc	b
+	call	rowcopy
+	jr	il_2
+delline: ld	a,(CURROW)
+	cp	ROWS/2
+	jr	c,dl_dn
+	ld	b,a			; row B = row B + 1, from the cursor down
 dl_1:	ld	a,b
 	cp	ROWS-1
 	jr	nc,rowblank		; A = B = ROWS-1, the bottom row
@@ -976,35 +1099,111 @@ dl_1:	ld	a,b
 	inc	b
 	call	rowcopy
 	jr	dl_1
+dl_dn:	ld	b,a			; row B = row B - 1, from the cursor up,
+dl_2:	ld	a,b			; then every row up one
+	or	a
+	jp	z,scroll
+	ld	c,b
+	dec	b
+	call	rowcopy
+	jr	dl_2
 
 ; Blank screen row A
 rowblank: ld	c,a
 	ld	b,0FFh
 	; fall into rowcopy
 
-; Screen row C = screen row B, or blanks if B is FFh. Keeps BC.
-rowcopy: ld	d,0			; the column
-rc_1:	ld	a,b
+; Screen row C = screen row B, or blanks if B is FFh. Keeps BC. A row
+; that stays inside one 1K half of video RAM, most do, goes by LDIR.
+rowcopy: push	bc
+	ld	a,c
+	call	rowoff
+	ex	de,hl			; DE = the row written
+	ld	a,b
 	inc	a
-	ld	a,' '
-	jr	z,rc_3
-	push	de
-	ld	e,b
-	call	celladdr
-	pop	de
-	ld	a,(hl)
-rc_3:	push	af
-	push	de
-	ld	e,c
-	call	celladdr
-	pop	de
-	pop	af
-	ld	(hl),a
-	inc	d
-	ld	a,d
-	cp	COLS
-	jr	c,rc_1
+	jr	z,rcp_bl
+	dec	a
+	call	rowoff			; HL = the row read
+	call	rowx
+	jr	c,rcp_sl
+	ex	de,hl
+	call	rowx
+	ex	de,hl
+	jr	c,rcp_sl
+	ex	de,hl
+	call	vaddr
+	ex	de,hl
+	call	vaddr
+	ld	bc,COLS
+	ldir
+	pop	bc
 	ret
+rcp_sl:	ld	b,COLS			; across a half: a cell at a time
+rcp_1:	push	hl
+	push	de
+	call	vaddr
+	ld	c,(hl)
+	ex	de,hl
+	call	vaddr
+	ld	(hl),c
+	pop	de
+	pop	hl
+	inc	hl
+	inc	de
+	djnz	rcp_1
+	pop	bc
+	ret
+rcp_bl:	ex	de,hl
+	call	rowx
+	jr	c,rcp_bs
+	call	vaddr
+	ld	(hl),' '
+	ld	d,h
+	ld	e,l
+	inc	de
+	ld	bc,COLS-1
+	ldir
+	pop	bc
+	ret
+rcp_bs:	ld	b,COLS
+rcp_2:	push	hl
+	call	vaddr
+	ld	(hl),' '
+	pop	hl
+	inc	hl
+	djnz	rcp_2
+	pop	bc
+	ret
+
+; Carry set if the row at 2K offset HL runs over the end of its 1K
+; half, at 400h or 800h. Keeps everything but A and the flags.
+rowx:	ld	a,h
+	and	03h
+	xor	03h
+	ret	nz			; NC: under 300h in its half
+	ld	a,l
+	cp	(400h-COLS+1) & 0FFh
+	ccf
+	ret
+
+; HL = the 2K offset of screen row A. Keeps BC and DE.
+rowoff:	push	de
+	ld	e,a
+	ld	d,0
+	call	celloff
+	pop	de
+	ret
+
+; The start a row back, every row down one, a row of whatever was in
+; video RAM coming in at the top
+rscroll: ld	hl,(SCRST)
+	ld	de,-COLS
+	add	hl,de
+	ld	a,h
+	and	07h
+	ld	h,a
+	ld	(SCRST),hl
+	jp	setstart
 
 ; The window must be on video RAM
 clsbody: ld	hl,VIDLO		; all 2K
@@ -1036,16 +1235,8 @@ linefeed: ld	a,(CURROW)
 
 ; Hardware scroll: blank the row about to come in, then move the start
 ; up a row. The cursor row stays the bottom row.
-scroll:	ld	hl,(SCRST)
-	ld	de,ROWS*COLS
-	add	hl,de
-	ld	b,COLS
-sc1:	push	hl
-	call	vaddr
-	ld	(hl),' '
-	pop	hl
-	inc	hl
-	djnz	sc1
+scroll:	ld	a,ROWS			; the row below the bottom one
+	call	rowblank
 	ld	hl,(SCRST)
 	ld	de,COLS
 	add	hl,de
@@ -1077,7 +1268,11 @@ curaddr: ld	de,(CURROW)		; E = CURROW, D = CURCOL
 	; fall into celladdr
 
 ; HL = CPU address of screen row E, column D. Keeps BC.
-celladdr: ld	a,e			; HL = row * 5 * 16, the row under 52
+celladdr: call	celloff
+	jr	vaddr
+
+; HL = the 2K offset of screen row E, column D. Keeps BC.
+celloff: ld	a,e			; HL = row * 5 * 16, the row under 52
 	add	a,a
 	add	a,a
 	add	a,e
@@ -1092,7 +1287,10 @@ celladdr: ld	a,e			; HL = row * 5 * 16, the row under 52
 	add	hl,de
 	ld	de,(SCRST)
 	add	hl,de
-	; fall into vaddr
+	ld	a,h
+	and	07h
+	ld	h,a
+	ret
 
 ; The 2K screen offset in HL to its CPU address: 0-3FFh in VIDLO,
 ; 400h-7FFh in the window. Keeps BC and DE.
@@ -1105,6 +1303,9 @@ vaddr:	ld	a,h			; 0-3 to FCh-FFh, 4-7 to F0h-F3h
 	assert	VIDLO == 0FC00h && VIDWIN == 0F000h
 
 curon:	call	curaddr
+curonh:	ld	(CURHL),hl		; HL = the cursor cell
+	xor	a
+	ld	(BLINKO),a
 	ld	a,(hl)
 	ld	(UNDER),a
 	ld	a,(CURHID)		; ESC 0: none shown
@@ -1113,8 +1314,10 @@ curon:	call	curaddr
 	ld	(hl),CURSOR
 	ret
 
-; HL = the cursor cell, which crtout's co_pr uses
-curoff:	call	curaddr
+; HL = the cursor cell, which crtout's co_pr uses. Only the console
+; moves the cursor or the start, and between its calls the cell is
+; the one curon used.
+curoff:	ld	hl,(CURHL)
 	ld	a,(UNDER)
 	ld	(hl),a
 	ret
@@ -1146,7 +1349,10 @@ kk_1:	pop	hl
 kbdin:	push	bc
 	push	hl
 ci1:	call	kbdst
-	jr	z,ci1
+	jr	nz,ci2
+	call	blink
+	jr	ci1
+ci2:	call	blinkon			; shown again for the program
 	ld	a,(KTAKE)
 	ld	l,a
 	ld	h,high KRING
@@ -1156,6 +1362,52 @@ ci1:	call	kbdst
 	ld	a,(hl)
 	pop	hl
 	pop	bc
+	ret
+
+; While conin waits for a key, the cursor cell goes between the cursor
+; and the character under it, 16 ticks each, about 2 Hz. Only here, not
+; from the tick: a program that draws its own screen or font polls, and
+; is left alone. A cell that no longer holds what the console put there
+; is not changed. Not with ESC 0.
+blink:	ld	a,(CURHID)
+	or	a
+	ret	nz
+	ld	a,(TICKS)
+	and	10h
+	jr	z,blinkon
+	ld	a,(BLINKO)
+	or	a
+	ret	nz			; off already
+	ld	b,CURSOR
+	ld	a,(UNDER)
+	ld	c,a
+	call	blsw
+	ret	nz
+	ld	a,1
+	ld	(BLINKO),a
+	ret
+blinkon: ld	a,(BLINKO)
+	or	a
+	ret	z
+	xor	a
+	ld	(BLINKO),a
+	ld	a,(UNDER)
+	ld	b,a
+	ld	c,CURSOR
+	; fall into blsw
+
+; The cursor cell to C if it holds B, Z if it did
+blsw:	ld	a,VL_VIDEO
+	ld	(VLATCH),a
+	ld	hl,(CURHL)
+	ld	a,(hl)
+	cp	b
+	jr	nz,bls_1
+	ld	(hl),c
+bls_1:	push	af
+	ld	a,(VLCOPY)
+	ld	(VLATCH),a
+	pop	af
 	ret
 
 ; ------------------------------------------------------------------
@@ -1168,6 +1420,8 @@ tick:	ld	(ISRSP),sp
 	push	de
 	push	hl
 	push	ix
+	ld	hl,TICKS
+	inc	(hl)
 	ld	a,(SYSCLR)		; and on into kscan, which returns
 
 ; Key scan, as Lobo's: each row is compared with the two scans before it
@@ -1336,11 +1590,6 @@ keytab:	db	'@','a','b','c','d','e','f','g'
 					; the arrows as Lobo's BIOSes
 	db	0,K_CAPS,0,0,0,1Bh,0,0		; SHIFT F1-F4 ESC - CTRL
 K_CAPS	equ	0FCh				; Lobo's code for it
-
-; FORMAT and SYS live here, not in the kernel, to leave the kernel's
-; variables room under 8000h. They run from the shell with A2 mapped,
-; as the kernel does.
-	include	"format.asm"
 
 COMMON_END:
 	ent

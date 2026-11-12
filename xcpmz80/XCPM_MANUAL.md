@@ -27,12 +27,14 @@ sends ^H and BREAK sends ^C.
 
 ## Typing a command
 
-Type the command and press ENTER. While typing:
+Type the command and press ENTER. The cursor blinks while the system
+waits for a key. While typing:
 
 | Key | Does |
 | --- | --- |
-| ^H, DEL, CLEAR or the back arrow | rub out the last character |
+| ^H, DEL, CLEAR or the back arrow | rub out the last character, and only it: the rest of the line stays as it is |
 | ^X or ^U | rub out the line |
+| UP, at the `A:\>` prompt | bring back the last command, to run again or change |
 | ^R | type the line again |
 | ^E | go on to the next screen line |
 | ^P | echo everything to the printer, until the next ^P |
@@ -93,7 +95,8 @@ DIR, LS, TYPE, ERA, SAVE, FREE and COPY take paths:
     TYPE ..\README.TXT
     ERA OLD\*.*
 
-DIR shows a folder as `NAME\`, LS as `NAME\` with `<DIR>`. REN and MV
+COPY to a folder's name, `COPY CLOCK.COM GAMES`, puts the file in that
+folder, as `GAMES\` does. DIR shows a folder as `NAME\`, LS as `NAME\` with `<DIR>`. REN and MV
 rename within one folder. A folder's path is at most 46 characters,
 so folders go 3 or 4 deep.
 

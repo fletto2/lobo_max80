@@ -30,7 +30,13 @@ the 8-inch connector at 500 kbit/s.
   the boot ROM reads when there is no sector 0, and the system follows
   it.
 
+--ilv N, --skew N and --hskew N set a floppy's sector order: the
+interleave (default 2), the slots each cylinder is turned (default 2, 3
+for 8-inch) and the slots the second side is turned more (default 0).
+
 The FILEs are copied into the root directory, named in upper case 8.3.
+`--in FOLDER` before some FILEs puts them in a folder of that name, `--in .`
+returns to the root.
 The IMD is for the emulator, the raw image for mtools.
 """
 import os
@@ -165,13 +171,13 @@ def build(system, files, pc=False):
     root = bytearray(root_secs * 512)
     clus = 2
     csize = p['spc'] * 512
-    for i, path in enumerate(files):
-        if i >= p['nroot']:
-            raise SystemExit('root directory full')
-        data = open(path, 'rb').read()
+
+    def alloc(data):
+        """Store data in a new chain, return the first cluster."""
+        nonlocal clus
         n = (len(data) + csize - 1) // csize
         if clus + n > nclus + 2:
-            raise SystemExit('disk full at %s' % path)
+            raise SystemExit('disk full')
         first = clus if n else 0
         for k in range(n):
             fat_set(fat, bits, clus + k, clus + k + 1 if k < n - 1 else eoc)
@@ -179,14 +185,57 @@ def build(system, files, pc=False):
             chunk = data[k * csize:(k + 1) * csize]
             disk[off:off + len(chunk)] = chunk
         clus += n
-        struct.pack_into('<11sB10xHHHI', root, i * 32, name83(path), 0x20,
-                         0, 0, first, len(data))
+        return first
+
+    # An entry is a path for the root, or (FOLDER, path) for a folder
+    # one level down. A folder's first entries are . and ..
+    top = [f for f in files if isinstance(f, str)]
+    folders = {}
+    for f in files:
+        if not isinstance(f, str):
+            folders.setdefault(f[0].upper(), []).append(f[1])
+    ents = []
+    for path in top:
+        ents.append((name83(path), 0x20, alloc(open(path, 'rb').read()),
+                     os.path.getsize(path)))
+    for fname, paths in folders.items():
+        # the folder's own cluster comes first, so . can name it
+        dclus = clus
+        dsize = ((2 + len(paths)) * 32 + csize - 1) // csize * csize
+        alloc(bytes(dsize))
+        d = bytearray()
+        d += struct.pack('<11sB10xHHHI', b'.          ', 0x10, 0, 0, dclus, 0)
+        d += struct.pack('<11sB10xHHHI', b'..         ', 0x10, 0, 0, 0, 0)
+        for path in paths:
+            d += struct.pack('<11sB10xHHHI', name83(path), 0x20, 0, 0,
+                             alloc(open(path, 'rb').read()), os.path.getsize(path))
+        off = (data0 + (dclus - 2) * p['spc']) * 512
+        disk[off:off + len(d)] = d
+        ents.append((fname.encode('ascii').ljust(11)[:11], 0x10, dclus, 0))
+    if len(ents) > p['nroot']:
+        raise SystemExit('root directory full')
+    for i, (nm, attr, first, size) in enumerate(ents):
+        struct.pack_into('<11sB10xHHHI', root, i * 32, nm, attr, 0, 0, first, size)
     for k in range(p['nfats']):
         off = (p['rsvd'] + k * p['spf']) * 512
         disk[off:off + len(fat)] = fat
     off = (p['rsvd'] + p['nfats'] * p['spf']) * 512
     disk[off:off + len(root)] = root
     return disk, p
+
+
+def folder_args(args):
+    """Turn --in FOLDER markers into (FOLDER, path) entries: the files
+    after one go in that folder, up to the next --in or --in ."""
+    out, folder, i = [], None, 0
+    while i < len(args):
+        if args[i] == '--in':
+            folder = None if args[i + 1] == '.' else args[i + 1]
+            i += 2
+            continue
+        out.append(args[i] if folder is None else (folder, args[i]))
+        i += 1
+    return out
 
 
 def stale(path):
@@ -218,11 +267,23 @@ def main():
         if len(args) < 2:
             raise SystemExit(__doc__)
         system = hd_bpb(open(args[0], 'rb').read(), mb)
-        disk, p = build(system, args[2:])
+        disk, p = build(system, folder_args(args[2:]))
         open(args[1], 'wb').write(disk)
         return
     system = open(args[0], 'rb').read()
     eight, pc = True, False
+    ilv, skew, hskew = 2, None, 0
+    for opt in ('--ilv', '--skew', '--hskew'):
+        if opt in args:
+            i = args.index(opt)
+            v = int(args[i + 1])
+            del args[i:i + 2]
+            if opt == '--ilv':
+                ilv = v
+            elif opt == '--skew':
+                skew = v
+            else:
+                hskew = v
     if '--ds' in args:
         args.remove('--ds')
         system = ds_bpb(system)
@@ -238,9 +299,11 @@ def main():
                 pc = False
     if len(args) < 2:
         raise SystemExit(__doc__)
-    disk, p = build(system, args[2:], pc)
+    disk, p = build(system, folder_args(args[2:]), pc)
     # The sides alternate by cylinder, as FAT counts. A PC's sectors are
     # numbered from 1, Lobo's from 0. eight: 500 kbit/s tracks.
+    if skew is None:
+        skew = 3 if eight else 2    # FORMAT's
     tracks = []
     base = 1 if pc else 0
     for t in range(p['total'] // p['spt']):
@@ -251,10 +314,16 @@ def main():
             secs.append(dict(c=cyl, h=head, r=r + base, size=512, dd=True,
                              data=bytes(disk[off:off + 512]),
                              deleted=False, bad=False))
-        n = p['spt']        # interleave 2, as FORMAT's
-        secs = [secs[i // 2 + i % 2 * ((n + 1) // 2)] for i in range(n)]
-        r = cyl * (3 if eight else 2) % n   # each cylinder turned, so a
-        secs = secs[n - r:] + secs[:n - r]  # step finds sector 0
+        n = p['spt']
+        slot = [None] * n   # logical sector l goes to slot l * ilv, the
+        for l in range(n):  # next free one after it when that is taken
+            k = l * ilv % n
+            while slot[k] is not None:
+                k = (k + 1) % n
+            slot[k] = secs[l]
+        secs = slot
+        r = (cyl * skew + head * hskew) % n   # each cylinder turned by skew
+        secs = secs[n - r:] + secs[:n - r]    # slots, the far side by hskew more
         tracks.append((cyl, head, secs))
     write_imd(tracks, args[1], eight, os.path.basename(args[0]))
     if raw:

@@ -2,9 +2,10 @@
  * STEVIE - Simply Try this Editor for VI Enthusiasts
  *
  * Lobo MAX-80 system-dependent code, under xcpmz80, in place of
- * gsos.c. The console is read and written with BDOS function 6, with no
- * echo and no ^C or ^S checks. The screen codes are in term.h. The arrow
- * keys give 1Ch to 1Fh: up, down, left and right.
+ * gsos.c. The console is read with BDOS function 6, with no echo and no
+ * ^C or ^S checks, and written by the BIOS's CONOUT, as function 6 does.
+ * The screen codes are in term.h. The arrow keys give 1Ch to 1Fh: up,
+ * down, left and right.
  */
 
 #include "stevie.h"
@@ -16,13 +17,46 @@
 static char     outbuf[OBUFSIZE];
 static int      indbuf = 0;
 
+/*
+ * The buffer to the screen by the BIOS's CONOUT, the jump table's entry
+ * 9 bytes past WBOOT, which 0001h points at. It is what function 6 ends
+ * in, without the BDOS's way in and out for every byte: a scroll's
+ * redraw takes a third of the time. CONOUT keeps IX, as xcpmz80's does.
+ */
+static void
+biosout(void) __naked
+{
+    __asm
+	ld	de,(_indbuf)
+	ld	a,d
+	or	e
+	ret	z
+	push	ix
+	ld	ix,(1)
+	ld	bc,#9
+	add	ix,bc
+	ld	hl,#_outbuf
+1$:	push	hl
+	push	de
+	ld	c,(hl)
+	call	2$
+	pop	de
+	pop	hl
+	inc	hl
+	dec	de
+	ld	a,d
+	or	e
+	jr	nz,1$
+	pop	ix
+	ret
+2$:	jp	(ix)
+    __endasm;
+}
+
 void
 flushbuf(void)
 {
-    int             i;
-
-    for (i = 0; i < indbuf; i++)
-	bdos(6, outbuf[i] & 0xFF);
+    biosout();
     indbuf = 0;
 }
 

@@ -68,6 +68,169 @@ check "SHIFT gives upper case" 'A:\>Dir *.COM' "$out"
 out=$($EMU -a "$DISK" -t 10 -e 'A:\>' -k "$(printf 'ab\010c')\\r")
 check "BS rubs out" "AC?" "$out"
 
+# The back arrow rubs out one character, back over a wrapped row too,
+# and UP at the prompt brings back the last line
+long="dir$(printf 'x%.0s' $(seq 90))$(printf '\\L%.0s' $(seq 90))"
+out=$($EMU -a "$DISK" -t 60 -e 'A:\>' -k "${long}\\r\\P")
+check "back arrow over a wrapped row" 'XCPM     FNT : THIN     FNT' "$out"
+if printf '%s\n' "$out" | grep -q 'xxx'; then
+	echo "FAIL back arrow leaves the wrapped row on the screen:"
+	printf '%s\n' "$out"
+	fail=1
+else
+	echo "ok   back arrow leaves no rubbed-out text"
+fi
+out=$($EMU -a "$DISK" -t 15 -e 'A:\>' -k 'qwer\r\Pab\U\Lz\r\P')
+check "UP brings back the last line" "QWEZ?" "$out"
+
+# The cursor blinks while the shell waits for a key: frames 16 ticks
+# apart differ, and 32 apart are the same
+for t in 4.0 4.26 4.52; do
+	$EMU -a "$DISK" -t $t -p $T/out/blink$t.bin >/dev/null
+done
+if ! cmp -s $T/out/blink4.0.bin $T/out/blink4.26.bin &&
+	cmp -s $T/out/blink4.0.bin $T/out/blink4.52.bin; then
+	echo "ok   the cursor blinks at the prompt"
+else
+	echo "FAIL the cursor blinks at the prompt"
+	fail=1
+fi
+
+# ESC E and ESC R, insert and delete a line, move the screen's start
+# a row, the 2K of video RAM a ring, when the rows above the cursor are
+# fewer, and copy the rest a row at a time, by LDIR when the row stays in
+# one 1K half. The screens are those of the console before, which
+# copied each cell, at two starts of the ring.
+cat >$T/scrops.asm <<'EOF'
+; SCROPS n: 30 + 3n rows of text, then lines inserted, deleted and
+; erased at rows across the screen, the screen's start moving between
+	org	100h
+	ld	a,(82h)
+	sub	'0'
+	ld	b,a
+	add	a,a
+	add	a,b
+	add	a,30
+	ld	b,a
+fill:	push	bc
+	ld	a,b
+	and	0Fh
+	add	a,'A'
+	ld	(rowt),a
+	ld	(rowt+40),a
+	ld	(rowt+74),a
+	ld	de,rowt
+	ld	c,9
+	call	5
+	pop	bc
+	djnz	fill
+	ld	hl,ops
+op:	ld	a,(hl)
+	or	a
+	jr	z,done
+	inc	hl
+	ld	b,(hl)
+	inc	hl
+	push	hl
+	push	af
+	ld	a,1Bh			; ESC = row, column 5
+	call	out
+	ld	a,'='
+	call	out
+	ld	a,b
+	add	a,20h
+	call	out
+	ld	a,25h
+	call	out
+	ld	a,1Bh
+	call	out
+	pop	af
+	call	out
+	ld	a,'*'
+	call	out
+	pop	hl
+	jr	op
+done:	ld	a,1Bh			; the prompt on row 22
+	call	out
+	ld	a,'='
+	call	out
+	ld	a,20h+22
+	call	out
+	ld	a,20h
+	jp	out
+out:	push	bc			; the BDOS keeps no registers
+	push	hl
+	ld	e,a
+	ld	c,2
+	call	5
+	pop	hl
+	pop	bc
+	ret
+ops:	db	'E',0,'R',0,'E',5,'R',11,'E',12,'R',12,'E',23,'R',23
+	db	'E',11,'R',1,'E',17,'R',6,'T',3,'E',2,'E',2,'R',20
+	db	'E',22,'R',0,'R',0,'E',9,'R',13,'E',14,'Y',21,0
+rowt:	db	'xrow abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789 .,;:x'
+	db	13,10,'$'
+EOF
+(cd $T && sjasmplus --nologo --msg=war --raw=SCROPS.COM scrops.asm >/dev/null)
+mkdisk $T/scrops.imd $T/SCROPS.COM >/dev/null
+cat >$T/scrops2.ok <<'EOF'
+     *
+     *
+Erow abcdefghijklmnopqrstuvwxyz ABCDEFGHEJKLMNOPQRSTUVWXYZ 0123456789 .,;:E
+Drow *
+     *
+Crow abcdefghijklmnopqrstuvwxyz ABCDEFGHCJKLMNOPQRSTUVWXYZ 0123456789 .,;:C
+Arow *bcdefghijklmnopqrstuvwxyz ABCDEFGHAJKLMNOPQRSTUVWXYZ 0123456789 .,;:A
+Prow abcdefghijklmnopqrstuvwxyz ABCDEFGHPJKLMNOPQRSTUVWXYZ 0123456789 .,;:P
+Orow abcdefghijklmnopqrstuvwxyz ABCDEFGHOJKLMNOPQRSTUVWXYZ 0123456789 .,;:O
+     *
+     *
+Mrow *bcdefghijklmnopqrstuvwxyz ABCDEFGHMJKLMNOPQRSTUVWXYZ 0123456789 .,;:M
+Lrow *bcdefghijklmnopqrstuvwxyz ABCDEFGHLJKLMNOPQRSTUVWXYZ 0123456789 .,;:L
+Jrow *bcdefghijklmnopqrstuvwxyz ABCDEFGHJJKLMNOPQRSTUVWXYZ 0123456789 .,;:J
+     *
+Irow abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789 .,;:I
+Hrow abcdefghijklmnopqrstuvwxyz ABCDEFGHHJKLMNOPQRSTUVWXYZ 0123456789 .,;:H
+     *
+Grow abcdefghijklmnopqrstuvwxyz ABCDEFGHGJKLMNOPQRSTUVWXYZ 0123456789 .,;:G
+Erow *bcdefghijklmnopqrstuvwxyz ABCDEFGHEJKLMNOPQRSTUVWXYZ 0123456789 .,;:E
+Drow abcdefghijklmnopqrstuvwxyz ABCDEFGHDJKLMNOPQRSTUVWXYZ 0123456789 .,;:D
+     *
+
+A:\>
+EOF
+cat >$T/scrops7.ok <<'EOF'
+     *
+     *
+Erow abcdefghijklmnopqrstuvwxyz ABCDEFGHEJKLMNOPQRSTUVWXYZ 0123456789 .,;:E
+Drow *
+     *
+Crow abcdefghijklmnopqrstuvwxyz ABCDEFGHCJKLMNOPQRSTUVWXYZ 0123456789 .,;:C
+Arow *bcdefghijklmnopqrstuvwxyz ABCDEFGHAJKLMNOPQRSTUVWXYZ 0123456789 .,;:A
+Prow abcdefghijklmnopqrstuvwxyz ABCDEFGHPJKLMNOPQRSTUVWXYZ 0123456789 .,;:P
+Orow abcdefghijklmnopqrstuvwxyz ABCDEFGHOJKLMNOPQRSTUVWXYZ 0123456789 .,;:O
+     *
+     *
+Mrow *bcdefghijklmnopqrstuvwxyz ABCDEFGHMJKLMNOPQRSTUVWXYZ 0123456789 .,;:M
+Lrow *bcdefghijklmnopqrstuvwxyz ABCDEFGHLJKLMNOPQRSTUVWXYZ 0123456789 .,;:L
+Jrow *bcdefghijklmnopqrstuvwxyz ABCDEFGHJJKLMNOPQRSTUVWXYZ 0123456789 .,;:J
+     *
+Irow abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789 .,;:I
+Hrow abcdefghijklmnopqrstuvwxyz ABCDEFGHHJKLMNOPQRSTUVWXYZ 0123456789 .,;:H
+     *
+Grow abcdefghijklmnopqrstuvwxyz ABCDEFGHGJKLMNOPQRSTUVWXYZ 0123456789 .,;:G
+Erow *bcdefghijklmnopqrstuvwxyz ABCDEFGHEJKLMNOPQRSTUVWXYZ 0123456789 .,;:E
+Drow abcdefghijklmnopqrstuvwxyz ABCDEFGHDJKLMNOPQRSTUVWXYZ 0123456789 .,;:D
+     *
+
+A:\>
+EOF
+for n in 2 7; do
+	$EMU -a $T/scrops.imd -t 8 -e 'A:\>' -k "scrops $n\\r" >$T/out/scrops$n.txt
+	same "insert and delete lines, the ring at start $n" $T/scrops$n.ok $T/out/scrops$n.txt
+done
+
 keys=""
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do keys="${keys}cmd$i\\r"; done
 out=$($EMU -a "$DISK" -t 40 -e 'A:\>' -k "${keys}Hi! (x*y)=<z>?\\r")
@@ -121,6 +284,7 @@ if [ "$(uname)" = Linux ]; then
 		check "C: sscanf %i, %[, widths, %n" "scan 4 12 31 abc def 15" "$out"
 		check "C: sscanf %*d and %o" "scan2 4 511" "$out"
 		check "C: a text file written and read by lines" "lines 300" "$out"
+		check "C: and by fread, 50 bytes at a time" "fread 2590 0" "$out"
 		check "C: fseek, a write in the middle, ftell, SEEK_END" "bin 188 85 301 1024" "$out"
 		check "C: a missing file" "missing null" "$out"
 		check "C: the string functions" "str 6 -1 0 def /c cdef 2" "$out"
@@ -461,7 +625,7 @@ open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
 		make -s apps >/dev/null 2>&1
 		out=$(python3 tools/session.py "-a build/apps.imd" @10 'dir\r' @20 'zork\r' @20)
 		check "the apps disk loads CLIB.SYS" "C library loaded" "$out"
-		check "and has the C programs" "CLIB     SYS : VI       COM : EMACS    COM" "$out"
+		check "and has the C programs" "CLIB     SYS : VI       COM" "$out"
 		check "and ZORK, with no story" "Usage: ZORK STORY.DAT, a Z-machine version 3 story" "$out"
 		out=$($EMU -a build/apps.imd -T -t 60 -e 'A:\>|instructions?' -k 'advent\r')
 		check "and ADVENT, with its text" "Would you like instructions?" "$out"
@@ -497,6 +661,18 @@ out=$($EMU -a $T/clk.imd -T -t 15 -e 'A:\>' -k 'clock\r')
 check "CLOCK reads the date from the clock chip" "$(date +%m/%d/%y) " "$out"
 n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} [0-2][0-9]:[0-5][0-9]:[0-5][0-9]$')
 check "and the time, every digit" "1" "$n"
+
+# BENCH reads BENCH.DAT over and over for 30 clock seconds.
+# With the drives' mechanics (-M) a pass of 40000 bytes takes seconds.
+head -c 40000 /dev/zero | tr ' ' 'x' >$T/BENCH.DAT
+mkdisk $T/bn.imd build/BENCH.COM $T/BENCH.DAT >/dev/null
+out=$($EMU -a $T/bn.imd -T -M -t 60 -e 'A:\>' -k 'dir\rbench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
+n=$(printf '%s
+' "$out" | grep -aEc '^[^ ]+ [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
+check "BENCH prints the tag, passes, records and seconds, 30 or more" "1" "$n"
+mkdisk $T/nb.imd build/BENCH.COM >/dev/null
+out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
+check "BENCH says No file" "No file" "$out"
 
 # MORE: a screen of 23 lines, Space the next, Enter one more, Q
 # stops. A tab goes to the next 8 columns, a long line wraps.
@@ -570,7 +746,7 @@ check "DIR shows a folder as NAME\\" "A: M        COM : OLD\\" "$out"
 check "LS shows <DIR>" "OLD\\         <DIR>" "$out"
 out=$($EMU -a $T/out/fd1.imd -t 60 -e 'A:\>|A:\GAMES>' -w a:$T/o2/fd.imd \
 	-k 'cd games\rcopy \\clock.com c.com\rcd \\\rdir\rtype games\\nothere.txt\rcd nothere\rmd games\rmd x*\rrd games\r')
-check "the root's DIR shows the folder" "A: XCPM     FNT : THIN     FNT : INVERSE  FNT : GAMES\\" "$out"
+check "the root's DIR shows the folder" "A: GAMES\\" "$out"
 check "a path to no file" "No file" "$out"
 check "CD to no folder" "No folder" "$out"
 check "MD of a name taken" "Exists" "$out"
@@ -590,7 +766,11 @@ check "the folder stays through the warm boots" 'A:\GAMES>clock' "$out"
 out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>' -k 'save 1 games\rren games=more.com\rdir\r')
 check "SAVE to a folder's name makes no file" "No file" "$out"
 check "nor does REN" "No file, or the new name is taken" "$out"
-check "and the folder is still alone" "INVERSE  FNT : GAMES\\" "$out"
+check "and the folder is still alone" "A: GAMES\\" "$out"
+out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>|A:\GAMES>' \
+	-k 'copy clock.com games\rcopy *.fnt \\games\rcd games\rdir\r')
+check "COPY to a folder's name puts the file in it" "A: M        COM : OLD\\         : C        COM : CLOCK    COM" "$out"
+check "and wildcards to one" "A: XCPM     FNT : THIN     FNT : INVERSE  FNT" "$out"
 
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused
@@ -601,7 +781,7 @@ out=$($EMU -a "$DISK" -t 200 -e 'A:\>|A:\BIG>|ALL (Y/N)?' -w a:$T/out/fb.imd \
 check "40 files in a folder" "A:\\BIG>save 1 f40.com" "$out"
 check "RD of the current folder" "In use" "$out"
 check "LS of a path" "F40.COM      256" "$out"
-check "ERA of a path, RD, and the folder is gone" "A: XCPM     FNT : THIN     FNT : INVERSE  FNT" "$(printf '%s\n' "$out" | tail -3)"
+check "ERA of a path, RD, and the folder is gone" "XCPM     FNT : THIN     FNT : INVERSE  FNT" "$(printf '%s\n' "$out" | tail -3)"
 printf '%s\n' "$out" | tail -3 | grep -q 'BIG\\' &&
 	{ echo "FAIL BIG\\ should be gone"; fail=1; }
 python3 ../tools/imd2raw.py $T/out/fb.imd $T/out/fb.img >/dev/null

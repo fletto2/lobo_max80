@@ -126,8 +126,13 @@ run 12 'CLS\rDIR\r' -p $T/y.pgm >/dev/null
 out=$(python3 - $T/x.pgm $T/y.pgm <<'PY'
 import sys
 a, b = (open(f, 'rb').read() for f in sys.argv[1:])
-n = len(a) // 2			# the top half: the DIR, not the cursor
-print('same' if len(a) == len(b) and a[:n] == b[:n] else 'differ')
+def rows(d):	# the header and the pixel lines down to text row 5
+	h = d.split(b'\n', 4)	# P5, "# cells left top w h ...", W H, 255
+	top, ch = int(h[1].split()[3]), int(h[1].split()[5])
+	w, n = map(int, h[2].split())
+	return d[:len(d) - w * n + w * (top + 5 * ch)]
+# the DIR, rows 0-4, not row 5 with the prompt and its blinking cursor
+print('same' if len(a) == len(b) and rows(a) == rows(b) else 'differ')
 PY
 )
 check "BREAK: rows, fonts and screen as before" "same" "$out"
@@ -204,7 +209,9 @@ if [ -f "$ROM" ]; then
 	game() {	# seconds, keys
 		$EMU -f -T -a $T/g.imd -e 'A:\>' -k "$2" -t $1 2>&1
 	}
-	out=$(game 16 'ZX81 TETRIS /F\E\P\P\P\Ps\P\P\Pk\Pk\P')
+	# s at 6 s: around 4 s the title lets a key go by, and when that
+	# comes depends on how fast the system starts the game
+	out=$(game 18 'ZX81 TETRIS /F\E\P\P\P\P\P\Ps\P\P\Pk\Pk\P')
 	check "Tetris: a key starts a game" "$(zt LINES)" "$out"
 	out=$(game 26 'ZX81 MINE81 /F\E\P\P\P\P\P\Ps\P\P\P\P\P1\P\P\P\P\P\P\P\P')
 	check "Mine81: a level starts a game" "$(zt MINES)" "$out"

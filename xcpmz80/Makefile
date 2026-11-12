@@ -18,7 +18,7 @@ build/xcpmz80.sys: $(SRC)
 # The boot disk also carries the programs in apps/, the system's font
 # as XCPM.FNT for LDFONT to load again, and both fonts as THIN.FNT and
 # INVERSE.FNT
-APPS = build/LDFONT.COM build/GLYPHS.COM build/CLOCK.COM build/MORE.COM
+APPS = build/LDFONT.COM build/GLYPHS.COM build/CLOCK.COM build/MORE.COM build/BENCH.COM
 FONTS = build/XCPM.FNT build/THIN.FNT build/INVERSE.FNT
 
 build/ZX81.COM: apps/zx81/zx81.asm apps/zx81/hw.inc
@@ -34,6 +34,10 @@ build/GLYPHS.COM: apps/glyphs.asm
 	$(SJASM) --nologo --msg=war --raw=$@ $<
 
 build/CLOCK.COM: apps/clock.asm
+	mkdir -p build
+	$(SJASM) --nologo --msg=war --raw=$@ $<
+
+build/BENCH.COM: apps/bench.asm
 	mkdir -p build
 	$(SJASM) --nologo --msg=war --raw=$@ $<
 

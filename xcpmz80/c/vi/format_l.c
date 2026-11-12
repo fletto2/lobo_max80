@@ -10,6 +10,46 @@
 
 char           *tab_expand = "                ";
 
+#ifdef MAX80
+/*
+ * Added for the MAX-80: the run of printable characters, 20h to 7Eh,
+ * copied in Z80 code, from fl_s to fl_d, at most fl_n of them (1 to
+ * 255), both moved on. It gives back the count. SDCC's loop takes
+ * some 400 T-states a character, this one 70, and every scroll
+ * formats a line or two.
+ */
+static char    *fl_s;
+static char    *fl_d;
+static unsigned char fl_n;
+
+static unsigned char
+fl_run(void) __naked
+{
+    __asm
+	ld	hl,(_fl_s)
+	ld	de,(_fl_d)
+	ld	a,(_fl_n)
+	ld	b,a
+	ld	c,#0
+1$:	ld	a,(hl)
+	cp	#0x20
+	jr	c,2$
+	cp	#0x7f
+	jr	nc,2$
+	ld	(de),a
+	inc	hl
+	inc	de
+	inc	c
+	djnz	1$
+2$:	ld	(_fl_s),hl
+	ld	(_fl_d),de
+	ld	a,c
+	ld	l,a
+	ret
+    __endasm;
+}
+#endif
+
 char           *
 format_line(char *ptr, int *len)
 {
@@ -34,6 +74,21 @@ format_line(char *ptr, int *len)
 	    n_extra--;
 	} else {
 	    c = *ptr++;
+#ifdef MAX80
+	    while (c >= 32 && c < 127) {
+		int             room = IOSIZE - col;
+
+		fl_s = ptr - 1;
+		fl_d = dest;
+		fl_n = room > 255 ? 255 : room;
+		col += fl_run();
+		ptr = fl_s;
+		dest = fl_d;
+		if (col >= IOSIZE)
+		    goto DONE_FORMAT_LINE;
+		c = *ptr++;
+	    }
+#else
 	    while (c >= 32 && c < 127) {
 		*dest++ = c;
 		col++;
@@ -41,6 +96,7 @@ format_line(char *ptr, int *len)
 		    goto DONE_FORMAT_LINE;
 		c = *ptr++;
 	    }
+#endif
 	    if (!P(P_LS)) {
 		if (c == TAB) {
 		    /* tab amount depends on current column */

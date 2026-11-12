@@ -75,8 +75,11 @@ A floppy written by FORMAT reads the same way after
 - `src/util.asm`: console output, numbers, file names, wildcards.
 - `src/vars.inc`: the kernel's variables.
 - `src/common.asm`: the part in common memory, A1 from DF00h: the BDOS
-  entry, the BIOS jump table, start-up, the RAM test, the screen, the
-  keyboard and the tick interrupt.
+  entry, which writes the characters of functions 2 and 6 without the
+  kernel, the BIOS jump table, start-up, the RAM test, the screen, the
+  keyboard and the tick interrupt. ESC E and ESC R move the CRTC's
+  start address a row when the rows above the cursor are fewer, so
+  the 2K of video RAM is a ring, and copy the others by LDIR.
 - `src/font.bin`: the console font, made by `tools/mkfont.py` from
   unscii-8, with a thin second style after ESC ). 7Fh is the cursor.
   `src/font_inverse.bin` has an inverse second style instead:

@@ -92,6 +92,23 @@ int main(void)
 	say("first %s", buf);
 	fclose(f);
 
+	/* the same file by fread, 50 bytes at a time: every line's bytes
+	   and no CR, as fgetc gives them */
+	f = fopen("ctest.txt", "r");
+	{
+		long t = 0;
+		int cr = 0, k;
+
+		while ((n = fread(buf, 1, 50, f)) > 0) {
+			for (k = 0; k < n; k++)
+				if (buf[k] == '\r')
+					cr++;
+			t += n;
+		}
+		say("fread %ld %d\n", t, cr);
+	}
+	fclose(f);
+
 	/* binary: seek to a byte and read it, write in the middle */
 	f = fopen("CTEST.BIN", "wb");
 	for (i = 0; i < 1000; i++)

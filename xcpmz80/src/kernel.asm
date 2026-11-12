@@ -761,4 +761,5 @@ she_nf:	call	pmsg
 	include	"disk.asm"
 	include	"clock.asm"
 	include	"util.asm"
+	include	"format.asm"		; FORMAT and SYS
 KERNEL_END:

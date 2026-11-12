@@ -24,7 +24,7 @@ shell:	ld	sp,STKTOP
 	jr	nz,sh_kbd
 	ld	hl,linebuf		; a batch line: show it
 	call	pstr
-	jr	sh_go
+	jp	sh_go
 sh_kbd:	ld	hl,(rsxtop)		; RSXs loaded: through them, as
 	ld	de,bdosent		; CP/M 3's CCP, for GET and SUBMIT
 	or	a
@@ -61,7 +61,20 @@ sh_own:	ld	a,127
 	ld	a,(scb+SCB_COL)
 	ld	(lnstart),a
 	ld	(lnend),a
+	ld	a,1			; UP brings back the last line here
+	ld	(lnhist),a
 	call	rdline
+	xor	a
+	ld	(lnhist),a
+	ld	a,(lnlen)		; kept for UP, if not empty
+	or	a
+	jr	z,sh_len
+	ld	(histlen),a
+	ld	c,a
+	ld	b,0
+	ld	hl,linebuf
+	ld	de,histbuf
+	ldir
 sh_len:	ld	a,(lnlen)
 	ld	e,a
 	ld	d,0
@@ -697,7 +710,9 @@ ccp:	ld	de,cpsrc
 	ld	a,(scb+SCB_DRV)
 	inc	a
 	ld	(cpdst),a
-cp_1:	ld	hl,cpsrc		; the names first: copying moves the
+cp_1:	call	cpfold
+	call	cpsrcd
+	ld	hl,cpsrc		; the names first: copying moves the
 	call	cfcbset			; directory
 	call	fcbdrv
 	jp	nz,sherr
@@ -756,6 +771,37 @@ cp_7:	call	crlf
 	dec	(hl)
 	jr	nz,cp_6
 	jp	shell
+
+; If "to" is the name of a folder, with no \ after it, that folder
+; becomes the destination and the name is left blank
+cpfold:	ld	hl,cpdst+1
+	ld	a,(hl)
+	cp	' '
+	ret	z
+	ld	b,11
+cf_1:	ld	a,(hl)			; no wildcards
+	cp	'?'
+	ret	z
+	inc	hl
+	djnz	cf_1
+	call	cpdstd
+	ld	hl,cpdst
+	call	cfcbset
+	call	fcbdrv
+	ret	nz
+	ld	hl,CFCB+F_NAME
+	call	namepat
+	call	wpfind
+	ret	nz
+	ld	(dstdir),hl
+	ld	a,(drvnum)
+	ld	(dstdrv),a
+	ld	hl,cpdst+1
+	ld	de,cpdst+2
+	ld	bc,10
+	ld	(hl),' '
+	ldir
+	ret
 
 ; Copy cpsrc to cpdst2, byte exact
 copy1:	call	cpsrcd
