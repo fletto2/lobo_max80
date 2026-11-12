@@ -664,11 +664,11 @@ check "and the time, every digit" "1" "$n"
 
 # BENCH reads BENCH.DAT over and over for 30 clock seconds.
 # With the drives' mechanics (-M) a pass of 40000 bytes takes seconds.
-head -c 40000 /dev/zero | tr ' ' 'x' >$T/BENCH.DAT
+head -c 40000 /dev/zero | tr '\000' 'x' >$T/BENCH.DAT
 mkdisk $T/bn.imd build/BENCH.COM $T/BENCH.DAT >/dev/null
 out=$($EMU -a $T/bn.imd -T -M -t 60 -e 'A:\>' -k 'dir\rbench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
 n=$(printf '%s
-' "$out" | grep -aEc '^[^ ]+ [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
+' "$out" | grep -aEc '^x{16} [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
 check "BENCH prints the tag, passes, records and seconds, 30 or more" "1" "$n"
 mkdisk $T/nb.imd build/BENCH.COM >/dev/null
 out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
@@ -771,6 +771,20 @@ out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>|A:\GAMES>' \
 	-k 'copy clock.com games\rcopy *.fnt \\games\rcd games\rdir\r')
 check "COPY to a folder's name puts the file in it" "A: M        COM : OLD\\         : C        COM : CLOCK    COM" "$out"
 check "and wildcards to one" "A: XCPM     FNT : THIN     FNT : INVERSE  FNT" "$out"
+
+# MV into a folder and out again moves the entry, in one folder it
+# renames, and to another drive it copies and erases
+cp "$DISK" $T/mvb.imd
+out=$($EMU -a "$DISK" -b $T/mvb.imd -t 60 -e 'A:\>' -w a:$T/out/mv.imd -w b:$T/out/mvb.imd \
+	-k 'md games\rmv more.com games\rmv clock.com games\\c.com\rmv games\\c.com \\\rmv glyphs.com gl.com\rmv xcpm.fnt b:x.fnt\rdir\rdir games\\\rdir b:\r')
+check "MV into a folder" "A: MORE     COM" "$out"
+check "MV in one folder renames, out of a folder to the top" "A: LDFONT   COM : GL       COM : C        COM : BENCH    COM" "$out"
+check "MV to another drive, and the source goes" "A: THIN     FNT : INVERSE  FNT : GAMES\\" "$out"
+check "and it is there" "B: X        FNT" "$out"
+python3 ../tools/imd2raw.py $T/out/mv.imd $T/out/mv.img >/dev/null
+fatok "the moves leave a clean FAT volume" $T/out/mv.img
+mcopy -o -i $T/out/mv.img ::GAMES/MORE.COM $T/out/MV.COM
+same "and the moved file is byte exact" build/MORE.COM $T/out/MV.COM
 
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused

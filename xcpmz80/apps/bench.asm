@@ -6,7 +6,7 @@
 ; function 20, over and over, for 30 seconds of clock time. It starts on
 ; a change of the clock's second and stops at the end of the first pass
 ; after the time is up. Prints one line: the disk's tag, which is the
-; first 8 bytes of BENCH.DAT, then passes, records, seconds. Runs under
+; first 16 bytes of BENCH.DAT, then passes, records, seconds. Runs under
 ; any CP/M with the I/O block at F000h, Lobo's CP/M 2.2 and xcpmz80.
 ; Any key during the wait for the clock stops it.
 
@@ -31,7 +31,7 @@ RD	equ	20h
 	call	BDOS
 	ld	hl,TAIL
 	ld	de,tag
-	ld	bc,8
+	ld	bc,16
 	ldir
 	ld	de,msgwait
 	call	puts
@@ -233,7 +233,7 @@ msgclk:	db	'The clock chip does not change',13,10,'$'
 msgwait: db	'Waiting for the clock',13,10,'$'
 msgend:	db	13,10,'$'
 
-tag:	ds	8
+tag:	ds	16
 	db	' $'
 want:	dw	30
 name:	db	'BENCH   DAT'

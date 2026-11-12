@@ -752,6 +752,61 @@ fn_4:	inc	hl
 	call	bdirty
 	jp	flushall
 
+; Move the file the FCB names, in folder dircl after fcbdrw, to folder
+; mvdst on the same drive as the name at CFCB+17, its directory entry
+; moved and no data copied. A = 0, R_NOFILE when there is no such file,
+; the new name is taken or the folder has no room, or an error.
+fmove:	call	fcbdrw
+	ret	nz
+	ld	hl,(dircl)
+	ld	(mvsrc),hl
+	ld	hl,(mvdst)		; the new name must be free there
+	ld	(dircl),hl
+	ld	hl,CFCB+17
+	call	namepat
+	call	dsany
+	jp	z,fn_no
+	cp	R_NOFILE
+	ret	nz
+	ld	hl,(mvsrc)
+	ld	(dircl),hl
+	call	fcbpat
+	call	dsfirst
+	jr	z,fm_1
+	cp	R_NOFILE
+	ret	nz
+	jp	fn_no
+fm_1:	call	isro
+	ld	a,E_ROFILE
+	ret	nz
+	ld	de,mvbuf		; keep the entry and where it is
+	ld	bc,32
+	ldir
+	ld	hl,(dpos)
+	ld	(mvpos),hl
+	ld	hl,(mvdst)		; a new one in the folder
+	ld	(dircl),hl
+	ld	hl,CFCB+17
+	call	namepat
+	call	dnew
+	jp	nz,fn_no
+	ld	de,11			; with the old one's attributes,
+	add	hl,de			; times, cluster and size
+	ex	de,hl
+	ld	hl,mvbuf+11
+	ld	bc,21
+	ldir
+	call	bdirty
+	ld	hl,(mvsrc)		; then the old one goes
+	ld	(dircl),hl
+	ld	hl,(mvpos)
+	ld	(dpos),hl
+	call	dirent
+	ret	nz
+	ld	(hl),0E5h
+	call	bdirty
+	jp	flushall
+
 ; Set the attributes of the files matching the FCB from its t1' (R/O)
 ; and t2' (SYS) bits. A = 0, or R_NOFILE.
 fattrib: call	fcbdrv

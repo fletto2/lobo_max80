@@ -542,7 +542,8 @@ ce_3:	ld	hl,argfcb
 	call	fchk
 	jp	shell
 
-; REN new=old, as CP/M's. MV old new, as Unix.
+; REN new=old, as CP/M's, in one folder. MV old new, as Unix, through
+; COPY's loop: see mvone.
 cren:	ld	de,renew
 	call	argcp
 	call	skipsp
@@ -550,11 +551,6 @@ cren:	ld	de,renew
 	jp	nz,dc_what
 	inc	hl
 	ld	de,reold
-	call	argcp
-	jr	rename
-cmv:	ld	de,reold
-	call	argcp
-	ld	de,renew
 	call	argcp
 rename:	ld	hl,reold
 	call	cfcbset
@@ -682,7 +678,11 @@ cuser:	call	skipsp
 
 ; CP from to, COPY from to. "to" may be a drive. "from" may have
 ; wildcards when "to" is a drive. The copy is byte exact.
-ccp:	ld	de,cpsrc
+ccp:	xor	a
+	db	01h			; LD BC,nn: skips the LD A,1
+cmv:	ld	a,1
+	ld	(mvflag),a
+	ld	de,cpsrc
 	call	argcp
 	ld	a,(fdrive)		; the source drive, made explicit
 	inc	a
@@ -765,8 +765,13 @@ cp_6:	ld	hl,(nameptr)		; one file: source name
 cp_7:	call	crlf
 	ld	hl,cpsrc+1
 	call	pname
+	ld	a,(mvflag)
+	or	a
+	jr	nz,cp_mv
 	call	copy1
-	call	kbreak
+	jr	cp_8
+cp_mv:	call	mvone
+cp_8:	call	kbreak
 	ld	hl,ncount
 	dec	(hl)
 	jr	nz,cp_6
@@ -802,6 +807,71 @@ cf_1:	ld	a,(hl)			; no wildcards
 	ld	(hl),' '
 	ldir
 	ret
+
+; MV one file, cpsrc to cpdst2. In one folder a rename, to another
+; folder on the drive the directory entry moves, to another drive a
+; copy and the source erased after it. A ? in the new name keeps the
+; source's character.
+mvone:	call	cpsrcd
+	ld	hl,cpsrc
+	call	cfcbset
+	call	fcbdrv
+	jp	nz,sherr
+	ld	a,(drvnum)
+	push	af
+	ld	hl,(dircl)
+	push	hl
+	call	cpdstd
+	ld	hl,cpdst2
+	call	cfcbset
+	call	fcbdrv
+	jp	nz,sherr
+	ld	hl,cpdst2+1
+	ld	de,cpsrc+1
+	ld	b,11
+mv_1:	ld	a,(hl)
+	cp	'?'
+	jr	nz,mv_2
+	ld	a,(de)
+	ld	(hl),a
+mv_2:	inc	hl
+	inc	de
+	djnz	mv_1
+	pop	de			; the source's folder and drive
+	pop	af
+	ld	hl,drvnum
+	cp	(hl)
+	jr	nz,mv_x
+	ld	hl,(dircl)
+	ld	(mvdst),hl
+	or	a
+	sbc	hl,de
+	push	af
+	call	cpsrcd
+	ld	hl,cpsrc
+	call	cfcbset
+	ld	hl,cpdst2+1
+	ld	de,CFCB+17
+	ld	bc,11
+	ldir
+	pop	af
+	jr	nz,mv_3
+	call	frename
+	jr	mv_4
+mv_3:	call	fmove
+mv_4:	jp	nz,sherr
+	or	a
+	ret	z
+	call	crlf
+	call	pmsg
+	db	"No file, or the new name is taken",0
+	jp	shell
+mv_x:	call	copy1			; another drive
+	call	cpsrcd
+	ld	hl,cpsrc
+	call	cfcbset
+	call	fdelete
+	jp	fchk
 
 ; Copy cpsrc to cpdst2, byte exact
 copy1:	call	cpsrcd
@@ -963,7 +1033,8 @@ ch_1:	call	pmsg
 	db	"DIR, LS [d:][name]      list files",0Dh,0Ah
 	db	"TYPE, CAT name          show a text file",0Dh,0Ah
 	db	"ERA, RM, DEL name       delete",0Dh,0Ah
-	db	"REN new=old, MV old new rename",0Dh,0Ah
+	db	"REN new=old             rename",0Dh,0Ah
+	db	"MV old new              rename, or move",0Dh,0Ah
 	db	"CP, COPY from to        copy, byte exact",0Dh,0Ah
 	db	"SAVE n name             save n pages from 0100h",0Dh,0Ah
 	db	"USER n, FREE [d:], CLS, VER",0Dh,0Ah

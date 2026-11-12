@@ -151,8 +151,14 @@ fmtcyl		equ	fmtsd+1			; cylinders
 fmtrot		equ	fmtcyl+1		; the track's first slot
 fmtgap		equ	fmtrot+1		; the gap after each sector
 fmtpc		equ	fmtgap+1		; 1 for PC after the size
+; MV
+mvflag		equ	fmtpc+1		; not 0: COPY's loop moves
+mvsrc		equ	mvflag+1	; fmove: the source folder
+mvdst		equ	mvsrc+2		; the destination folder
+mvpos		equ	mvdst+2		; the source entry's number
+mvbuf		equ	mvpos+2		; and the entry, 32 bytes
 ; The cache's sectors, last
-rsxtop		equ	fmtpc+1	; what 0006h holds: bdosent or the lowest RSX
+rsxtop		equ	mvbuf+32	; what 0006h holds: bdosent or the lowest RSX
 rsxlink		equ	rsxtop+2	; rsxfree: where the link to this RSX is
 rsxn		equ	rsxlink+2	; rsxload: RSXs left in the header
 rsxent		equ	rsxn+1		; rsxload: the header entry

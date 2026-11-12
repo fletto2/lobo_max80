@@ -95,10 +95,11 @@ DIR, LS, TYPE, ERA, SAVE, FREE and COPY take paths:
     TYPE ..\README.TXT
     ERA OLD\*.*
 
-COPY to a folder's name, `COPY CLOCK.COM GAMES`, puts the file in that
-folder, as `GAMES\` does. DIR shows a folder as `NAME\`, LS as `NAME\` with `<DIR>`. REN and MV
-rename within one folder. A folder's path is at most 46 characters,
-so folders go 3 or 4 deep.
+COPY or MV to a folder's name, `COPY CLOCK.COM GAMES`, puts the file
+in that folder, as `GAMES\` does. MV moves a file to another folder on
+the same drive without copying its data. REN renames within one
+folder. DIR shows a folder as `NAME\`, LS as `NAME\` with `<DIR>`. A
+folder's path is at most 46 characters, so folders go 3 or 4 deep.
 
 The current folder stays when a program ends. If the disk in the drive
 is changed, the drive goes back to the top folder. Programs see the
@@ -123,7 +124,8 @@ on an error.
 | `DIR [d:][name]`, `LS` | list files. `*` and `?` work as in CP/M: `DIR *.COM` |
 | `TYPE name`, `CAT` | show a text file |
 | `ERA name`, `RM`, `DEL` | delete files. With `*.*` it asks `ALL (Y/N)?` first. Folders are left alone |
-| `REN new=old`, `MV old new` | rename a file |
+| `REN new=old` | rename a file in its folder |
+| `MV old new` | rename a file, or move it: `MV GAME.COM GAMES` into a folder, `MV GAMES\GAME.COM \` out of one, `MV *.TXT DOCS` several, `MV GAME.COM B:` to another drive, which copies it and then erases it |
 | `COPY from to`, `CP` | copy a file, byte for byte. `COPY A:GAME.COM B:` keeps the name |
 | `SAVE n name` | save n pages (256 bytes each) of memory from 0100h as a file |
 | `USER n` | set the user number. FAT has no user areas, so every file shows in every one |

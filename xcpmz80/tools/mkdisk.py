@@ -30,6 +30,9 @@ the 8-inch connector at 500 kbit/s.
   the boot ROM reads when there is no sector 0, and the system follows
   it.
 
+--ss makes a 360 or 720 one sided, the same cylinders (--525 720 --ss is
+80 cylinders of one side, 360K).
+
 --ilv N, --skew N and --hskew N set a floppy's sector order: the
 interleave (default 2), the slots each cylinder is turned (default 2, 3
 for 8-inch) and the slots the second side is turned more (default 0).
@@ -83,11 +86,13 @@ PC = {360: (40, 2, 9, 2, 112, 0xfd), 180: (40, 1, 9, 1, 64, 0xfc),
       720: (80, 2, 9, 2, 112, 0xf9), 1440: (80, 2, 18, 1, 224, 0xf0)}
 
 
-def f5_bpb(system, kb):
+def f5_bpb(system, kb, ss=False):
     """The boot sector of SYSTEM with a BPB for a floppy of KB, a PC's layout"""
     if kb not in PC:
         raise SystemExit('--pc: 360, 180, 720 or 1440')
     cyls, heads, spt, spc, nroot, media = PC[kb]
+    if ss:                      # --ss: the same cylinders, one side
+        heads, media = 1, 0xf8
     total = cyls * spt * heads
     p = bpb(system)
     spf = 1
@@ -287,15 +292,19 @@ def main():
     if '--ds' in args:
         args.remove('--ds')
         system = ds_bpb(system)
+    ss = '--ss' in args
+    if ss:
+        args.remove('--ss')
     for opt in ('--525', '--pc'):
         if opt in args:
             i = args.index(opt)
             kb = int(args[i + 1])
-            system = f5_bpb(system, kb)
+            system = f5_bpb(system, kb, ss)
             del args[i:i + 2]
             eight, pc = kb == 1440, kb != 180
             if opt == '--525' and kb in (360, 720):
-                system = system[:0x25] + b'\x01' + system[0x26:]
+                if not ss:
+                    system = system[:0x25] + b'\x01' + system[0x26:]
                 pc = False
     if len(args) < 2:
         raise SystemExit(__doc__)
