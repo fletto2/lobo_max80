@@ -196,7 +196,10 @@ fdw0:	ld	a,(fdside)		; side, then the sector
 	ld	bc,0
 	ld	e,2
 	exx
-	di
+	push	af			; off for the transfer, and after it
+	call	iffget			; as they were: the BDOS keeps them
+	ld	(fdiff),a		; off for some programs
+	pop	af
 	cpl
 	ld	(FCTRL),a
 	bit	1,(ix+D_KIND)		; 5-inch: no READY, so count the wait
@@ -228,7 +231,11 @@ fdend:	exx
 	pop	de
 	pop	bc
 	exx
+	ld	a,(fdiff)
+	or	a
+	jr	z,fde_1
 	ei
+fde_1:
 	ld	a,(FSTAT)
 	cpl
 	ld	c,a
@@ -300,6 +307,9 @@ f5to:	ld	a,0D0h xor 0FFh		; nothing: stop the FDC
 	pop	de
 	pop	bc
 	exx
+	ld	a,(fdiff)
+	or	a
+	jr	z,fdto
 	ei
 fdto:	ld	(ix+D_TRK),0FFh		; no disk: Not Ready
 	ld	c,E_NOTRDY
@@ -807,8 +817,11 @@ bfl2:	ld	(iy+BH_DIRTY),0
 bfl5:	pop	de			; drop the count, DE comes back below
 bfl3:	push	af			; the write failed: what this drive's
 	ld	a,(iy+BH_DRV)		; buffers hold can not reach the disk,
-	call	bdrop			; on a write-protected one nothing
-	pop	af			; did. Forget them and the mount, so
+	inc	a			; on a write-protected one nothing
+	ld	(wbdrv),a		; did. Forget them and the mount, so
+	dec	a			; the error names this drive, not the
+	call	bdrop			; one the call was for
+	pop	af
 bfl4:	pop	ix			; the disk is read again as it is
 	pop	hl
 	pop	de

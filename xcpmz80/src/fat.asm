@@ -124,6 +124,8 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	(hl),0FFh
 	ld	hl,0			; and a folder's place on another disk
 	ld	(dscix),hl
+	ld	(frdrv),hl		; and the fresh cluster, never zeroed
+					; on a disk it may not be on (frcl too)
 	ld	(ix+D_HINT),2
 	ld	(ix+D_HINT+1),0
 	ld	(ix+D_MNT),1
@@ -337,6 +339,7 @@ fa_3:	ld	(ix+D_HINT),l
 fatfree: push	hl
 	ld	hl,0
 	ld	(dscix),hl
+	ld	(frdrv),hl		; nor the fresh cluster, which may go
 	pop	hl
 ffr_1:	call	fateoc
 	jr	c,ff9

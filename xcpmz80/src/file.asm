@@ -545,16 +545,78 @@ rl_eof:	ld	a,1
 	or	a
 	ret
 
-; A newly allocated cluster HL: zero its sectors, so that a record
-; written into it does not read old data, and a short last sector reads
-; clean. Keeps HL.
+; A newly allocated cluster HL: its sectors read as zeros, so that a
+; record written into it does not read old data, and a short last
+; sector reads clean. Each is zeroed in the cache as it is first
+; written (frsec), not all at once: at 4 or 8 sectors a cluster that
+; pushed the FAT and directory out of the cache, and each sector went
+; out as zeros, came back in and went out again. The rest of the last
+; one is zeroed here, when the file grows past it. Keeps HL.
 cfresh:	push	hl
+	call	frdone
+	pop	hl
+	ld	(frcl),hl
+	ld	a,(CFCB+F_DRIVE)
+	inc	a
+	ld	(frdrv),a
+	xor	a
+	ld	(frnext),a
+	ret
+
+; The fresh cluster's sectors not yet zeroed, zeroed, when it is on
+; this drive
+frdone:	ld	a,(frdrv)
+	dec	a
+	ld	b,a
+	ld	a,(CFCB+F_DRIVE)
+	cp	b
+	ret	nz
+	ld	a,(ix+D_SPC)
+	dec	a
+	ld	b,a
+	ld	a,(frnext)
+	cp	(ix+D_SPC)
+	ret	nc
+	jr	frzero
+
+; HL = the buffer of the record's sector (fsect, fsin, F_CCL), read in,
+; or zeroed with any sectors before it in a fresh cluster. NZ: error
+frsec:	ld	a,(frdrv)
+	dec	a
+	ld	b,a
+	ld	a,(CFCB+F_DRIVE)
+	cp	b
+	jr	nz,fs_get
+	ld	hl,(CFCB+F_CCL)
+	ld	de,(frcl)
+	or	a
+	sbc	hl,de
+	jr	nz,fs_get
+	ld	a,(fsin)
+	ld	b,a			; up to this one
+	ld	a,(frnext)
+	cp	b
+	jr	z,frzero
+	jr	c,frzero
+fs_get:	ld	de,(fsect)
+	jp	getsec
+; Zero sectors A to B of the fresh cluster: HL = the last one's buffer
+frzero:	ld	c,a
+frz_1:	push	bc
+	ld	hl,(frcl)
 	call	clsec
-	ld	b,(ix+D_SPC)
-cr_1:	push	bc
+	pop	bc
+	ld	a,e
+	add	a,c
+	ld	e,a
+	jr	nc,frz_2
+	inc	d
+frz_2:	push	bc
 	call	newsec
-	jr	nz,cr_2
-	push	de
+	pop	bc
+	ret	nz
+	push	hl
+	push	bc
 	ld	d,h
 	ld	e,l
 	inc	de
@@ -562,14 +624,15 @@ cr_1:	push	bc
 	ld	bc,511
 	ldir
 	call	bdirty
-	pop	de
-	inc	de
 	pop	bc
-	djnz	cr_1
 	pop	hl
-	ret
-cr_2:	pop	bc
-	pop	hl
+	inc	c
+	ld	a,c
+	ld	(frnext),a
+	dec	a
+	cp	b
+	jr	c,frz_1
+	xor	a
 	ret
 
 ; Read record HL into CBUF. A = 0, 1 at the end of the file, or NZ
@@ -630,8 +693,7 @@ wrrec:	ld	a,(CFCB+F_DRIVE)
 	ld	(fwflag),a
 	call	recloc
 	ret	nz
-	ld	de,(fsect)
-	call	getsec
+	call	frsec
 	ret	nz
 	ld	de,(foff)
 	add	hl,de

@@ -34,6 +34,7 @@ UIFF		equ	CVARS+2Eh	; the IFF under umap, 0 off
 KCAPS		equ	CVARS+2Fh	; 0 Caps Lock on, as at boot, 20h off
 CURHL		equ	CVARS+30h	; the cell curon last put the cursor on
 TICKS		equ	CVARS+32h	; counts the ticks, for the blink
+BDIFF		equ	CVARS+34h	; 1: the BDOS turned interrupts off
 BLINKO		equ	CVARS+33h	; nonzero: the blink has the cursor off
 RSXSTK		equ	CVARS+100h	; rsxcall's stack, from CVARS+80h
 RSXSTUB		equ	0040h		; in page zero: call 0005h, jp rsxret
@@ -62,29 +63,13 @@ be_0:	cp	LIBFN			; A = C
 	push	iy
 	ld	a,(UBANK)
 	push	af
+	call	bdioff			; before the kernel is mapped
 	ld	a,(PIODA)
 	ld	(UBANK),a
 	ld	a,BANK_SYS
 	ld	(PIODA),a
-	ld	a,(LIBIFF)		; from the library, whose interrupts
-	cp	2			; are off: on again while SYS is
-	jr	c,be_1			; mapped, if they were, for the keys
-	ei
-be_1:	call	kbdos
-	ld	a,(LIBIFF)
-	or	a
-	jr	z,be_2
-	di
-be_2:	ld	a,(UBANK)
-	ld	(PIODA),a
-	pop	af
-	ld	(UBANK),a
-	pop	iy
-	pop	ix
-	ld	sp,(usersp)
-	ld	a,l
-	ld	b,h
-	ret
+	call	kbdos
+	jp	bdexit
 
 ; The C library: the program's thunk jumped to 0005h with DE = the
 ; function's number, its return address on the stack and its arguments
@@ -454,6 +439,9 @@ wb_1:	di
 	ld	(PIODA),a
 	xor	a
 	ld	(LIBIFF),a
+	ld	(BDIFF),a
+	ld	a,IVPAGE		; the system's tick again, whatever
+	ld	i,a			; table a program left
 	ei
 	jp	(hl)
 
@@ -783,7 +771,9 @@ bfast:	cp	2
 	jr	nz,bf_k
 	ld	a,e
 	cp	0FDh
-	jr	c,bf_6o			; FDh-FFh read
+	jp	c,bf_6o			; FDh-FFh read
+	inc	a
+	jp	z,bf_6i			; FFh with no key: 0, here
 bf_k:	ld	a,c
 	jp	be_0
 bf_2:	ld	a,e
@@ -835,6 +825,31 @@ bf_11z:	ld	l,a
 	ld	h,0
 	ld	b,h
 	ret
+; 6 with FFh when no key waits, as 11, and on its conditions but mode
+; bit 0: 0 at once. A key waiting goes to the kernel, which takes it
+bf_6i:	ld	a,(scb+SCB_CIVEC+1)
+	cp	80h
+	jp	nz,bf_k
+	ld	a,(scb+SCB_CIVEC)
+	or	a
+	jp	nz,bf_k
+	ld	hl,(biostab+7)
+	ld	a,l
+	cp	low const
+	jp	nz,bf_k
+	ld	a,h
+	cp	high const
+	jp	nz,bf_k
+	ld	a,(KTAKE)
+	ld	b,a
+	ld	a,(KFILL)
+	cp	b
+	jp	nz,bf_k
+	xor	a
+	ld	l,a
+	ld	h,a
+	ld	b,a
+	ret
 bf_6o:	ld	(usersp),sp		; 6 writes as CP/M's: to the console
 	ld	sp,(kstk)		; alone, not the printer, and the
 	ld	c,e			; column is left as it is
@@ -842,6 +857,61 @@ bf_6o:	ld	(usersp),sp		; 6 writes as CP/M's: to the console
 bf_ret:	ld	sp,(usersp)
 	ld	hl,0
 	ld	a,l
+	ld	b,h
+	ret
+
+; The interrupts while the kernel is mapped, set before it is. A
+; program's own vector table or handler below 8000h would run the
+; kernel's bytes: off then, and the program's tick waits. From the
+; library, whose interrupts are off: on again, if they were and the
+; vector is safe, for the keys. Uses A and HL
+bdioff:	ld	a,i
+	jp	pe,bdi_2		; on now
+	ld	a,i			; as iffget: an NMOS Z80 reads 0 when
+	jp	pe,bdi_2		; an interrupt comes right after
+	ld	h,a
+	ld	a,(LIBIFF)
+	cp	2
+	ret	c			; off, and stay off
+	ld	a,h
+	call	bdbad
+	ret	c
+	ei
+	ret
+bdi_2:	call	bdbad
+	ret	nc
+	di
+	ld	a,1
+	ld	(BDIFF),a
+	ret
+; Carry if the vector for I = A, or the handler it holds, is below 8000h
+bdbad:	cp	80h
+	ret	c
+	ld	h,a
+	ld	l,0FFh			; the handler's high byte, at I:FFh
+	ld	a,(hl)
+	cp	80h
+	ret
+; Out of the BDOS: the program's bank, and its interrupts as they were,
+; on only once the kernel is no longer mapped
+bdexit:	ld	a,(LIBIFF)		; back to the library: off
+	or	a
+	jr	z,bdx_1
+	di
+bdx_1:	ld	a,(UBANK)
+	ld	(PIODA),a
+	pop	af
+	ld	(UBANK),a
+	pop	iy
+	pop	ix
+	ld	sp,(usersp)
+	ld	a,(BDIFF)
+	or	a
+	jr	z,bdx_2
+	xor	a
+	ld	(BDIFF),a
+	ei
+bdx_2:	ld	a,l
 	ld	b,h
 	ret
 

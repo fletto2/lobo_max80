@@ -174,7 +174,12 @@ dscdir		equ	dfree+NDRV*2	; dsub's place in a folder's chain: the
 dscix		equ	dscdir+2	; folder, its drive's IX (0 none),
 dscord		equ	dscix+2		; the cluster's place in the chain,
 dsccl		equ	dscord+2	; and the cluster
-bufdat		equ	dsccl+2
+frdrv		equ	dsccl+2		; the fresh cluster's drive + 1, 0 none
+frcl		equ	frdrv+1		; the cluster last allocated to a file
+frnext		equ	frcl+2		; its first sector not yet zeroed
+fdiff		equ	frnext+1	; the IFF before an FDC transfer
+wbdrv		equ	fdiff+1		; a failed write-back's drive + 1, 0 none
+bufdat		equ	wbdrv+1
 fmtbuf		equ	FMTBUF			; a track, FMTSZ bytes
 BSSEND		equ	bufdat+NBUF*512
 	assert	BSSEND <= 8000h

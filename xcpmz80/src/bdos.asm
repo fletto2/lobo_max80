@@ -4,6 +4,8 @@
 ; CP/M 3 that programs use, on FAT files.
 
 kbdos:	ld	(bparam),de
+	xor	a
+	ld	(wbdrv),a
 	ld	a,c
 	ld	(bfunc),a
 	ld	hl,0
@@ -1587,6 +1589,8 @@ f50:	ex	de,hl
 	ld	a,(CBUF)
 	cp	26			; TIME here: the BIOS one comes in
 	jr	z,f50_t			; through the BDOS
+	cp	25			; MOVE between the program's addresses,
+	jr	z,f50_m			; not the kernel's below 8000h
 	cp	BIOSN
 	ret	nc
 	ld	l,a			; * 3
@@ -1604,6 +1608,14 @@ f50:	ex	de,hl
 	ld	hl,(CBUF+6)
 	ld	a,(CBUF+1)
 	ret				; into the table entry
+f50_m:	ld	bc,(CBUF+2)		; BC bytes from DE to HL, as MOVE
+	ld	a,b
+	or	c
+	ret	z
+	ld	de,(CBUF+4)
+	ld	hl,(CBUF+6)
+	ex	de,hl
+	jp	ucopy			; in common memory, as it maps the TPA
 f50_t:	ld	a,(CBUF+2)		; C = 0: get the time, FFh: set it,
 	or	a			; which the clock takes only with its
 	ret	nz			; TIME SET button held
@@ -1913,8 +1925,11 @@ dskerr:	ld	(errcode),a
 	call	crlf
 	call	pmsg
 	db	"CP/M Error On ",0
+	ld	a,(wbdrv)		; a write-back's drive, or the call's
+	dec	a
+	jp	p,dk_1
 	ld	a,(fdrive)
-	add	a,'A'
+dk_1:	add	a,'A'
 	call	kputc
 	call	pmsg
 	db	": ",0
