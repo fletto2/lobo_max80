@@ -133,7 +133,7 @@ on an error.
 | `FREE [d:]` | show the free space on a disk |
 | `CLS` or `CLEAR` | clear the screen |
 | `VER` | show the version |
-| `FORMAT d: [size] [PC]` | format a floppy and make it a boot disk. See below |
+| `FORMAT d: [size] [PC] [ILV n]` | format a floppy and make it a boot disk. See below |
 | `FORMAT d: MB` | make an empty FAT volume of MB megabytes on the hard disk |
 | `SYS d:` | put the system on a disk that is already formatted |
 | `SUBMIT name [args]` | run `NAME.SUB` as a batch file |
@@ -165,6 +165,13 @@ Without a size, a drive on the 5-inch connector gets 360K. FORMAT
 writes every track, then an empty FAT volume with the system on it.
 You can format A:, the drive you booted from: the system is read into
 memory first.
+
+`ILV n`, before the size or at the end, sets the interleave, 1 to 16:
+the next sector is n places on around the track. The default is 3 on
+8-inch disks and 2 on the others, which lets xcpmz80 read sector after
+sector without waiting a whole turn for the next one:
+
+    FORMAT B: 720 ILV 3
 
 ### Batch files
 

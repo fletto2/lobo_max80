@@ -38,7 +38,10 @@ cformat: call	memchk
 	ld	(fmtk),de
 	xor	a
 	ld	(fmtpc),a
+	ld	(fmtilv),a
 	call	skipsp
+	call	ilvopt			; ILV n first?
+	jp	c,fmt_use
 	ld	a,(hl)
 	or	a
 	jr	z,fmt_1
@@ -127,7 +130,8 @@ fmt_use:	call	pmsg
 	db	"8-inch,",0Dh,0Ah
 	db	"FORMAT d: 360, 180, 720 or 1440 for other sizes, then PC",0Dh,0Ah
 	db	"for a PC's layout, which does not boot here,",0Dh,0Ah
-	db	"FORMAT d: MB (1 to 32) for the hard disk",0Dh,0Ah,0
+	db	"FORMAT d: MB (1 to 32) for the hard disk.",0Dh,0Ah
+	db	"ILV n after d: or at the end sets a floppy's interleave",0Dh,0Ah,0
 	jp	shell
 
 ; BPB byte 25h tells the boot sector that two sides of 9 sectors are
@@ -184,6 +188,13 @@ fz_2:	call	skipsp
 	ld	a,(hl)
 	or	a
 	jr	z,fz_9
+	call	ilvopt			; ILV n after the size
+	jr	c,fz_n
+	jr	nz,fz_p
+	ld	a,(hl)
+	or	a
+	jr	fz_9
+fz_p:	ld	a,(hl)
 	cp	'P'
 	jr	nz,fz_9
 	inc	hl
@@ -192,6 +203,8 @@ fz_2:	call	skipsp
 	jr	nz,fz_9
 	inc	hl
 	call	skipsp
+	call	ilvopt			; or after PC
+	jr	c,fz_n
 	ld	a,(hl)
 	or	a
 	jr	nz,fz_9
@@ -199,6 +212,92 @@ fz_2:	call	skipsp
 	ld	(fmtpc),a
 	xor	a
 fz_9:	pop	hl
+	ret
+fz_n:	or	1
+	jr	fz_9
+
+; ILV n at HL, the interleave, 1 to 16: Z, fmtilv set and HL past it and
+; the spaces after it. NZ, HL kept, if the text is not ILV. Carry if n
+; is missing or out of range.
+ilvopt:	ld	a,(hl)
+	cp	'I'
+	jr	nz,io_no		; cp leaves carry for a lower letter
+	inc	hl
+	ld	a,(hl)
+	cp	'L'
+	jr	nz,io_n
+	inc	hl
+	ld	a,(hl)
+	cp	'V'
+	jr	nz,io_n1
+	inc	hl
+	call	skipsp
+	call	getnum
+	ret	c
+	or	a
+	scf
+	ret	z
+	cp	17
+	ccf
+	ret	c
+	ld	(fmtilv),a
+	call	skipsp
+	xor	a
+	ret
+io_n1:	dec	hl
+io_n:	dec	hl
+io_no:	or	1			; NZ, no carry
+	ret
+
+; fmtslt: the sector in each slot of a track, as mkdisk.py --ilv puts
+; them: sector l in slot l * interleave, or the next free slot after
+; it. The interleave is fmtilv, or by default 3 on 8-inch, 17 a track,
+; where the kernel takes longer between sectors than 2 leave, else 2.
+fslots:	ld	a,(fmtilv)
+	or	a
+	jr	nz,fo_0
+	ld	a,(ix+D_SPT)
+	cp	17
+	ld	a,3
+	jr	z,fo_0
+	dec	a
+fo_0:	ld	d,a			; D the interleave
+	ld	hl,fmtslt
+	ld	b,18
+	ld	a,0FFh
+	call	fill
+	ld	c,0			; C the sector
+	ld	e,0			; E sector * interleave, mod SPT
+fo_1:	ld	b,e			; B the slot
+	ld	hl,fmtslt
+	ld	a,e
+	add	a,l
+	ld	l,a
+	jr	nc,fo_2
+	inc	h
+fo_2:	ld	a,(hl)
+	inc	a
+	jr	z,fo_3			; free
+	inc	hl
+	inc	b
+	ld	a,b
+	cp	(ix+D_SPT)
+	jr	c,fo_2
+	ld	b,0
+	ld	hl,fmtslt
+	jr	fo_2
+fo_3:	ld	(hl),c
+	ld	a,e
+	add	a,d
+fo_4:	cp	(ix+D_SPT)
+	jr	c,fo_5
+	sub	(ix+D_SPT)
+	jr	fo_4
+fo_5:	ld	e,a
+	inc	c
+	ld	a,c
+	cp	(ix+D_SPT)
+	jr	c,fo_1
 	ret
 
 ; The floppy's geometry for fmtk: its fmtab row, or 0 for the drive's
@@ -251,6 +350,7 @@ gm_9:	ld	(fmtcyl),a
 	jr	z,gm_b
 	ld	a,1
 gm_b:	ld	(ix+D_SBASE),a
+	call	fslots
 	xor	a
 	ret
 
@@ -665,10 +765,14 @@ tb_1:	ld	b,12
 	sub	b
 	jr	nc,tb_r
 	add	a,(ix+D_SPT)
-tb_r:	bit	0,a			; interleave 2, since the kernel takes
-	jr	z,tb_id			; longer between sectors than the gap
-	add	a,(ix+D_SPT)		; lasts: N/2 in the even
-tb_id:	srl	a			; places, (N+SPT)/2 in the odd
+tb_r:	push	hl			; the sector in that slot, fslots'
+	ld	hl,fmtslt
+	add	a,l
+	ld	l,a
+	jr	nc,tb_id
+	inc	h
+tb_id:	ld	a,(hl)
+	pop	hl
 	add	a,(ix+D_SBASE)
 	ld	(hl),a
 	inc	hl

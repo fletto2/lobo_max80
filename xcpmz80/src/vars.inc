@@ -151,8 +151,10 @@ fmtcyl		equ	fmtsd+1			; cylinders
 fmtrot		equ	fmtcyl+1		; the track's first slot
 fmtgap		equ	fmtrot+1		; the gap after each sector
 fmtpc		equ	fmtgap+1		; 1 for PC after the size
+fmtilv		equ	fmtpc+1			; ILV n, or 0 for the default
+fmtslt		equ	fmtilv+1		; the sector in each slot, 18 bytes
 ; MV
-mvflag		equ	fmtpc+1		; not 0: COPY's loop moves
+mvflag		equ	fmtslt+18		; not 0: COPY's loop moves
 mvsrc		equ	mvflag+1	; fmove: the source folder
 mvdst		equ	mvsrc+2		; the destination folder
 mvpos		equ	mvdst+2		; the source entry's number

@@ -403,12 +403,32 @@ rlbs_up: ld	a,b			; at the start of a wrapped row: the
 	dec	(hl)
 	dec	(hl)
 	ret
-rlrow:	ld	a,0Bh			; up, and right to the last column
-	call	kputc
+; Up, and right to the last column, on the screen alone: not to the
+; printer (^P), and SCB_COL is left as it was. Keeps BC.
+rlrow:	push	bc
+	ld	c,0Bh
+	call	conout
 	ld	b,COLS-1
-rlrw_1:	ld	a,0Ch
-	call	kputc
+	ld	c,0Ch
+rlrw_1:	call	conout
 	djnz	rlrw_1
+	pop	bc
+	ret
+; Back one column, up to the end of the row above from the start of a
+; wrapped row, where a BS would stop. Keeps BC and HL.
+rlback:	ld	a,(scb+SCB_COL)
+	or	a
+	ret	z
+rlbk_1:	sub	COLS
+	jr	z,rlbk_up
+	jr	nc,rlbk_1
+	ld	a,08h
+	jp	kputc
+rlbk_up: call	rlrow
+	push	hl
+	ld	hl,scb+SCB_COL
+	dec	(hl)
+	pop	hl
 	ret
 rlbs_2:	ld	a,b
 	jr	rlset
@@ -423,8 +443,7 @@ rlredo:	ld	hl,lnstart
 	jr	z,rltype
 	jr	c,rltype
 	ld	b,a
-rd1:	ld	a,08h
-	call	kputc
+rd1:	call	rlback
 	djnz	rd1
 	ld	a,(lnend)		; blank to where the line reached
 	sub	(hl)
@@ -435,8 +454,7 @@ rd1:	ld	a,08h
 rd2:	call	space
 	djnz	rd2
 	pop	bc
-rd2b:	ld	a,08h
-	call	kputc
+rd2b:	call	rlback
 	djnz	rd2b
 rltype:	ld	a,(lnlen)
 	or	a

@@ -821,6 +821,27 @@ fi
 python3 ../tools/imd2raw.py $T/out/hb.imd $T/out/hb.img >/dev/null
 fatok "and the disk's FAT is clean" $T/out/hb.img
 
+# A ? in COPY's new name takes the source's letter: the copy is never
+# named by the pattern, and one that fills the disk erases only itself
+echo x >$T/X.DAT
+echo y >$T/Y.DAT
+mkdisk $T/hw.imd $T/X.DAT $T/Y.DAT >/dev/null
+out=$($EMU -a $T/ha.imd -b $T/hw.imd -T -t 120 -e 'A:\>' \
+	-k 'copy half.dat b:*.dat\rcopy half.dat b:c*.dat\rdir b:\r')
+check "COPY to B:*.DAT keeps the source's name" "B: X        DAT : Y        DAT : HALF     DAT" "$out"
+check "and one to B:C*.DAT that fills the disk says so" "Disk Full" "$out"
+# The line editor on a line that wraps: ^X and UP redraw it in place,
+# and the back arrow at a wrapped row sends no cursor moves to the printer
+L=$(printf 'a%.0s' $(seq 90))
+out=$($EMU -a $T/ha.imd -T -t 20 -e 'A:\>' -k "${L}$(printf '\030')free\r")
+check "^X on a wrapped line wipes both rows" "=0=" "=$(printf '%s\n' "$out" | grep -ic 'aaaaaaaaaa')="
+out=$($EMU -a $T/ha.imd -T -t 20 -e 'A:\>' -k "${L}\r\\U\\U$(printf '\030')free\r")
+check "UP twice on a wrapped line draws it in place" "=2=" "=$(printf '%s\n' "$out" | grep -ic 'aaaaaaaaaa')="
+rm -f $T/out/lst.txt
+$EMU -a $T/ha.imd -T -t 20 -l $T/out/lst.txt -e 'A:\>' \
+	-k "$(printf '\020')$(printf 'a%.0s' $(seq 76))\\L$(printf '\030')\r" >/dev/null
+check "the back arrow at a wrapped row prints no form feed" "=0=" "=$(tr -cd '\014' <$T/out/lst.txt | wc -c | tr -d ' ')="
+
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused
 k='md big\rcd big\r'

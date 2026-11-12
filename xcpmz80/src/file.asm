@@ -770,7 +770,9 @@ fmove:	call	fcbdrw
 	ret	nz
 	ld	hl,(mvsrc)
 	ld	(dircl),hl
-	call	fcbpat
+	call	fcbpat			; $$$.SUB: the root, so the old entry
+	ld	hl,(dircl)		; is freed there
+	ld	(mvsrc),hl
 	call	dsfirst
 	jr	z,fm_1
 	cp	R_NOFILE

@@ -34,7 +34,7 @@ the 8-inch connector at 500 kbit/s.
 80 cylinders of one side, 360K).
 
 --ilv N, --skew N and --hskew N set a floppy's sector order: the
-interleave (default 2), the slots each cylinder is turned (default 0, 3
+interleave (default 3 for 8-inch, 2 for the others), the slots each cylinder is turned (default 0, 3
 for 8-inch) and the slots the second side is turned more (default 0).
 
 The FILEs are copied into the root directory, named in upper case 8.3.
@@ -277,7 +277,7 @@ def main():
         return
     system = open(args[0], 'rb').read()
     eight, pc = True, False
-    ilv, skew, hskew = 2, None, 0
+    ilv, skew, hskew = None, None, 0
     for opt in ('--ilv', '--skew', '--hskew'):
         if opt in args:
             i = args.index(opt)
@@ -313,6 +313,8 @@ def main():
     # numbered from 1, Lobo's from 0. eight: 500 kbit/s tracks.
     if skew is None:
         skew = 3 if eight else 0    # FORMAT's, 0 measured best on 5-inch
+    if ilv is None:                 # FORMAT's: 3 on 8-inch, 17 a track,
+        ilv = 3 if p['spt'] == 17 else 2    # where 2 loses a turn a sector
     tracks = []
     base = 1 if pc else 0
     for t in range(p['total'] // p['spt']):

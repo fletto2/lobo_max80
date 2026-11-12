@@ -763,7 +763,18 @@ cp_6:	ld	hl,(nameptr)		; one file: source name
 	ld	de,cpdst2+1
 	ld	bc,11
 	ldir
-cp_7:	call	crlf
+cp_7:	ld	hl,cpdst2+1		; a ? in the new name takes the
+	ld	de,cpsrc+1		; source's letter, so a wildcard is never
+	ld	b,11			; made, or erased when the disk fills
+cp_w:	ld	a,(hl)
+	cp	'?'
+	jr	nz,cp_w2
+	ld	a,(de)
+	ld	(hl),a
+cp_w2:	inc	hl
+	inc	de
+	djnz	cp_w
+	call	crlf
 	ld	hl,cpsrc+1
 	call	pname
 	ld	a,(mvflag)
@@ -827,17 +838,6 @@ mvone:	call	cpsrcd
 	call	cfcbset
 	call	fcbdrv
 	jp	nz,sherr
-	ld	hl,cpdst2+1
-	ld	de,cpsrc+1
-	ld	b,11
-mv_1:	ld	a,(hl)
-	cp	'?'
-	jr	nz,mv_2
-	ld	a,(de)
-	ld	(hl),a
-mv_2:	inc	hl
-	inc	de
-	djnz	mv_1
 	pop	de			; the source's folder and drive
 	pop	af
 	ld	hl,drvnum
