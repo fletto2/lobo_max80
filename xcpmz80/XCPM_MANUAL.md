@@ -349,3 +349,9 @@ runs the ZX81 machine code game `GAME.P`. It needs the ZX81's ROM as
   read-only flag, SYS is FAT's system flag.
 - A file holds up to 8 MB.
 - A program can end with RET, as on CP/M 2.2.
+- A program that renames files (BDOS 23) or sets their attributes
+  (BDOS 30) with `?` in the name changes every file that matches, as
+  CP/M 2.2 does; CP/M 3 refuses. A `?` in the new name keeps each
+  file's own character, so `????????.TXT` to `????????.BAK` renames
+  every .TXT file. A file whose new name is taken is left as it is,
+  and the call returns FFh.

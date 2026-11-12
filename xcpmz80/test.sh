@@ -875,6 +875,62 @@ n=$(printf '%s\n' "$out" | grep -c '^hello')
 check "a .SUB on A: runs from A: and B:, and a .COM" "=3=" "=$n="
 check "a .BAT on A: from B:" "=1=" "=$(printf '%s\n' "$out" | grep -c 'MAX-80, 128K$')="
 check "a name on no drive is asked about" "NOSUCH?" "$out"
+# Wildcards in 23 and 30 take every match, as CP/M 2.2 (the user's
+# choice): WREN.COM renames *.TXT to *.BAK, B.TXT left as B.BAK is
+# there, and makes every .BAK R/O
+cat >$T/ren.asm <<'EOW'
+	org	100h
+	ld	de,rn
+	ld	c,23
+	call	5
+	ld	(r1),a
+	ld	de,at
+	ld	c,30
+	call	5
+	ld	(r2),a
+	ld	a,(r1)
+	call	hx
+	ld	e,' '
+	ld	c,2
+	call	5
+	ld	a,(r2)
+	call	hx
+	jp	0
+hx:	push	af
+	rrca
+	rrca
+	rrca
+	rrca
+	call	h1
+	pop	af
+h1:	and	0Fh
+	add	a,'0'
+	cp	'9'+1
+	jr	c,h2
+	add	a,7
+h2:	ld	e,a
+	ld	c,2
+	jp	5
+r1:	db	0
+r2:	db	0
+rn:	db	0,'????????TXT',0,0,0,0
+	db	0,'????????BAK',0,0,0,0
+	ds	4
+at:	db	0,'????????',0C2h,'AK'
+	ds	24
+EOW
+(cd $T && sjasmplus --nologo --msg=war --raw=WREN.COM ren.asm >/dev/null)
+for f in A B C; do echo $f >$T/$f.TXT; done
+echo old >$T/B.BAK
+mkdisk $T/ren.imd $T/WREN.COM $T/A.TXT $T/B.TXT $T/C.TXT $T/B.BAK >/dev/null
+out=$($EMU -a $T/ren.imd -T -t 30 -e 'A:\>' -k 'wren\rdir\r' -w a:$T/out/ren.imd)
+check "23 renames every match but one whose new name is taken: FF" "FF 00" "$out"
+python3 ../tools/imd2raw.py $T/out/ren.imd $T/out/ren.img >/dev/null
+out=$(mdir -b -i $T/out/ren.img :: | sort | tr '\n' ' ')
+check "A.TXT and C.TXT are now .BAK, B.TXT stays" "::/A.BAK ::/B.BAK ::/B.TXT ::/C.BAK" "$out"
+out=$(mattrib -i $T/out/ren.img ::*.BAK | grep -c '^ *R')
+check "30 made every .BAK R/O" "3" "$out"
+same "and B.BAK is the old one" $T/B.BAK $(mcopy -o -i $T/out/ren.img ::B.BAK $T/out/B.BAK && echo $T/out/B.BAK)
 # FREE counts the clusters once a mount and keeps the count as files
 # come and go: the same as a count after a reboot, and as mtools'
 python3 tools/mkdisk.py $SYS $T/fr.imd --pc 1440 >/dev/null

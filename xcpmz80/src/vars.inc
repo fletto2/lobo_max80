@@ -179,7 +179,9 @@ frcl		equ	frdrv+1		; the cluster last allocated to a file
 frnext		equ	frcl+2		; its first sector not yet zeroed
 fdiff		equ	frnext+1	; the IFF before an FDC transfer
 wbdrv		equ	fdiff+1		; a failed write-back's drive + 1, 0 none
-bufdat		equ	wbdrv+1
+fnpos		equ	wbdrv+1		; frename: the entry being renamed
+fnbuf		equ	fnpos+2		; and its new name, 11 bytes
+bufdat		equ	fnbuf+11
 fmtbuf		equ	FMTBUF			; a track, FMTSZ bytes
 BSSEND		equ	bufdat+NBUF*512
 	assert	BSSEND <= 8000h

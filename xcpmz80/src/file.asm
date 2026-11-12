@@ -779,40 +779,85 @@ fl_9:	cp	R_NOFILE
 	cp	a
 	ret
 
-; Rename the file named in the FCB to the name at FCB+17. A = 0, or
-; R_NOFILE if it is not there or the new name is taken.
+; Rename every file the FCB names to the name at FCB+17, as CP/M 2.2
+; (the user's choice, 2026-11-12), where a '?' in the new name keeps
+; the old character: *.TXT to *.BAK. A file whose new name is taken,
+; by a file or a folder, is left as it is. A = 0 when every match was
+; renamed, R_NOFILE when there was none or one was left; an R/O file
+; stops it with E_ROFILE, those before it renamed.
 frename: call	fcbdrw
 	ret	nz
-	ld	hl,CFCB+17		; the new name must be free, of
-	call	namepat			; files and folders
-	call	dsany
-	jr	z,fn_no
-	cp	R_NOFILE
-	ret	nz
 	call	fcbpat
+	xor	a
+	ld	(fres),a
 	call	dsfirst
-	jr	z,fn_2
-	cp	R_NOFILE
-	ret	nz
-fn_no:	ld	a,R_NOFILE
-	cp	a
-	ret
-fn_2:	call	isro
+	jp	nz,fn_e
+fn_1:	call	isro
 	ld	a,E_ROFILE
-	ret	nz
-	ex	de,hl
+	jp	nz,fn_x
+	ld	de,fnbuf		; the new name
+	ld	bc,11
+	push	hl
+	ldir
+	pop	hl
 	ld	hl,CFCB+17
+	ld	de,fnbuf
 	ld	b,11
 fn_3:	ld	a,(hl)
 	and	7Fh
-	cp	'?'			; a '?' keeps the old character
+	cp	'?'
 	jr	z,fn_4
 	ld	(de),a
 fn_4:	inc	hl
 	inc	de
 	djnz	fn_3
+	ld	hl,(dpos)
+	ld	(fnpos),hl
+	ld	hl,fnbuf		; free, of files and folders?
+	call	namepat
+	call	dsany
+	jp	z,fn_tk
+	cp	R_NOFILE
+	jp	nz,fn_x
+	ld	hl,CFCB+F_NAME		; the entry again, from its place
+	call	namepat
+	ld	hl,(fnpos)
+	call	ds_0
+	jp	nz,fn_x
+	ex	de,hl
+	ld	hl,fnbuf
+	ld	bc,11
+	ldir
 	call	bdirty
-	jp	flushall
+	ld	a,(fres)
+	or	1			; bit 0: one renamed
+	ld	(fres),a
+	jr	fn_6
+fn_tk:	ld	a,(fres)
+	or	2			; bit 1: one left
+	ld	(fres),a
+	ld	hl,CFCB+F_NAME
+	call	namepat
+	ld	hl,(fnpos)
+	ld	(dpos),hl
+fn_6:	call	dsnext
+	jp	z,fn_1
+fn_e:	cp	R_NOFILE
+	jp	nz,fn_x
+	call	flushall
+	ret	nz
+	ld	a,(fres)		; 1: all renamed
+	dec	a
+	ld	a,0
+	jr	z,fn_ok
+fn_no:	ld	a,R_NOFILE
+fn_ok:	cp	a
+	ret
+fn_x:	push	af			; an error: what was renamed is kept
+	call	flushall
+	pop	af
+	or	a
+	ret
 
 ; Move the file the FCB names, in folder dircl after fcbdrw, to folder
 ; mvdst on the same drive as the name at CFCB+17, its directory entry
@@ -873,6 +918,8 @@ fm_1:	call	isro
 
 ; Set the attributes of the files matching the FCB from its t1' (R/O)
 ; and t2' (SYS) bits. A = 0, or R_NOFILE.
+; Set R/O and SYS of every file the FCB names from t1' and t2', as
+; CP/M 2.2 (the user's choice, 2026-11-12)
 fattrib: call	fcbdrv
 	ret	nz
 	call	fcbpat
@@ -880,6 +927,11 @@ fattrib: call	fcbdrv
 	jr	z,fat_1
 	cp	R_NOFILE		; none: Z, A = R_NOFILE
 	ret
+fat_0:	call	dsnext
+	jr	z,fat_1
+	cp	R_NOFILE
+	ret	nz
+	jp	flushall
 fat_1:	ld	de,DE_ATTR
 	add	hl,de
 	ld	a,(hl)
@@ -898,7 +950,7 @@ fat_1:	ld	de,DE_ATTR
 	or	c
 	ld	(hl),a
 	call	bdirty
-	jp	flushall
+	jr	fat_0
 
 ; Cut the file's chain to fit its F_SIZE: free the clusters past it.
 ; The FCB is open and its drive mounted (IX).
