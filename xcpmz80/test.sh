@@ -804,6 +804,23 @@ check "AUTOEXEC.BAT runs at boot" "A:\>DIR *.FNT" "$out"
 check "and by its name" "A:\>autoexec" "$out"
 check "twice in all" "2" "$(printf '%s\n' "$out" | grep -c 'A: XCPM     FNT')"
 
+# A COPY that fills the disk erases the part it wrote
+head -c 500000 /dev/zero | tr '\000' 'q' >$T/HALF.DAT
+mkdisk $T/ha.imd $T/HALF.DAT >/dev/null
+mkdisk $T/hb.imd >/dev/null
+out=$($EMU -a $T/ha.imd -b $T/hb.imd -T -t 120 -e 'A:\>' -w b:$T/out/hb.imd \
+	-k 'copy half.dat b:\rcopy half.dat b:c.dat\rdir b:\r')
+check "COPY onto a full disk says so" "Disk Full" "$out"
+if printf '%s\n' "$out" | grep -q 'C        DAT'; then
+	echo "FAIL and leaves no part of the file:"
+	printf '%s\n' "$out"
+	fail=1
+else
+	echo "ok   and leaves no part of the file"
+fi
+python3 ../tools/imd2raw.py $T/out/hb.imd $T/out/hb.img >/dev/null
+fatok "and the disk's FAT is clean" $T/out/hb.img
+
 # A folder grows past its first cluster, ERA a path empties it, RD
 # removes it, and RD of the current folder is refused
 k='md big\rcd big\r'

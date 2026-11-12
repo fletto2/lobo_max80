@@ -145,6 +145,9 @@ the `.COM` of that name instead, so CP/M 3's own DIR, ERASE and so on
 still work if they are on the disk. A drive before the name, as `A:RD`,
 runs the program too, never the built-in.
 
+If the destination disk fills, COPY says Disk Full and erases the part
+it wrote, so no short copy is left.
+
 COPY reads as much as fits in memory before it writes, so copying
 from one floppy to another moves the heads as little as it can.
 

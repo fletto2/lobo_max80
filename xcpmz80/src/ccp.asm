@@ -983,7 +983,7 @@ c1_5:	ld	hl,(cpn)
 	ldir
 	ld	hl,(cprec)
 	call	wrrec
-	jp	nz,sherr
+	jp	nz,c1_err
 	ld	hl,CFCB
 	ld	de,dstfcb
 	ld	bc,36
@@ -995,6 +995,17 @@ c1_5:	ld	hl,(cpn)
 	dec	hl
 	ld	(cpn),hl
 	jr	c1_5
+; A write failed, as on a full disk: close the part written, so its
+; clusters are in its entry, and erase it, then the error
+c1_err:	push	af
+	ld	hl,CFCB
+	call	fclose
+	call	cpdstd
+	ld	hl,cpdst2
+	call	cfcbset
+	call	fdelete
+	pop	af
+	jp	sherr
 c1_6:	ld	a,(cpeof)
 	or	a
 	jp	z,c1_1
