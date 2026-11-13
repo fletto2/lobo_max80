@@ -44,6 +44,23 @@ else
 	echo "FAIL iffget unit test:"; ./test_iff; fail=1
 fi
 
+# The clock across a HOLD pulse, the SIO taken out (I301)
+if ./test_dev > /dev/null; then
+	echo "ok   the clock keeps its seconds across HOLD, -F u:0 takes no writes (test_dev)"
+else
+	echo "FAIL devices unit test:"; ./test_dev; fail=1
+fi
+
+# Options read as their help says (I301): -F d's second in decimal,
+# -t 0 and an -i time that is not a number refused
+opts=""
+./max80 -T -t 0.01 -F d:800:0 >/dev/null 2>&1 && opts="${opts}d800 "
+./max80 -T -t 0.01 -F d:1a:0 >/dev/null 2>&1 || opts="${opts}no1a "
+timeout 20 ./max80 -T -t 0 >/dev/null 2>&1 </dev/null; [ $? = 2 ] && opts="${opts}not0 "
+./max80 -T -t 0.01 -i a:/dev/null@nan >/dev/null 2>&1 || opts="${opts}nonan "
+check "-F d:800 taken, d:1a, -t 0 and -i @nan refused" \
+	"d800 no1a not0 nonan " "$opts"
+
 # xcpmz80, built in ../xcpmz80, boots to its prompt and lists its disk
 X=../xcpmz80/build/xcpmz80.imd
 if [ -f "$X" ]; then

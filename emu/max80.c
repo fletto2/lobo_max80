@@ -1416,7 +1416,10 @@ static uint8_t rtc_read(void)
    SETTIME WRITE then HOLD */
 static void rtc_port_b(uint8_t old)
 {
-	rtc_sync();
+	uint8_t now = pio_b;
+	pio_b = old;		/* the seconds up to now count as HOLD was */
+	rtc_sync();		/* before this write (I301) */
+	pio_b = now;
 	if ((old & 0x50) != 0x50 && (pio_b & 0x50) == 0x50 && rtc_held()) {
 		int a = pio_b & 0x0f;
 		if (a == 0 || a == 1) {	/* either seconds digit clears both */
@@ -1841,7 +1844,10 @@ static void io_write(int off, uint8_t v)
 	case 0x7f4: sasi_ctrl(v); break;
 	case 0x7f8: beep(); break;
 	case 0x7fc: pio_write(off & 3, v); break;
-	case 0x7e4: sio_write(off & 3, v); break;
+	case 0x7e4:	/* -F u:0: no SIO to take it (I301) */
+		if (!sio_gone)
+			sio_write(off & 3, v);
+		break;
 	case 0x7e8: prn_write(v); break;
 	default: break;
 	}
@@ -3256,6 +3262,9 @@ static int dbg_open(void)
 	dbg_kbd = dbg_listen(DBG_KBD);
 	atexit(dbg_close);
 	signal(SIGTERM, dbg_term);
+	/* a client gone before its answer is a failed write, not the end
+	   of the emulator and its -w saves (I301) */
+	signal(SIGPIPE, SIG_IGN);
 	if (dbg_regs < 0 || dbg_mem < 0 || dbg_kbd < 0)
 		return 1;
 	fprintf(stderr, "debug sockets: %s, %s, %s\n", DBG_REGS, DBG_MEM, DBG_KBD);
@@ -3520,8 +3529,10 @@ int main(int argc, char **argv)
 		case 't':
 			seconds = atof(optarg);
 			fast = 1;
-			if (seconds < 0)
-				return fprintf(stderr, "-t: seconds, 0 or more\n"), 2;
+			/* 0 was taken and ran for ever (I301) */
+			if (!(seconds > 0 && seconds <= 1e7))
+				return fprintf(stderr, "-t: seconds, more than 0, "
+				    "10000000 at most\n"), 2;
 			break;
 		case 'T': window = 0; break;
 		case 'p': pgm = optarg; break;
@@ -3557,8 +3568,9 @@ int main(int argc, char **argv)
 			if (at && (end == at + 1 || *end))
 				at = NULL;	/* not a time: part of the name (I282) */
 			if (at) {	/* a:file@seconds: the first byte comes then */
-				if (t < 0)
-					return fprintf(stderr, "-i: a time of 0 or more\n"), 2;
+				if (!(t >= 0 && t <= 1e7))	/* NaN too (I301) */
+					return fprintf(stderr, "-i: a time of 0 to "
+					    "10000000 seconds\n"), 2;
 				*at = 0;
 				ch->rx_at = (unsigned long long)(t * CPU_HZ);
 			}
@@ -3580,8 +3592,13 @@ int main(int argc, char **argv)
 				sio_gone = 1;
 				break;
 			}
-			if (sscanf(optarg, "%c:%x:%u", &kind, &addr, &bit) != 3 ||
-			    !strchr("vfmcds", kind) || bit > (kind == 'c' ? 3u : 7u) ||
+			/* d's second is decimal, read so before the range
+			   check (I301) */
+			int dec = optarg[0] == 'd' && optarg[1] == ':';
+			if (dec ? sscanf(optarg, "%c:%u:%u", &kind, &addr, &bit) != 3 ||
+			    bit > 7 :
+			    sscanf(optarg, "%c:%x:%u", &kind, &addr, &bit) != 3 ||
+			    !strchr("vfmcs", kind) || bit > (kind == 'c' ? 3u : 7u) ||
 			    addr > (kind == 'm' ? 0x1ffffu : kind == 'c' ? 3u : 0x7ffu))
 				return fprintf(stderr, "-F takes v, f or m, an offset "
 				    "and a bit, such as v:123:4, c and two chunks, "
@@ -3592,7 +3609,6 @@ int main(int argc, char **argv)
 				break;
 			}
 			if (kind == 'd') {	/* the second in decimal */
-				sscanf(optarg + 2, "%u", &addr);
 				fdc_stuck |= 1 << bit;
 				fdc_stuck_at = (unsigned long long)addr * CPU_HZ;
 				break;
