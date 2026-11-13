@@ -404,6 +404,15 @@ trc_1:
 	ifdef	RUNLOG			; the sector register at each stop
 	call	rlstop
 	endif
+	ld	b,a			; it must have gone on to the sector after
+	ld	a,c			; the last (true form, so one less), with
+	dec	a			; no byte lost on the way: anything else is
+	cp	b			; a read error, and tbread reads them alone
+	jr	nz,trc_x
+	ld	a,(FSTAT)
+	cpl
+	and	04h			; Lost Data
+	jr	nz,trc_x
 	ld	a,0D0h xor 0FFh		; on to the next: stop it there
 	ld	(FCTRL),a
 	ld	a,(tbsplit)		; then the second part, from the first
@@ -428,7 +437,8 @@ trnext:	ld	b,a			; B = the sectors in it
 	sub	b
 	call	tbpg
 	ld	(tbstop),a
-	call	fdwait			; the FDC stopped
+	call	fdwait			; the FDC stopped, and an INTRQ the
+	ld	a,(FSTAT)		; Force Interrupt may leave is cleared
 	ld	a,(fdsec)
 	add	a,(ix+D_SBASE)
 	ld	c,a
@@ -448,6 +458,9 @@ trnext:	ld	b,a			; B = the sectors in it
 	cpl
 	ld	(FCTRL),a
 	jp	trl
+trc_x:	ld	a,0D0h xor 0FFh		; a run gone wrong: stop it, a read error
+	ld	(FCTRL),a
+	ld	a,E_READ
 trno:	exx				; no run: tbread reads the sector alone
 	pop	de
 	pop	bc
@@ -551,8 +564,14 @@ tp_4:
 	pop	af
 	endif
 	add	a,(ix+D_SBASE)		; Read Address left the track number
-	cpl				; in the sector register
+	cpl				; in the sector register: set it once that
+	call	fdwait			; is surely done, and read it back
 	ld	(FSECTOR),a
+	ld	e,a
+	ld	a,(FSECTOR)
+	cp	e
+	ld	a,E_READ
+	ret	nz			; not as written: no run
 	ld	e,0
 	ld	a,high TBEND
 	ld	(tbstop),a
