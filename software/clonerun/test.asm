@@ -12,7 +12,8 @@
 ; first entry (FF free) and R the times the level started again. I and
 ; V count from the 17th frame of play. From column 66, when the level
 ; has a guard, G and the first guard's column, offset across, row,
-; offset down, what it does (80h on when it faces left) and its state.
+; offset down, what it does (80h on when it faces left) and its state,
+; and with no guard C, the runner's offset across when last caught.
 
 ; Reads the command tail into tlev, tscr and tfrz
 tail:	ld	hl,80h
@@ -241,7 +242,12 @@ tr_4:	ld	c,a
 	ld	ix,actors+ASIZE	; the first guard: G then x, ox, y, oy, pose
 	ld	a,(ix+A_ST)	; (80h on when it faces left) and state
 	cp	S_END
-	ret	z
+	jr	nz,tr_5
+	ld	a,(cux)		; no guard: C, the runner's offset across
+	ld	c,a		; when it was last caught
+	ld	a,'C'
+	jp	field2
+tr_5:
 	ld	(hl),'G'
 	inc	hl
 	inc	hl
@@ -317,6 +323,7 @@ hx_3:	ld	(hl),a
 stab:	dw	s1,s2,s3,s4,s5,s6,s7,s8,s9,s10
 	dw	s11,s12,s13,s14,s15,s16,s17,s18,s19,s20
 	dw	s21,s22,s23,s24,s25,s26,s27,s28,s29,s30
+	dw	s31
 s1:	dw	0		; RIGHT, frozen after 13 rounds
 	db	KR
 	dw	0FFFFh,13
@@ -506,6 +513,24 @@ s29:	dw	0		; onto a ladder, UP 3 eighths, then X
 	dw	13
 	db	0
 	dw	0FFFFh,0FFFFh
+s31:	dw	0		; two holes, into the first dug, LEFT as it fills
+	db	KX
+	dw	2
+	db	0
+	dw	13
+	db	KL
+	dw	21
+	db	KX
+	dw	23
+	db	0
+	dw	40
+	db	KR
+	dw	100
+	db	0
+	dw	CLOSE
+	db	KL
+	dw	0FFFFh,0FFFFh
+CLOSE	equ	372		; the round the first hole fills
 s28:	dw	0		; DOWN a ladder, then RIGHT too, off it
 	db	KD
 	dw	20
@@ -522,6 +547,7 @@ tscr:	db	0
 sptr:	dw	0
 tfrz:	dw	0		; the freeze tick from the command line, 0 for none
 restarts: db	0
+cux:	db	0		; the runner's offset across when last caught
 ttick:	dw	0
 tframes: dw	0
 idle:	dw	0

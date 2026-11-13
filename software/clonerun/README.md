@@ -79,7 +79,8 @@ makes only the test builds.
   tile held up from below. Held in a hole it drops it on the rim, or as
   it climbs out and steps off. A guard killed with gold loses it. GOLD
   counts the gold on the field and carried.
-- With no gold left the hidden ladders show. The runner standing on row
+- With no gold left the hidden ladders show, at once on a stage with
+  no gold at all. The runner standing on row
   0 then ends the stage: a life more (up to 255), 1500 points counted
   up in 100s with a beep each, and the next stage. After stage 150
   comes stage 1 at the next difficulty, up to 10: the guards move more
@@ -321,8 +322,8 @@ above.
 
 ## Tests
 
-`test.sh`, under xcpmz80 in the emulator, 97 checks with the stages and
-79 without them (the viewer, play on the stages and ESC from them are
+`test.sh`, under xcpmz80 in the emulator, 104 checks with the stages and
+86 without them (the viewer, play on the stages and ESC from them are
 left out):
 
 - `levels.py` turns down a level with two runner starts and one with a
@@ -342,7 +343,7 @@ left out):
 - Digging, 17 runs with row 23 checked and 12 of their frames dot for
   dot: X and Z mid-crumble and open, a hole filling and brick again,
   the runner in a hole and not climbing out with UP, caught as it fills
-  and back at the start, out of one hole sideways into the next,
+  and back at the start, not moved by LEFT held in the round it fills, out of one hole sideways into the next,
   through a hole in a ledge to the floor, no dig in the air, digs from
   a ladder and from a bar, and digs refused with brick beside the
   runner, solid to dig, a ladder to dig and a ladder beside.
@@ -361,8 +362,12 @@ left out):
 - Gold: a guard carrying gold it walked over, still counted, and
   dropping it on the rim of the hole it is held in, both frames dot for
   dot. The last gold taken for 250 points, the hidden ladders shown,
-  dot for dot, and up one to row 0: 1500 points, a life more, and level
-  1 again after the last test level.
+  dot for dot, and up one to row 0: 1500 points, a life more, and the next
+  level. A level with no gold, its hidden ladders there from the start:
+  up one to row 0, and level 1 again after the last test level.
+- The viewer on a build with 3 test levels (`CR3.COM`): UP and DOWN by
+  10 come round past either end as often as it takes, P the last,
+  RIGHT past the last to 1, LEFT past 1 to the last.
 - On Lode Runner's stages, when the file is there: the title dot for
   dot and left alone 40 s, S to the viewer, stage 1 and stage 150 dot
   for dot, N, P, the arrows and UP and DOWN by 10, ENTER on

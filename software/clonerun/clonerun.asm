@@ -211,18 +211,18 @@ view:	call	waitvb
 	jr	nz,vw_1
 	bit	K_P,a
 	jr	z,view
-vw_0:	ld	a,(level)	; B back, round past 1 to the last
-	sub	b
-	jr	z,vw_0a
-	jr	nc,vw_2
-vw_0a:	add	a,NLEVELS
+vw_0:	ld	a,(level)	; B back, one at a time, round past 1 to
+vw_0b:	dec	a		; the last, as often as it takes with
+	jr	nz,vw_0c	; fewer than B stages
+	ld	a,NLEVELS
+vw_0c:	djnz	vw_0b
 	jr	vw_2
 vw_1:	ld	a,(level)	; B on, round past the last to 1
-	add	a,b
-	jr	c,vw_1a
-	cp	NLEVELS+1
-	jr	c,vw_2
-vw_1a:	sub	NLEVELS
+vw_1b:	cp	NLEVELS
+	jr	c,vw_1c
+	xor	a
+vw_1c:	inc	a
+	djnz	vw_1b
 vw_2:	ld	(level),a
 	call	newlevel
 	jr	view
@@ -276,6 +276,7 @@ replay:	ld	a,1
 	ld	(tqout),a
 	ld	(moveoff),a
 	ld	(moveid),a
+	call	goldgone	; a stage with no gold: the ladders at once
 	call	status
 	xor	a		; the screen drawn takes rows 22 and 23 too
 	ld	(stchg),a
@@ -364,6 +365,8 @@ pl_6:	call	gframe		; a guard's move owed by the round
 	ifdef	TEST
 	ld	hl,restarts
 	inc	(hl)
+	ld	a,(actors+A_OX)
+	ld	(cux),a
 	endif
 	call	death
 	ld	hl,lives
@@ -423,6 +426,10 @@ rk_1:	xor	a
 	call	gflush		; the last round's guards done first
 	ret	c
 	call	holetick
+	ld	a,(caught)	; a hole filled on the runner: the round
+	or	a		; ends there, nothing else moves in it
+	scf
+	ret	nz
 	call	runner
 	call	rungold
 	call	guards_

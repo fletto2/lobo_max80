@@ -302,9 +302,9 @@ es_1:	push	bc
 	ld	b,30
 	call	vbstat
 	ld	hl,level
-	inc	(hl)
 	ld	a,(hl)
-	cp	NLEVELS+1
+	inc	(hl)
+	cp	NLEVELS		; not NLEVELS+1, which is 0 with 255 stages
 	ret	c
 	ld	(hl),1
 	ld	a,(difficulty)

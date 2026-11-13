@@ -13,7 +13,8 @@
 # which gives the times. Digging: holes dug left and right, crumbling,
 # open, filling and brick again at their rounds, dot for dot, the
 # runner in a hole, through one, caught in one, digs from a ladder and
-# a bar, and digs refused.
+# a bar, and digs refused. A level with no gold ends on row 0, and the
+# viewer of a 3-level build (CR3.COM) comes round past either end.
 #
 # With Lode Runner's stages there (build.sh, LODERUNNER_LEVELS), the
 # title (tests/check_title.py), the viewer and play are checked on them
@@ -72,7 +73,15 @@ else
 	bad "tests/levels_test.txt"
 fi
 
-COMS="$B/CRT.COM $B/CRT2.COM $B/FONTSUM.COM"
+# CR3.COM: the game on the first 3 test levels, for the viewer's
+# rounding past either end with fewer levels than UP and DOWN move
+SJ=${SJASMPLUS:-sjasmplus}
+command -v $SJ >/dev/null || SJ=$HOME/.local/bin/sjasmplus
+mkdir -p $T/l3
+awk '/^=== 004 ===/ { exit } { print }' tests/levels_test.txt > $T/l3.txt
+python3 tools/levels.py $T/l3.txt $T/l3/levels.inc &&
+	$SJ --nologo --msg=war -Ibuild -I$T/l3 --raw=$T/CR3.COM clonerun.asm || exit 1
+COMS="$B/CRT.COM $B/CRT2.COM $B/FONTSUM.COM $T/CR3.COM"
 [ -f $B/CLONERUN.COM ] && COMS="$B/CLONERUN.COM $COMS"
 (cd $R/xcpmz80 && python3 tools/mkdisk.py build/xcpmz80.sys $T/xc.imd $COMS) >/dev/null || exit 1
 
@@ -409,11 +418,43 @@ else
 	cat $T/chk.txt
 fi
 run stage 'CRT 19 27\r' 25
-if [ "$(sed -n 23p $T/stage.txt | awk '{ print $2, $4, $6 }')" = "0001750 006 001" ]; then
-	ok "up the ladder to row 0: 1500 points, a life more, and after the last test level, level 1 again"
+if [ "$(sed -n 23p $T/stage.txt | awk '{ print $2, $4, $6 }')" = "0001750 006 020" ]; then
+	ok "up the ladder to row 0: 1500 points, a life more, and the next level"
 else
 	bad "the stage done" $T/stage.txt
 fi
+run stage0 'CRT 20 27\r' 25
+if [ "$(sed -n 23p $T/stage0.txt | awk '{ print $2, $4, $6 }')" = "0001500 006 001" ]; then
+	ok "a level with no gold: its hidden ladders there from the start, up one to row 0, and after the last test level, level 1 again"
+else
+	bad "the level with no gold" $T/stage0.txt
+fi
+
+# Script 31 holds LEFT in the round the hole the runner stands in fills
+# (CLOSE in test.asm): caught, it does not move in that round, C 00
+run buried 'CRT 5 31 380\r' 25
+if [ "$(sed -n 24p $T/buried.txt | awk '{ print $24, $26 }')" = "01 00" ]; then
+	ok "a key held as the hole fills on the runner: caught where it stands, no step in that round"
+else
+	bad "the runner buried" $T/buried.txt
+fi
+
+echo "=== the viewer, on 3 levels"
+for t in 'CR3:\U:002:UP, 10 on' 'CR3:\D:003:DOWN, 10 back' 'CR3:p:003:P, the last' \
+    'CR3:p\R:001:P, RIGHT, past the last' 'CR3:\L:003:LEFT, past the first'; do
+	c=${t%%:*}
+	rest=${t#*:}
+	k=${rest%%:*}
+	rest=${rest#*:}
+	want=${rest%%:*}
+	what=${rest#*:}
+	run keys "$c\\rs$k" 10
+	if [ "$(row22 keys)" = $want ]; then
+		ok "$what: level $want"
+	else
+		bad "$what: level $(row22 keys), not $want" $T/keys.txt
+	fi
+done
 
 if [ ! -f $B/CLONERUN.COM ]; then
 	echo "=== no $LEVELS: the viewer, play and ESC on Lode Runner's stages not checked"
@@ -466,7 +507,7 @@ done
 # back in capitals, with -T's own text, as at boot. A second's pause
 # first, as keys typed while the game ends are lost
 if [ -f $B/CLONERUN.COM ]; then
-	out=$($EMU -a $T/xc.imd -T -t 30 -e "$P|$HELP|$PHELP|$THELP|$OVER" -k 'CLONERUN\rs\1\e\e\Pdir\r' | grep -v '^ *$' | tail -3)
+	out=$($EMU -a $T/xc.imd -T -t 30 -e "$P|$HELP|$PHELP|$THELP|$OVER" -k 'CLONERUN\rs\1\e\e\Pdir\r' | grep -v '^ *$' | tail -6)
 	case "$out" in
 	*'A:\>DIR'*) ok "F1 in the game leaves Caps Lock as it was" ;;
 	*) bad "Caps Lock after F1 in the game: $out" /dev/null ;;
