@@ -1,5 +1,5 @@
 ; xcpmz80 kernel variables. Each is the one before plus its size. They
-; are in three places, to leave 5C00h-7FFFh in A2 to the track buffer:
+; are in three places, to leave 5E00h-7FFFh in A2 to the track buffer:
 ; - BSS to BSSEND in A2, over the font and common part copies, which
 ;   the boot sector has moved out by the time the kernel runs,
 ; - CBSS to CBSSEND in common memory, from the end of the common part

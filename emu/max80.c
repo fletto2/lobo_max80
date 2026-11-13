@@ -76,7 +76,9 @@
  *   -g  debug sockets, Linux only: /tmp/max80.sock answers with
  *       the registers, /tmp/max80_mem.sock takes "ADDR LEN [chunk]" in
  *       hex, chunk A1, A2, B1, B2 or V for video RAM, and answers with
- *       a dump, or "screen" and answers with the screen as text,
+ *       a dump, or "screen" and answers with the screen as text, or
+ *       "disk b NEW.imd" and puts that disk in drive B (any of a to d)
+ *       in place of the one there, as a disk swapped by hand,
  *       /tmp/max80_kbd.sock types what is written to it. Try
  *       socat - /tmp/max80.sock
  *   -N  with -g, an instance name appended to each socket's name,
@@ -3285,13 +3287,32 @@ static void dbg_regdump(int cl)
 	dbg_send(cl, buf, n);
 }
 
+/* A disk swapped: drive d's tracks freed, the new image loaded. -w
+   still saves the drive at exit, now this disk */
+static int swap_disk(int d, const char *path)
+{
+	struct disk *k = &disks[d];
+	char *p = strdup(path);
+
+	for (int c = 0; c < MAXCYL; c++)
+		for (int h = 0; h < 2; h++) {
+			struct track *t = &k->trk[c][h];
+			for (int i = 0; t->sec && i < t->nsec; i++)
+				free(t->sec[i].data);
+			free(t->sec);
+		}
+	memset(k->trk, 0, sizeof(k->trk));
+	/* -3 stays as it was: a drive, not a disk */
+	return p ? load_imd(k, p) : -1;
+}
+
 /* "ADDR LEN" in hex: as the CPU sees it now. "ADDR LEN chunk", chunk
    A1, A2, B1 or B2: that 32K chunk of RAM, ADDR from 0 to 7FFF. Chunk V:
    video RAM, ADDR from 0 to 7FF. "screen": the screen as text, as -t
-   prints it */
+   prints it. "disk b NEW.imd": a disk swapped, "ok" or why not */
 static void dbg_memdump(int cl)
 {
-	char req[64], name[8] = "", buf[20000];
+	char req[600], name[8] = "", buf[20000];
 	unsigned addr = 0, len = 16;
 	int nr, n = 0, chunk = -1;
 	for (int tries = 0; tries < 100; tries++) {	/* the request may lag */
@@ -3308,6 +3329,17 @@ static void dbg_memdump(int cl)
 		static char text[16384];
 		screen_text(text, sizeof(text));
 		dbg_send(cl, text, strlen(text));
+		return;
+	}
+	if (!strncmp(req, "disk ", 5)) {
+		char *path = req + 7;
+		path[strcspn(path, "\r\n")] = 0;
+		if (req[5] < 'a' || req[5] > 'd' || req[6] != ' ' || !*path)
+			dbg_send(cl, "usage: disk a|b|c|d NEW.imd\n", 28);
+		else if (swap_disk(req[5] - 'a', path))
+			dbg_send(cl, "no disk swapped\n", 16);
+		else
+			dbg_send(cl, "ok\n", 3);
 		return;
 	}
 	if (sscanf(req, "%x %x %7s", &addr, &len, name) < 1) {

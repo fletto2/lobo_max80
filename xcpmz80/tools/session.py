@@ -13,6 +13,9 @@ screen, both once the screen has changed since the last key was typed,
 each at most LIMIT seconds of the host's (60, or
 $SESSION_LIMIT): it then says so on stderr, and in the file
 $SESSION_LOG names when there is one, goes on, and this exits 3.
+@!REQUEST sends REQUEST to the emulator's memory socket, as
+@!disk b NEW.imd, which swaps the disk in drive B; anything but ok
+back is said on stderr and this exits 3.
 Before the first key it waits for the shell's prompt, A:\\> or A>, at
 most 20 seconds of the machine's. At the end the emulator gets SIGTERM,
 saves what -w and -p ask for and prints the screen, which this prints.
@@ -131,6 +134,12 @@ def main():
                     if os.environ.get('SESSION_LOG'):
                         with open(os.environ['SESSION_LOG'], 'a') as f:
                             f.write(msg)
+                    status = 3
+                continue
+            if a[:2] == '@!':         # to the memory socket: a disk swap
+                r = ask(MEM, a[2:].encode())
+                if r.strip() != b'ok':
+                    sys.stderr.write('session.py: %s: %s' % (a[2:], r.decode()))
                     status = 3
                 continue
             if a.startswith('@'):

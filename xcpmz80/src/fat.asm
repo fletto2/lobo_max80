@@ -59,6 +59,11 @@ mount1:	ld	de,0
 	or	a
 	jp	z,mtbad
 	ld	(ix+D_SPC),a
+	ld	b,a
+	dec	a
+	and	b
+	jp	nz,mtbad
+	ld	a,b
 	ld	b,0
 mt1:	rrca
 	jr	c,mt2
@@ -78,19 +83,27 @@ mt2:	ld	(ix+D_SPCSH),b
 	ld	(ix+D_SPF),c
 	ld	(ix+D_SPF+1),b
 mt3:	add	hl,bc			; root = reserved + FATs * SPF
+	jp	c,mtbad
 	dec	a
 	jr	nz,mt3
 	ld	(ix+D_ROOTSEC),l
 	ld	(ix+D_ROOTSEC+1),h
 	ex	de,hl			; DE = root
-	ld	l,(iy+11h)		; root entries, 16 a sector
+	ld	l,(iy+11h)		; root entries, 16 a sector, whole
 	ld	h,(iy+12h)
+	ld	a,l
+	and	0Fh
+	jp	nz,mtbad
+	or	h
+	or	l
+	jp	z,mtbad
 	ld	(ix+D_ROOTENT),l
 	ld	(ix+D_ROOTENT+1),h
 	ld	b,4
 	call	shrb
 	ld	(ix+D_ROOTSECS),l
 	add	hl,de
+	jp	c,mtbad
 	ld	(ix+D_DATASEC),l
 	ld	(ix+D_DATASEC+1),h
 	ex	de,hl			; DE = data start
@@ -98,14 +111,21 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	h,(iy+14h)
 	ld	a,h
 	or	l
-	jr	z,mtbad
+	jp	z,mtbad
 	ld	(ix+D_TOTAL),l
 	ld	(ix+D_TOTAL+1),h
 	or	a
 	sbc	hl,de
-	jr	c,mtbad
+	jp	c,mtbad
 	ld	b,(ix+D_SPCSH)		; clusters = data sectors >> SPCSH
 	call	shrb
+	ld	a,h			; 1 to FFF5h
+	or	l
+	jp	z,mtbad
+	ld	de,0FFF6h
+	sbc	hl,de			; carry clear: A, H or L is not 0
+	jp	nc,mtbad
+	add	hl,de
 	inc	hl			; highest cluster = clusters + 1
 	ld	(ix+D_MAXCL),l
 	ld	(ix+D_MAXCL+1),h
@@ -114,6 +134,32 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	sbc	a,a			; 0 or 1
 	neg
 	ld	(ix+D_FAT16),a
+	ld	l,(ix+D_MAXCL)		; sectors per FAT enough for the
+	ld	h,(ix+D_MAXCL+1)	; entries, 0 to the highest (I260)
+	inc	hl
+	or	a
+	jr	z,mt12
+	ld	a,l			; FAT16: 256 a sector
+	or	a
+	ld	l,h
+	ld	h,0
+	jr	z,mt4
+	inc	hl
+	jr	mt4
+mt12:	ld	d,h			; FAT12: 3 bytes for 2, 1024 for 3 sectors
+	ld	e,l
+	add	hl,hl
+	add	hl,de
+	ld	de,1023
+	add	hl,de
+	ld	b,10
+	call	shrb
+mt4:	ex	de,hl
+	ld	l,(ix+D_SPF)
+	ld	h,(ix+D_SPF+1)
+	or	a
+	sbc	hl,de
+	jp	c,mtbad
 	ld	a,(iy+18h)		; floppy geometry
 	ld	(ix+D_SPT),a
 	ld	a,(iy+1Ah)

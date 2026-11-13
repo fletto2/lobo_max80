@@ -44,7 +44,9 @@ sdr_1:	ld	(dircl),hl
 
 ; After a drive is mounted: if its current folder is not a folder on
 ; this disk, which may have been changed, back to the root. Its first
-; entry must be "." with the folder's own cluster.
+; entry must be "." with the folder's own cluster, and the folder above
+; must name it as its path ends: two disks made alike can have another
+; folder at the same cluster (I260). Leaves spat and dpos changed.
 cwdchk:	ld	a,(drvnum)
 	call	cwdptr
 	push	hl
@@ -77,6 +79,35 @@ cwdchk:	ld	a,(drvnum)
 	inc	hl
 	ld	a,(hl)
 	cp	d
+	jr	nz,cc_bad
+	ld	bc,31			; the folder above, from ".."
+	add	hl,bc
+	ld	a,(hl)
+	inc	hl
+	ld	h,(hl)
+	ld	l,a
+	ld	(dircl),hl
+	push	de
+	ld	a,(drvnum)
+	call	pthptr
+	ld	d,h			; DE = its last part
+	ld	e,l
+cc_1:	ld	a,(hl)
+	inc	hl
+	or	a
+	jr	z,cc_2
+	cp	5Ch
+	jr	nz,cc_1
+	ld	d,h
+	ld	e,l
+	jr	cc_1
+cc_2:	ex	de,hl
+	call	pcomp
+	call	z,wpfind		; HL = the cluster that name has
+	pop	de
+	jr	nz,cc_bad
+	or	a
+	sbc	hl,de
 	jr	z,cc_ok
 cc_bad:	pop	hl
 	xor	a
@@ -254,8 +285,6 @@ zc_1:	call	newsec			; keeps BC and DE
 ; wpath its path. With wlast set the last part is not walked but left
 ; in spat, blank if there is none. NZ, A = error.
 walk:	call	skipsp
-	ld	a,' '
-	ld	(spat),a
 	inc	hl
 	ld	a,(hl)
 	dec	hl
@@ -270,6 +299,8 @@ wk_1:	ld	(fdrive),a
 	push	hl
 	call	mount
 	jr	nz,wk_e
+	ld	a,' '			; after mount, which may have used it
+	ld	(spat),a
 	ld	a,(drvnum)
 	call	pthptr
 	ld	de,wpath
@@ -479,7 +510,8 @@ dsany:	ld	a,A_DIR
 	ret
 
 ; HL = the first cluster of the folder spat names in dircl, Z. dpos is
-; its entry. NZ, A = E_NOPATH if there is none.
+; its entry. NZ, A = E_NOPATH if there is none, or its cluster is out of
+; range on a damaged disk (I260). 0 is the root, as ".." has it.
 wpfind:	ld	a,A_DIR
 	ld	(dsdirs),a
 	call	dsfirst
@@ -498,6 +530,11 @@ wf_2:	jr	nz,wf_no
 	inc	hl
 	ld	h,(hl)
 	ld	l,a
+	or	h
+	jr	z,wf_9			; the root: Z, A = 0
+	call	fateoc
+	ld	a,R_NOFILE
+	jr	c,wf_no
 	xor	a
 	jr	wf_9
 wf_no:	cp	R_NOFILE

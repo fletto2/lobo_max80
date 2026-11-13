@@ -516,7 +516,8 @@ print(t[:4095]); print(t[4095:])" | $C/base64_host -d $T/out/H3.BIN >/dev/null 2
 		cat >$T/dmg.py <<'DMGEOF'
 # Damage a FAT image for the tests: dmg.py IMG root FILE.EXT CLUS sets a
 # root entry's first cluster; dmg.py IMG loop FOLDER makes a folder's
-# one cluster point to itself, its free entries deleted ones, no end
+# one cluster point to itself, its free entries deleted ones, no end;
+# dmg.py IMG bpb OFFSET HEX writes bytes into the boot sector
 import sys, struct
 img, what = sys.argv[1], sys.argv[2]
 b = bytearray(open(img, 'rb').read())
@@ -544,7 +545,10 @@ def setfat(c, v):
             w = struct.unpack_from('<H', b, o)[0]
             w = (w & 0x000F) | (v << 4) if c & 1 else (w & 0xF000) | v
             struct.pack_into('<H', b, o, w)
-if what == 'root':
+if what == 'bpb':
+    o = int(sys.argv[3], 0)
+    b[o:o + len(bytes.fromhex(sys.argv[4]))] = bytes.fromhex(sys.argv[4])
+elif what == 'root':
     struct.pack_into('<H', b, ent(sys.argv[3]) + 26, int(sys.argv[4]))
 else:
     c = struct.unpack_from('<H', b, ent(sys.argv[3]) + 26)[0]
@@ -558,22 +562,34 @@ DMGEOF
 		printf 'aaa\r\n' >$T/DA.TXT
 		printf 'bbb\r\n' >$T/DB.TXT
 		printf 'fff\r\n' >$T/FF.TXT
+		printf 'ggg\r\n' >$T/GG.TXT
 		# W.COM: open the FCB at 5Ch, write record 0 at random, close
 		printf '\021\134\000\016\017\315\005\000\041\000\000\042\175\000\257\062\177\000\021\134\000\016\042\315\005\000\021\134\000\016\020\315\005\000\311' >$T/W.COM
 		python3 tools/mkdisk.py $SYS --hd 1 $T/dm.img $T/DA.TXT $T/DB.TXT \
-			--in F $T/FF.TXT >/dev/null
+			--in F $T/FF.TXT --in G $T/GG.TXT >/dev/null
 		python3 $T/dmg.py $T/dm.img root DB.TXT 1
+		python3 $T/dmg.py $T/dm.img root G 1
 		python3 $T/dmg.py $T/dm.img loop F
 		cp $T/dm.img $T/dm0.img
 		mkdisk $T/wf.imd $T/W.COM >/dev/null
 		rm -f $T/out/dm.img
 		out=$($EMU -a $T/wf.imd -h $T/dm.img -w h:$T/out/dm.img -T -t 120 \
-			-e 'A:\>' -k 'w c:db.txt\rdir c:\\f\\zz.*\rdir c:\r' | tr -d '\r')
+			-e 'A:\>' -k 'w c:db.txt\rdir c:\\f\\zz.*\rmd c:\\g\\x\rdir c:\r' | tr -d '\r')
 		check "a write to a first cluster out of range fails" "Function 34" "$out"
 		n=$(cmp $T/dm0.img $T/out/dm.img && echo same)
 		check "and the disk is left as it was" "same" "$n"
 		check "a search in a folder that goes round ends" "No file" "$out"
 		check "and the disk is there after it" "C: DA       TXT : DB       TXT" "$out"
+		check "a folder whose first cluster is 1, on the root, is not entered" "No folder" "$out"
+		# A BPB that does not add up is not mounted: 3 sectors a
+		# cluster, 500 root entries, 1 sector a FAT for 2000 clusters
+		for bpb in "0x0d 03" "0x11 f401" "0x16 0100"; do
+			cp $T/dm0.img $T/bp.img
+			python3 $T/dmg.py $T/bp.img bpb $bpb
+			out=$($EMU -a $T/wf.imd -h $T/bp.img -T -t 30 -e 'A:\>' \
+				-k 'dir c:\r' | tr -d '\r' | grep -v '^$' | grep -iA1 'dir c:' | tail -1)
+			check "a BPB with $bpb is not mounted" "Disk I/O" "$out"
+		done
 		# The page module on the host, page.c and page.s on the
 		# Z80 core: down and up, jumps, 3000 random edits and saves
 		# checked against a model, and a file of LF lines saved as it was
@@ -879,13 +895,14 @@ check "BENCH says No file" "No file" "$out"
 # command, from the next sector to come round, into a track buffer:
 # faster than a sector a command at any interleave. Other disks read a
 # sector at a time, as fast as before. 1.44M as a PC lays it out, with
-# no skew. Records a second, at least:
+# no skew, its 18 sectors read 17 and 1, the last a turn later, as the
+# track buffer holds 17 (I260). Records a second, at least:
 benchrate() {	# image, emulator options: BENCH's records a second
 	$EMU $2 -a $1 -T -M -L -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P' |
 		awk '/^xxxxxxxxxxxxxxxx / { r = int($3 / $4) } /^Lost Data: / { l = $3 } END { print r, l }'
 }
 for b in "720 1 70 --525 720" "720 2 55 --525 720" "8in 1 120" "8in 3 85" \
-	"1440 1 115 --pc 1440 --skew 0 --hskew 0"; do
+	"1440 1 75 --pc 1440 --skew 0 --hskew 0"; do
 	set -- $b
 	name=$1 ilv=$2 floor=$3
 	shift 3
