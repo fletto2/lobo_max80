@@ -351,6 +351,10 @@ runs the ZX81 machine code game `GAME.P`. It needs the ZX81's ROM as
 | `MINE81` | H J K L or S X E D move, V or SPACE tread, 1 or M mark, 3 or U unmark |
 | `PIPEPANI` | Q A O P move, K selects |
 
+A game that calls a part of the ZX81's ROM that ZX81 is not able to
+stand in for, or resets the ZX81 with RST 0, ends with `ROM call not
+there, from` and the address, back at the prompt.
+
 
 ## How it differs from CP/M
 

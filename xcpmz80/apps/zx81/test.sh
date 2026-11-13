@@ -158,6 +158,23 @@ check "and NEWLINE goes to the next line" "@@@@@@@@$(zt XY)" "$out"
 check "and the variables moved: the line after" "@@@@@@@@$(zt OK)" "$out"
 out=$($EMU -f -K -T -a $T/b.imd -e 'A:\>' -k 'ZX81 TRAP /Y\r' -t 7 2>&1)
 check "an RST we lack quits and says from where" "ROM call not there, from 4082" "$out"
+# RST 0, a ZX81's reset; RST 8 in a game not patched, a ZX81's error;
+# IY as the ROM leaves it; a CALL to a ROM entry past our code
+for t in trap0 trap8 iy fast; do
+	$SJ --nologo --msg=war --raw=$T/$t.bin tests/$t.asm || exit 1
+	$P $T/$(echo $t | tr a-z A-Z).P $T/$t.bin
+done
+(cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/c.imd \
+	apps/zx81/build/ZX81.COM apps/zx81/$T/ZX81.ROM apps/zx81/$T/TRAP0.P \
+	apps/zx81/$T/TRAP8.P apps/zx81/$T/IY.P apps/zx81/$T/FAST.P)
+out=$($EMU -f -K -T -a $T/c.imd -e 'A:\>' -k 'ZX81 TRAP0 /Y\r' -t 7 2>&1)
+check "RST 0 is a trap, not CP/M's warm boot" "ROM call not there, from 4082" "$out"
+out=$($EMU -f -K -T -a $T/c.imd -e 'A:\>' -k 'ZX81 TRAP8 /Y\r' -t 7 2>&1)
+check "RST 8 in a game not patched is a trap" "ROM call not there, from 4082" "$out"
+out=$($EMU -f -K -T -a $T/c.imd -e 'A:\>' -k 'ZX81 IY /Y\r' -t 7 2>&1)
+check "the game starts with IY 4000h" "ROM call not there, from 408E" "$out"
+out=$($EMU -f -K -T -a $T/c.imd -e 'A:\>' -k 'ZX81 FAST /Y\r' -t 7 2>&1)
+check "a CALL to FAST is a trap" "ROM call not there, from 0F23" "$out"
 
 # An unknown .P: a warning and what the scan sees, a key goes on
 $SJ --nologo --msg=war --raw=$T/scan.bin tests/scan.asm || exit 1

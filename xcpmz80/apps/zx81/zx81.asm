@@ -43,7 +43,12 @@ BRAKE	equ	38		; x 1024 T-states to hold in two ticks, less the
 
 	org	100h
 
-start:	ld	hl,ccpsp	; our memory starts as nothing
+start:	ld	hl,progend	; past the program to 1000h: RST 38h, so a
+	ld	(hl),0FFh	; CALL to a ROM entry up there is a trap
+	ld	de,progend+1
+	ld	bc,ccpsp-progend-1
+	ldir
+	ld	hl,ccpsp	; our memory starts as nothing
 	ld	de,ccpsp+1
 	ld	bc,memend-ccpsp-1
 	ld	(hl),0
@@ -132,6 +137,7 @@ st_1:	ld	(RAMTOP),hl
 	ld	b,h		; BC the start, HL 1520h, as the ROM's USR
 	ld	c,l		; leaves them
 	ld	hl,1520h
+	ld	iy,4000h	; the system variables, as the ROM keeps it
 	ei
 	ret			; to the game
 
@@ -430,6 +436,8 @@ pa_1:	ld	a,(hl)		; the table's length, CRC, address
 	ld	a,h
 	or	l
 	ret	z		; no patch, no carry
+	ld	a,1
+	ld	(patched),a
 	ld	(hl),0CFh	; RST 8
 	inc	hl
 	ld	(hl),0
@@ -735,20 +743,34 @@ ri_1:	ld	(hl),0C3h	; JP trap
 	ld	de,8		; 10h's comes below
 	add	hl,de
 ri_2:	djnz	ri_1
+	ld	hl,0		; 0000h too, a ZX81's reset: CP/M's JP kept
+	ld	de,w0save
+	ld	bc,3
+	ldir
 	ld	a,0C3h
+	ld	(0),a
+	ld	hl,trap
+	ld	(1),hl
 	ld	(10h),a
 	ld	hl,print
 	ld	(11h),hl
-	ld	hl,inport	; RST 8: a patched IN
+	ld	a,(patched)	; RST 8: a patched IN, only in a game we
+	or	a		; patched, else a ZX81's error RST, a trap
+	jr	z,ri_3
+	ld	hl,inport
 	ld	(9),hl
-	ld	hl,ktable	; Pipepanic reads the ROM's key table at 007Dh,
+ri_3:	ld	hl,ktable	; Pipepanic reads the ROM's key table at 007Dh,
 	ld	de,007Dh	; a byte before Z, E9h, then the keys in this order
 	ld	bc,40
 	ldir
 	ret
 
 ; Page zero's RST entries back to nothing
-rstout:	ld	hl,8
+rstout:	ld	hl,w0save	; CP/M's JP at 0000h back
+	ld	de,0
+	ld	bc,3
+	ldir
+	ld	hl,8
 	ld	de,9
 	ld	bc,2Fh
 	ld	(hl),0
@@ -1297,6 +1319,7 @@ m_shalt: db	"  HALT at $"
 m_si:	db	"  LD I,A at $"
 m_srom:	db	"  ROM call at $"
 m_crlf:	db	13,10,'$'
+progend:			; to 0FFFh filled with RST 38h at the start
 
 ; Memory with nothing in the file, above the decode entry
 ccpsp	equ	1000h
@@ -1332,4 +1355,6 @@ brake	equ	quitting+1	; the hold, 1024 T-states a count
 ks_p	equ	brake+1		; where keyscan keeps the next half-row
 hrows	equ	ks_p+2		; the 8 half-rows, a held key 0
 in_a	equ	hrows+8
-memend	equ	in_a+1
+w0save	equ	in_a+1		; CP/M's JP at 0000h while the game runs
+patched	equ	w0save+3	; 1: patch put an RST 8 in the game
+memend	equ	patched+1
