@@ -48,7 +48,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-T` | Draw in the terminal, not a window. |
 | `-k keys` | Type these keys at the prompt. `\r` is Enter, `\e` ESC, `\U \D \L \R` the arrows, `\1` to `\4` F1 to F4, `\B` BREAK, `\E` an Enter with no wait, `\P` a second's pause. |
 | `-e text` | The prompt `-k` waits for, default `A>`, or several as `A>\|B>`. |
-| `-K` | Type letters for an OS that boots with Caps Lock on, as xcpmz80 does, so scripts keep their case. |
+| `-K` | Type letters in the case written under xcpmz80, which boots with Caps Lock on. It follows xcpmz80's Caps Lock flag, KCAPS at F52Fh, read as each key goes down, so F1 or VI turning it off does not swap the case. |
 | `-t seconds` | Run this many emulated seconds with no window, print the screen and exit. |
 | `-p frame.pgm` | With `-t`, also save the last frame as a PGM image. |
 | `-s sound.wav` | Record the beeps to a WAV file. |

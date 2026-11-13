@@ -123,11 +123,21 @@ beep(void)
     flushbuf();
 }
 
+/*
+ * Caps Lock: xcpmz80 boots with it on, and VI's commands are case
+ * sensitive. Off while VI runs, back as it was at the end (I278).
+ * KCAPS in src/common.asm, F52Fh: 0 on, 20h off. F1 still flips it.
+ */
+#define KCAPS (*(volatile unsigned char *) 0xF52F)
+static unsigned char oldcaps;
+
 void
 windinit(void)
 {
     Columns = 80;
     P(P_LI) = Rows = 24;
+    oldcaps = KCAPS;
+    KCAPS = 0x20;
 }
 
 void
@@ -136,6 +146,7 @@ windexit(int r)
     toutstr(T_TP);
     toutstr(T_CV);
     flushbuf();
+    KCAPS = oldcaps;
     exit(r);
 }
 

@@ -746,6 +746,14 @@ EOF
 		check "and :q! quits all the same" "A: VI       TXT" "$out"
 		getfile $T/out/vi2.imd VI.TXT $T/out/VI2.TXT
 		same "without writing the file" $T/VI.TXT $T/out/VI2.TXT
+		# Caps Lock, on at boot, is off in VI and back on after: keys
+		# typed as a person types them, with no -K. x deletes the first
+		# letter where X did nothing, :wq saves where :WQ was refused
+		out=$(../emu/max80 -a $T/vi.imd -w a:$T/out/vi3.imd -T -t 60 -e 'A:\>' \
+			-k 'vi vi.txt\E\P\P\Px\P:wq\rdir vi.txt\r' | tr -d '\r')
+		check "VI takes its commands with Caps Lock on at the prompt" "A:\\>DIR VI.TXT" "$out"
+		getfile $T/out/vi3.imd VI.TXT $T/out/VI3.TXT
+		check "and x and :wq in lower case" "=ne two three" "=$(head -1 $T/out/VI3.TXT)"
 		# The back arrow rubs out while typing and on the : line, as at
 		# A:\>: XYZ, two back, Q, then :wqx, one back
 		out=$(python3 tools/session.py "-a $T/vi.imd -w a:$T/out/vi3.imd" \

@@ -25,6 +25,41 @@ The keyboard starts with Caps Lock on, as Lobo's CP/M does. F1 turns
 it off and on. The arrows send ^\ ^] ^^ and ^_ (1Ch to 1Fh), CLEAR
 sends ^H and BREAK sends ^C.
 
+## The terminal, for an install program
+
+A program that draws on the screen, such as Multiplan, WordStar,
+dBASE II or Turbo Pascal, asks in its install program which terminal
+it runs on. The screen is 80 columns by 24 lines and takes the codes
+of Lobo's CP/M 3, which are a Soroc IQ-120's. Pick, in this order:
+
+1. Soroc IQ-120 (in Turbo Pascal's TINST, "Soroc 120/Apple CP/M")
+2. TeleVideo 912 or 920
+3. Lear Siegler ADM-3A, which has the cursor and clear, but no
+   erase to the end of the line, so a program redraws more
+
+If the install program asks for the codes one by one:
+
+| What | Codes |
+|---|---|
+| Cursor to a row and column, from 0 | ESC `=` row+20h column+20h |
+| Clear the screen | ^Z (1Ah), or ESC `*` |
+| Cursor home | ^^ (1Eh) |
+| Erase to the end of the line | ESC `T` |
+| Erase to the end of the screen | ESC `Y` |
+| Insert a line, delete a line | ESC `E`, ESC `R` |
+| Second style on, off (highlight) | ESC `)`, ESC `(` |
+| Cursor off, on | ESC `0`, ESC `1` |
+| Cursor left, down, up, right | ^H, ^J, ^K, ^L |
+| Bell | ^G |
+
+Nothing needs to be sent to start or end. There is no reverse video
+code of its own: the second style is the font's other half, thin text
+in the boot font. For a program that shows its highlight as reverse
+video, load INVERSE.FNT first (`LDFONT INVERSE.FNT`). The arrow keys send ^\ up, ^] down, ^^ left and ^_
+right, not the ADM-3A's ^K ^J ^H ^L, so tell a program that asks for
+its cursor keys these four, or use its own keys (^E ^X ^S ^D in
+WordStar and Turbo Pascal).
+
 ## Typing a command
 
 Type the command and press ENTER. The cursor blinks while the system
@@ -290,6 +325,9 @@ back to command mode, `x` deletes a character, `dd` a line, `u` undoes,
 `/text` searches, `:w` saves, `:q` quits, `:wq` or `ZZ` saves and
 quits, `:q!` quits without saving. In command mode the arrows move the
 cursor. The back arrow rubs out in insert mode and on the `:` line.
+VI's commands are case sensitive, so VI turns Caps Lock off when it
+starts and back to what it was when it ends. F1 still turns it on and
+off in VI, for typing capitals.
 
 A file bigger than memory is edited through a window, as in EMACS.
 `:set bk` keeps the old file as `.BAK` when you save.

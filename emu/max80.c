@@ -2609,8 +2609,18 @@ struct key { int row, bit, shift, ctrl; };
 enum { K_UP = 0x80, K_DOWN, K_LEFT, K_RIGHT, K_F1, K_F2, K_F3, K_F4,
        K_BREAK, K_ENTER, K_PAUSE };
 
-/* -K: type letters for an OS with Caps Lock on, SHIFT for lower case */
+/*
+ * -K: type letters in the case written under xcpmz80, which boots with
+ * Caps Lock on: SHIFT for lower case while it is on. Its flag is KCAPS,
+ * F52Fh in the I/O block, so A1's 752Fh, 0 on and 20h off (VI turns it
+ * off while it runs, I278), read as each key goes down.
+ */
 static int caps_swap;
+
+static int caps_on(void)
+{
+	return caps_swap && ram[0][0x752f] != 0x20;
+}
 
 static int key_for(int ch, struct key *k)
 {
@@ -2638,12 +2648,12 @@ static int key_for(int ch, struct key *k)
 	if (ch >= 'a' && ch <= 'z') {
 		k->row = (ch - 'a' + 1) / 8;
 		k->bit = (ch - 'a' + 1) % 8;
-		k->shift = caps_swap;
+		k->shift = caps_on();
 		return 1;
 	}
 	if (ch >= 'A' && ch <= 'Z') {
 		key_for(ch - 'A' + 'a', k);
-		k->shift = !caps_swap;
+		k->shift = !caps_on();
 		return 1;
 	}
 	if (ch >= 1 && ch <= 26 && ch != '\r' && ch != '\n' && ch != '\b' &&
