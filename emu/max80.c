@@ -51,7 +51,9 @@
  *       2 (B1). d:2:0 holds FDC status bit 0, busy, at 1 from emulated
  *       second 2 on, after the boot. For the diagnostic. s:3:0 hangs
  *       the SASI drive on its 3rd command (hex): it keeps BSY and never
- *       asks for a byte, until a bus reset
+ *       asks for a byte, until a bus reset. p:4:0 holds PIO A bit 4, a
+ *       chunk select, at 0 for the RAM, w:2:0:1 shorts data bits 0 and
+ *       1 of chunk 2 (B1), 0 winning
  *   -x  a card on the expansion bus at this port, in hex: it reads back
  *       the last byte written to it, 00h at the start. Every other port
  *       reads FFh. For the diagnostic
@@ -1085,6 +1087,9 @@ static uint8_t rom[512];
 static uint8_t video[2048], font1[1024], font2[1024];
 static uint8_t *fault_at, fault_mask;	/* -F */
 static int alias_from = -1, alias_to;	/* -F c: */
+static uint8_t pa_stuck, pa_stuck_val;	/* -F p:, PIO A select bits stuck */
+static int bridge_chunk = -1;		/* -F w:, two data bits of a chunk shorted */
+static uint8_t bridge_m;
 static int bank_b = 1;			/* -m: 1 fitted, 0 reads FFh, 2 holds the last write */
 static uint8_t no_ram;			/* what a missing chunk reads */
 static int xport = -1;			/* -x */
@@ -1364,7 +1369,19 @@ static uint8_t *chunk_ram(int chunk, uint16_t a)
 
 static uint8_t *ram_at(uint16_t a)
 {
-	return chunk_ram(a & 0x8000 ? (pio_a >> 6) & 3 : (pio_a >> 4) & 3, a);
+	uint8_t pa = (pio_a & ~pa_stuck) | pa_stuck_val;
+
+	return chunk_ram(a & 0x8000 ? (pa >> 6) & 3 : (pa >> 4) & 3, a);
+}
+
+/* -F w: a byte written to the chunk with two data bits shorted, the low
+   one winning, so both read 0 unless both were 1 */
+static uint8_t bridged(const uint8_t *p, uint8_t v)
+{
+	if (bridge_chunk >= 0 && p >= ram[bridge_chunk] &&
+	    p < ram[bridge_chunk] + 0x8000 && (v & bridge_m) != bridge_m)
+		v &= ~bridge_m;
+	return v;
 }
 
 /*
@@ -2024,12 +2041,14 @@ static void mem_write(void *ctx, uint16_t a, uint8_t v)
 		/* The RAM first: a write to VLATCH may move the block. The
 		   keyboard is read only, and its RAM is written, as MultiDOS's
 		   boot sector needs. A device write lands too */
-		*block_ram(a) = v;
+		uint8_t *b = block_ram(a);
+		*b = bridged(b, v);
 		if (off >= 0x7d0 && off < 0x800)
 			io_write(off, v);
 		return;
 	}
-	*ram_at(a) = v;
+	uint8_t *r = ram_at(a);
+	*r = bridged(r, v);
 }
 
 /*
@@ -3670,6 +3689,28 @@ int main(int argc, char **argv)
 				if (!optarg[2] || *end || v < 1 || v > 10000)
 					return fprintf(stderr, "-F r: 1 to 10000 us\n"), 2;
 				sec_settle = v;
+				break;
+			}
+			if (optarg[0] == 'p' && optarg[1] == ':') {
+				unsigned b, v;
+				char x;
+				if (sscanf(optarg + 2, "%u:%u%c", &b, &v, &x) != 2 ||
+				    b < 4 || b > 7 || v > 1)
+					return fprintf(stderr, "-F p: a PIO A bit 4 to 7 "
+					    "and 0 or 1, such as p:4:0\n"), 2;
+				pa_stuck |= 1 << b;
+				pa_stuck_val = (pa_stuck_val & ~(1 << b)) | v << b;
+				break;
+			}
+			if (optarg[0] == 'w' && optarg[1] == ':') {
+				unsigned c, b1, b2;
+				char x;
+				if (sscanf(optarg + 2, "%u:%u:%u%c", &c, &b1, &b2, &x) != 3 ||
+				    c > 3 || b1 > 7 || b2 > 7 || b1 == b2)
+					return fprintf(stderr, "-F w: a chunk 0 to 3 and two "
+					    "data bits, such as w:2:0:1\n"), 2;
+				bridge_chunk = c;
+				bridge_m = 1 << b1 | 1 << b2;
 				break;
 			}
 			/* d's second is decimal, read so before the range
