@@ -18,6 +18,16 @@ in machine code work. MIT license, as xcpmz80.
 | `MINE81.P`, Russell Marks | H J K L or S X E D move, V or SPACE tread, 1 or M mark, 3 or U unmark | Public domain, `games/mine81.txt` |
 | `PIPEPANI.P` (Pipepanic), Thunor | Q A O P move, K selects | GPL 3, `games/PIPEPANI.COPYING`, source `games/pipepanic.asm` |
 
+## What a game gets
+
+The ROM is not run, so a game gets only what ZX81.COM gives it. IY is
+4000h at the start, and RST 10h prints at DF_CC as the ROM does, with
+tokens left as codes, as the ROM's RST 10h leaves them. Past the last
+line it prints nothing more. `KEYBOARD` (02BBh), `DECODE` (07BDh, with
+SHIFT) and `CLS` (0A2Ah) work at their ROM addresses. Any other RST, or
+a jump into the ROM above ZX81.COM, quits and says from where. `ZX81.ROM`
+must be 8192 bytes and start as a ZX81's ROM does.
+
 ## Building
 
 `build.sh` makes `build/ZX81.COM` (needs sjasmplus). `test.sh` runs the

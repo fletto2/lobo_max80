@@ -20,6 +20,7 @@ VARS	equ	4010h
 E_LINE	equ	4014h
 STKEND	equ	401Ch
 LAST_K	equ	4025h
+MARGIN	equ	4028h		; 37h at 50 Hz, set by KEYBOARD
 NXTLIN	equ	4029h
 FRAMES	equ	4034h
 S_POSN	equ	4039h		; 33 less the column, then 24 less the line
@@ -33,6 +34,7 @@ C_ZERO	equ	1Ch		; the digit 0
 
 ROMBUF	equ	8000h		; ZX81.ROM while loading
 ROMLEN	equ	2000h
+KSHIFT	equ	00A5h		; in the ROM: the keys with SHIFT, 39 bytes
 SHAPES	equ	1E00h		; in the ROM: 64 shapes, 8 bytes each
 XCOL	equ	4		; the 32 columns start here, in the 40
 R2EVEN	equ	61h		; CRTC R2 showing the even characters
@@ -86,9 +88,26 @@ start:	ld	hl,progend	; past the program to 1000h: RST 38h, so a
 	sbc	hl,de
 	ld	de,m_badrom
 	jp	nz,fail
+	ld	hl,(ROMBUF)	; OUT (FDh),A first, and the space shape blank:
+	ld	bc,0FDD3h	; a ZX81's ROM, not any 8K file
+	or	a
+	sbc	hl,bc
+	ld	de,m_notrom
+	jp	nz,fail
+	ld	hl,ROMBUF+SHAPES
+	ld	b,8
+	xor	a
+st_r:	or	(hl)
+	inc	hl
+	djnz	st_r
+	jp	nz,fail
 	ld	hl,ROMBUF+SHAPES
 	ld	de,shapes
 	ld	bc,200h
+	ldir
+	ld	hl,ROMBUF+KSHIFT	; the shifted keys, for the decode
+	ld	de,kshift
+	ld	bc,39
 	ldir
 
 	ld	de,fcb		; the game
@@ -100,6 +119,7 @@ start:	ld	hl,progend	; past the program to 1000h: RST 38h, so a
 	call	checkp
 	ld	de,m_badp
 	jp	c,fail
+	call	setpos
 	call	findusr
 	ld	de,m_nousr
 	jp	c,fail
@@ -229,6 +249,10 @@ op_3:	cp	'D'
 
 ; DE an FCB, HL where to read it, BC the limit. HL = past the last record
 ; read. Carry if the file is not there or does not fit.
+	assert	$ <= 02BBh	; the ROM's KEYBOARD has its entry at its address
+	block	02BBh-$,0
+	jp	keybd
+
 readfile:
 	ld	(rf_to),hl
 	ld	(rf_lim),bc
@@ -260,6 +284,15 @@ rf_1:	ld	de,(rf_to)
 	or	a
 	sbc	hl,de
 	jr	c,rf_1
+	ld	de,(rf_to)	; at the limit: one more record past it, and
+	ld	c,26		; if there is none the file fits
+	call	BDOS
+	ld	de,(rf_fcb)
+	ld	c,20
+	call	BDOS
+	or	a
+	ld	hl,(rf_to)
+	ret	nz
 	scf
 	ret
 
@@ -278,6 +311,19 @@ checkp:	ld	de,(E_LINE)
 	or	a
 	scf
 	ret	nz
+	ld	hl,(D_FILE)	; D_FILE from PROGRAM, 25 bytes or more under
+	ld	de,PROGRAM	; E_LINE
+	or	a
+	sbc	hl,de
+	ret	c
+	ld	hl,(D_FILE)
+	ld	de,25
+	add	hl,de
+	ld	de,(E_LINE)
+	ex	de,hl
+	or	a
+	sbc	hl,de
+	ret	c
 	ld	hl,(D_FILE)
 	ld	a,(hl)
 	cp	NEWLINE
@@ -306,6 +352,18 @@ cp_3:	dec	c
 ; NXTLIN. A line that is RUN starts from the first line (Pipepanic's).
 ; Carry if there is none, or BASIC would have to run first.
 findusr:
+	ld	hl,(NXTLIN)	; no line to go on with, inside the program:
+	ld	de,PROGRAM	; look in every line, as RUN
+	or	a
+	sbc	hl,de
+	jr	c,fu_all
+	ld	hl,(NXTLIN)
+	ld	de,4
+	add	hl,de
+	ld	de,(D_FILE)
+	or	a
+	sbc	hl,de
+	jr	nc,fu_all
 	ld	hl,(NXTLIN)
 	push	hl
 	inc	hl		; past the number and the length
@@ -359,7 +417,12 @@ usrline:
 	inc	hl
 	ld	b,(hl)
 	inc	hl
-ul_1:	ld	a,(hl)
+ul_1:	ld	a,b		; no further than the line's length
+	or	c
+	scf
+	ret	z
+	dec	bc
+	ld	a,(hl)
 	inc	hl
 	cp	T_USR
 	jr	z,ul_2
@@ -452,188 +515,6 @@ games:	dw	8038,3294h,4C84h	; Pipepanic: its one IN
 	dw	6693,0E29Bh,0		; Mine81
 	dw	715,63C1h,0		; Tetris1k
 	dw	0
-
-; A .P not in the table: what the REM line's code seems to need, for a
-; report only, as data can look like any of it. A key goes on.
-unknown:
-	ld	a,(yes)
-	or	a
-	ret	nz
-	ld	de,m_unk
-	ld	c,9
-	call	BDOS
-	call	scan
-	ld	de,m_key
-	ld	c,9
-	call	BDOS
-	ld	c,1		; a key
-	jp	BDOS
-
-scan:	ld	hl,PROGRAM+4
-	ld	a,(hl)
-	cp	T_REM
-	ret	nz
-	ld	de,(PROGRAM+2)	; the REM's length, the token and NEWLINE in it
-	dec	de
-	dec	de
-	inc	hl
-	ld	a,8		; lines at most
-	ld	(sc_n),a
-sc_1:	ld	a,d
-	or	e
-	ret	z
-	ld	a,(hl)
-	ld	bc,m_sin
-	cp	0DBh		; IN A,(n)
-	jr	z,sc_hit
-	ld	bc,m_sout
-	cp	0D3h		; OUT (n),A
-	jr	z,sc_hit
-	ld	bc,m_shalt
-	cp	76h
-	jr	z,sc_hit
-	cp	0EDh
-	jr	z,sc_ed
-	cp	0CDh		; CALL nn
-	jr	z,sc_jp
-	cp	0C3h		; JP nn
-	jr	nz,sc_2
-sc_jp:	push	hl
-	inc	hl
-	ld	a,(hl)
-	inc	hl
-	ld	h,(hl)
-	ld	l,a
-	ld	bc,07BDh	; the one entry we keep
-	or	a
-	sbc	hl,bc
-	ld	a,h
-	or	l
-	add	hl,bc
-	ld	c,a
-	ld	a,h
-	pop	hl
-	cp	40h
-	jr	nc,sc_2		; RAM
-	inc	c
-	dec	c
-	jr	z,sc_2		; 07BDh
-	ld	bc,m_srom
-	jr	sc_hit
-sc_ed:	push	hl
-	inc	hl
-	ld	a,(hl)
-	pop	hl
-	ld	bc,m_si
-	cp	47h		; LD I,A
-	jr	z,sc_hit
-	and	0C7h
-	ld	bc,m_sin
-	cp	40h		; IN r,(C)
-	jr	z,sc_hit
-	ld	bc,m_sout
-	cp	41h		; OUT (C),r
-	jr	nz,sc_2
-sc_hit:	push	de
-	push	hl
-	ld	d,b
-	ld	e,c
-	ld	c,9
-	call	BDOS
-	pop	hl
-	ld	a,h
-	call	hexout
-	ld	a,l
-	call	hexout
-	push	hl
-	ld	de,m_crlf
-	ld	c,9
-	call	BDOS
-	pop	hl
-	pop	de
-	ld	a,(sc_n)
-	dec	a
-	ld	(sc_n),a
-	ret	z
-sc_2:	inc	hl
-	dec	de
-	jp	sc_1
-
-; HL = the CRC-16 (CCITT, from FFFFh) of VERSN to E_LINE
-crc:	ld	de,VERSN
-	ld	hl,0FFFFh
-cr_1:	push	hl
-	ld	hl,(E_LINE)
-	or	a
-	sbc	hl,de
-	pop	hl
-	ret	z
-	ld	a,(de)
-	inc	de
-	xor	h
-	ld	h,a
-	ld	b,8
-cr_2:	add	hl,hl
-	jr	nc,cr_3
-	ld	a,h
-	xor	10h
-	ld	h,a
-	ld	a,l
-	xor	21h
-	ld	l,a
-cr_3:	djnz	cr_2
-	jr	cr_1
-
-; Finds the screen start from the BIOS cursor, the one 7Fh in video RAM
-; after 1Eh and ESC Y. Carry set when there is not exactly one.
-findstart:
-	ld	b,0		; hits, stops at 2
-	ld	hl,VIDLO
-fs_1:	ld	a,(hl)
-	cp	CURSOR
-	call	z,fs_hit
-	inc	hl
-	ld	a,h
-	or	l
-	jr	nz,fs_1		; to FFFFh
-	di
-	ld	a,(VLATCH)
-	ld	c,a
-	and	0F8h
-	or	W_VIDEO
-	ld	(VLATCH),a
-	ld	hl,WINDOW
-fs_2:	ld	a,(hl)
-	cp	CURSOR
-	call	z,fs_hit
-	inc	hl
-	ld	a,h
-	cp	0F4h		; to F3FFh
-	jr	nz,fs_2
-	ld	a,c
-	ld	(VLATCH),a
-	ei
-	ld	a,b
-	cp	1
-	scf
-	ret	nz
-	or	a
-	ret
-
-; HL a CPU address in video RAM: count it and keep its ring address
-fs_hit:	ld	a,b
-	cp	2
-	ret	z
-	inc	b
-	push	hl
-	ld	de,0400h	; FC00h-FFFFh to 000h-3FFh, F000h-F3FFh to 400h-7FFh
-	add	hl,de
-	ld	a,h
-	and	07h
-	ld	h,a
-	ld	(vstart),hl
-	pop	hl
-	ret
 
 ; DE a ring offset from the screen start: HL its CPU address. Keeps BC, DE
 cellptr:
@@ -762,6 +643,9 @@ ri_2:	djnz	ri_1
 ri_3:	ld	hl,ktable	; Pipepanic reads the ROM's key table at 007Dh,
 	ld	de,007Dh	; a byte before Z, E9h, then the keys in this order
 	ld	bc,40
+	ldir
+	ld	hl,kshift	; and the ROM's keys with SHIFT after them
+	ld	bc,39		; at 00A5h, where its decode finds them
 	ldir
 	ret
 
@@ -1034,10 +918,11 @@ ks_4:	rlc	b
 	block	07BDh-$,0
 	jp	decode
 
-; 07BDh: BC a key scan as in LAST_K. Carry and HL at the key's character
+; 07BDh: BC a key scan as in LAST_K. Carry and HL at the key's character,
+; in the tables rstin puts at 007Dh, the second for SHIFT. No carry for
+; no key or two. A and DE the index, B and C lost, as the ROM's.
 ; in ktable, or no carry for no key or two half-rows
-decode:	push	de
-	ld	a,b		; the columns, active low, past SHIFT
+decode:	ld	a,b		; the columns, active low, past SHIFT
 	cpl
 	rrca
 	and	1Fh
@@ -1065,15 +950,52 @@ de_4:	or	a
 	add	a,a
 	add	a,d
 	add	a,e
-	ld	e,a
+	bit	0,b		; SHIFT held: the second table, 27h on
+	jr	nz,de_5
+	add	a,27h
+de_5:	ld	e,a		; A and DE the index, HL 007Dh + it, as the ROM
 	ld	d,0
-	ld	hl,ktable
+	ld	hl,007Dh
 	add	hl,de
-	pop	de
 	scf
 	ret
-de_x:	pop	de
-	or	a
+de_x:	or	a
+	ret
+
+; 02BBh: HL a key scan as the ROM's KEYBOARD gives it, LAST_K's form:
+; H the columns held, active low, shifted up with SHIFT at bit 0 (0
+; held), L the half-rows with a key, SHIFT left out. BC FEFEh and MARGIN
+; set, as the ROM leaves them. From the tick's last scan.
+keybd:	push	de
+	ld	de,hrows
+	ld	hl,0FFFFh
+	ld	b,0FEh		; the select line
+kb_1:	ld	a,(de)		; a held key 0, D0-D4
+	inc	de
+	or	0E0h
+	ld	c,a
+	ld	a,b
+	cp	0FEh
+	jr	nz,kb_2
+	set	0,c		; SHIFT on its own
+kb_2:	ld	a,c
+	inc	a
+	jr	z,kb_3		; nothing held on this half-row
+	ld	a,l
+	and	b
+	ld	l,a
+	ld	a,h
+	and	c
+	ld	h,a
+kb_3:	rlc	b
+	jr	c,kb_1
+	ld	a,(hrows)	; SHIFT, 1 up
+	rra
+	rl	h
+	ld	a,37h
+	ld	(MARGIN),a
+	ld	bc,0FEFEh
+	pop	de
 	ret
 
 ; The characters of the keyboard, half-row by half-row as kmap
@@ -1120,11 +1042,11 @@ print:	push	af
 	cp	NEWLINE
 	jr	z,pr_nl
 	ld	c,a
-	ld	a,(S_POSN)	; past the 32nd: the next line first
-	cp	1
+	ld	a,(S_POSN)	; past the 32nd: the next line first, and
+	cp	1		; past the last line nothing
 	jr	nz,pr_1
-	ld	a,NEWLINE
 	call	pr_line
+	jr	c,pr_x
 	ld	hl,(DF_CC)
 pr_1:	ld	a,(hl)
 	cp	NEWLINE
@@ -1142,8 +1064,12 @@ pr_x:	pop	bc
 	pop	af
 	ret
 
-; DF_CC to the start of the next line
+; DF_CC to the start of the next line. Carry, and nothing moved, on the
+; last line: the display file ends there
 pr_line:
+	ld	a,(S_POSN+1)
+	cp	2
+	ret	c
 	ld	hl,(DF_CC)
 pl_1:	ld	a,(hl)
 	inc	hl
@@ -1299,11 +1225,330 @@ cd_9:	inc	hl		; past the NEWLINE
 	djnz	cd_1
 	ret
 
+	assert	$ <= 0A2Ah	; the ROM's CLS has its entry at its address
+	block	0A2Ah-$,0
+	jp	cls
+
+; S_POSN from where DF_CC is in the display file, as the print counts
+; it: a .P keeps them as they were at SAVE. DF_CC outside the file: both
+; at the top.
+setpos:	ld	hl,(D_FILE)
+	inc	hl
+	ld	de,(DF_CC)
+	ld	bc,1821h	; B 24 less the line, C 33 less the column
+sp_1:	or	a
+	sbc	hl,de
+	add	hl,de
+	jr	z,sp_ok
+	ld	a,(hl)
+	inc	hl
+	cp	NEWLINE
+	jr	z,sp_nl
+	dec	c
+	jr	nz,sp_1
+	jr	sp_top
+sp_nl:	ld	c,21h
+	djnz	sp_1
+sp_top:	ld	hl,(D_FILE)
+	inc	hl
+	ld	(DF_CC),hl
+	ld	bc,1821h
+sp_ok:	ld	(S_POSN),bc
+	ret
+
+; A .P not in the table: what the REM line's code seems to need, for a
+; report only, as data can look like any of it. A key goes on.
+unknown:
+	ld	a,(yes)
+	or	a
+	ret	nz
+	ld	de,m_unk
+	ld	c,9
+	call	BDOS
+	call	scan
+	ld	de,m_key
+	ld	c,9
+	call	BDOS
+	ld	c,1		; a key
+	jp	BDOS
+
+scan:	ld	hl,PROGRAM+4
+	ld	a,(hl)
+	cp	T_REM
+	ret	nz
+	ld	de,(PROGRAM+2)	; the REM's length, the token and NEWLINE in it
+	dec	de
+	dec	de
+	inc	hl
+	ld	a,8		; lines at most
+	ld	(sc_n),a
+sc_1:	ld	a,d
+	or	e
+	ret	z
+	ld	a,(hl)
+	ld	bc,m_sin
+	cp	0DBh		; IN A,(n)
+	jr	z,sc_hit
+	ld	bc,m_sout
+	cp	0D3h		; OUT (n),A
+	jr	z,sc_hit
+	ld	bc,m_shalt
+	cp	76h
+	jr	z,sc_hit
+	cp	0EDh
+	jr	z,sc_ed
+	cp	0CDh		; CALL nn
+	jr	z,sc_jp
+	cp	0C3h		; JP nn
+	jr	nz,sc_2
+sc_jp:	push	hl
+	inc	hl
+	ld	a,(hl)
+	inc	hl
+	ld	h,(hl)
+	ld	l,a
+	ld	a,h
+	cp	40h
+	jr	nc,sc_k		; RAM
+	ld	bc,07BDh	; the entries we keep: DECODE, KEYBOARD, CLS
+	or	a
+	sbc	hl,bc
+	add	hl,bc
+	jr	z,sc_k
+	ld	bc,02BBh
+	or	a
+	sbc	hl,bc
+	add	hl,bc
+	jr	z,sc_k
+	ld	bc,0A2Ah
+	or	a
+	sbc	hl,bc
+	jr	z,sc_k
+	pop	hl
+	ld	bc,m_srom
+	jr	sc_hit
+sc_k:	pop	hl
+	jr	sc_2
+sc_ed:	push	hl
+	inc	hl
+	ld	a,(hl)
+	pop	hl
+	ld	bc,m_si
+	cp	47h		; LD I,A
+	jr	z,sc_hit
+	and	0C7h
+	ld	bc,m_sin
+	cp	40h		; IN r,(C)
+	jr	z,sc_hit
+	ld	bc,m_sout
+	cp	41h		; OUT (C),r
+	jr	nz,sc_2
+sc_hit:	push	de
+	push	hl
+	ld	d,b
+	ld	e,c
+	ld	c,9
+	call	BDOS
+	pop	hl
+	ld	a,h
+	call	hexout
+	ld	a,l
+	call	hexout
+	push	hl
+	ld	de,m_crlf
+	ld	c,9
+	call	BDOS
+	pop	hl
+	pop	de
+	ld	a,(sc_n)
+	dec	a
+	ld	(sc_n),a
+	ret	z
+sc_2:	inc	hl
+	dec	de
+	jp	sc_1
+
+; HL = the CRC-16 (CCITT, from FFFFh) of VERSN to E_LINE
+crc:	ld	de,VERSN
+	ld	hl,0FFFFh
+cr_1:	push	hl
+	ld	hl,(E_LINE)
+	or	a
+	sbc	hl,de
+	pop	hl
+	ret	z
+	ld	a,(de)
+	inc	de
+	xor	h
+	ld	h,a
+	ld	b,8
+cr_2:	add	hl,hl
+	jr	nc,cr_3
+	ld	a,h
+	xor	10h
+	ld	h,a
+	ld	a,l
+	xor	21h
+	ld	l,a
+cr_3:	djnz	cr_2
+	jr	cr_1
+
+; Finds the screen start from the BIOS cursor, the one 7Fh in video RAM
+; after 1Eh and ESC Y. Carry set when there is not exactly one.
+findstart:
+	ld	b,0		; hits, stops at 2
+	ld	hl,VIDLO
+fs_1:	ld	a,(hl)
+	cp	CURSOR
+	call	z,fs_hit
+	inc	hl
+	ld	a,h
+	or	l
+	jr	nz,fs_1		; to FFFFh
+	di
+	ld	a,(VLATCH)
+	ld	c,a
+	and	0F8h
+	or	W_VIDEO
+	ld	(VLATCH),a
+	ld	hl,WINDOW
+fs_2:	ld	a,(hl)
+	cp	CURSOR
+	call	z,fs_hit
+	inc	hl
+	ld	a,h
+	cp	0F4h		; to F3FFh
+	jr	nz,fs_2
+	ld	a,c
+	ld	(VLATCH),a
+	ei
+	ld	a,b
+	cp	1
+	scf
+	ret	nz
+	or	a
+	ret
+
+; HL a CPU address in video RAM: count it and keep its ring address
+fs_hit:	ld	a,b
+	cp	2
+	ret	z
+	inc	b
+	push	hl
+	ld	de,0400h	; FC00h-FFFFh to 000h-3FFh, F000h-F3FFh to 400h-7FFh
+	add	hl,de
+	ld	a,h
+	and	07h
+	ld	h,a
+	ld	(vstart),hl
+	pop	hl
+	ret
+
+; 0A2Ah: the ROM's CLS. 24 empty lines, then with RAMTOP at 4D00h or
+; more 32 spaces in each, as the ROM, and DF_CC and S_POSN at the top. A
+; display file already full is blanked where it is.
+cls:	ld	a,(RAMTOP+1)
+	cp	4Dh
+	jr	c,cl_col
+	ld	hl,(D_FILE)	; every line 32 long?
+	inc	hl
+	ld	b,ROWS
+cx_1:	ld	c,32
+cx_2:	ld	a,(hl)
+	inc	hl
+	cp	NEWLINE
+	jr	z,cl_col
+	dec	c
+	jr	nz,cx_2
+	ld	a,(hl)
+	inc	hl
+	cp	NEWLINE
+	jr	nz,cl_col
+	djnz	cx_1
+	ld	hl,(D_FILE)	; yes: blank them
+	inc	hl
+	ld	b,ROWS
+cf_1:	ld	c,32
+cf_2:	ld	(hl),0
+	inc	hl
+	dec	c
+	jr	nz,cf_2
+	inc	hl
+	djnz	cf_1
+	jr	cl_top
+cl_col:	ld	hl,(D_FILE)	; DE the new end, 24 NEWLINEs on
+	ld	de,25
+	add	hl,de
+	ex	de,hl
+	ld	hl,(VARS)	; the old end
+	ld	(cl_end),hl
+	or	a
+	sbc	hl,de
+	ld	(cl_n),hl	; the bytes it shrinks by
+	ld	hl,(E_LINE)	; VARS to E_LINE down to the new end
+	ld	bc,(VARS)
+	or	a
+	sbc	hl,bc
+	inc	hl
+	ld	b,h
+	ld	c,l
+	ld	hl,(VARS)
+	ldir
+	ld	hl,(D_FILE)
+	inc	hl
+	ld	b,ROWS
+cl_1:	ld	(hl),NEWLINE
+	inc	hl
+	djnz	cl_1
+	ld	hl,VARS		; the pointers from the old end on, down
+	ld	b,(STKEND-VARS)/2+1
+cl_2:	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+	push	hl		; its high byte
+	ex	de,hl
+	ld	de,(cl_end)
+	or	a
+	sbc	hl,de
+	jr	c,cl_3		; below the old end: left
+	add	hl,de
+	ld	de,(cl_n)
+	or	a
+	sbc	hl,de
+	ex	de,hl
+	pop	hl
+	ld	(hl),d
+	dec	hl
+	ld	(hl),e
+	inc	hl
+	jr	cl_5
+cl_3:	pop	hl
+cl_5:	inc	hl
+	djnz	cl_2
+	call	cl_top
+	ld	a,(RAMTOP+1)	; 16K: 32 spaces a line, by the print
+	cp	4Dh
+	ret	c
+	ld	bc,ROWS*32
+cl_4:	xor	a
+	call	print
+	dec	bc
+	ld	a,b
+	or	c
+	jr	nz,cl_4
+cl_top:	ld	hl,(D_FILE)
+	inc	hl
+	ld	(DF_CC),hl
+	ld	hl,1821h	; line 0, column 0
+	ld	(S_POSN),hl
+	ret
+
 ext_p:	db	"P  "
 romname: db	0,"ZX81    ROM"
 m_usage: db	"ZX81 NAME [/D] [/F] [/Y] runs NAME.P",13,10,'$'
 m_norom: db	"No ZX81.ROM",13,10,'$'
 m_badrom: db	"ZX81.ROM is not 8192 bytes",13,10,'$'
+m_notrom: db	"ZX81.ROM is not a ZX81 ROM",13,10,'$'
 m_nop:	db	"No such .P file, or too big",13,10,'$'
 m_badp:	db	"Not a good .P file",13,10,'$'
 m_nousr: db	"No USR to start, this .P needs BASIC",13,10,'$'
@@ -1357,4 +1602,7 @@ hrows	equ	ks_p+2		; the 8 half-rows, a held key 0
 in_a	equ	hrows+8
 w0save	equ	in_a+1		; CP/M's JP at 0000h while the game runs
 patched	equ	w0save+3	; 1: patch put an RST 8 in the game
-memend	equ	patched+1
+kshift	equ	patched+1	; the ROM's 39 keys with SHIFT
+cl_end	equ	kshift+39	; CLS: the display file's old end
+cl_n	equ	cl_end+2	; and the bytes it shrinks by
+memend	equ	cl_n+2

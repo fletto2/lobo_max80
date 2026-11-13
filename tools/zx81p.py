@@ -7,7 +7,9 @@ Usage: zx81p.py OUT.P CODE.BIN [--collapsed] [--text "ROW:TEXT"]...
 
 --text puts upper case letters, digits and spaces on a row. The test
 ROM is 8192 bytes of zeros but the shapes at 1E00h: shape N is N in
-every byte, so a frame shows which code was drawn.
+every byte, so a frame shows which code was drawn. It starts with OUT
+(FDh),A, as ZX81.COM checks, and its 39 keys with SHIFT at 00A5h are
+the letters A to Z over and over, made up for the tests.
 """
 import struct
 import sys
@@ -70,6 +72,9 @@ def main():
         rom = bytearray(8192)
         for n in range(64):
             rom[0x1E00 + n * 8:0x1E00 + n * 8 + 8] = bytes([n]) * 8
+        rom[0:2] = b'\xd3\xfd'
+        for i in range(39):
+            rom[0xA5 + i] = 0x26 + i % 26
         open(a[1], 'wb').write(rom)
         return
     if len(a) < 2:

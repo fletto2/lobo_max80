@@ -198,6 +198,69 @@ no "but not the kept decode" "at 408E" "$out"
 out=$($EMU -f -K -T -a $T/d.imd -e 'A:\>' -k 'ZX81 SCAN\E\Px\P\P' -t 8 2>&1)
 no "and a key goes on" "Any key goes on" "$out"
 
+# KEYBOARD at 02BBh and DECODE with SHIFT; CLS at 0A2Ah; RST 10h past
+# the last line; a .P with no line to go on with, one that ends in the
+# record at the limit, one past it; an 8K file that is not a ZX81 ROM
+hexd() { python3 -c "print(''.join(chr(0x26+int(c,16))*2 for c in '$1'))"; }
+$SJ --nologo --msg=war --raw=$T/keys.bin tests/keys.asm || exit 1
+$P $T/KEYS.P $T/keys.bin
+$SJ --nologo --msg=war --raw=$T/cls.bin tests/cls.asm || exit 1
+$SJ --nologo --msg=war -DBIG --raw=$T/clsb.bin tests/cls.asm || exit 1
+$P $T/CLS.P $T/cls.bin --collapsed --text '3:CC'
+$P $T/CLSE.P $T/clsb.bin --text '3:CC'
+$P $T/CLSC.P $T/clsb.bin --collapsed --text '3:CC'
+$SJ --nologo --msg=war --raw=$T/bottom.bin tests/bottom.asm || exit 1
+$P $T/BOTTOM.P $T/bottom.bin
+python3 - $T <<'PY'
+import sys
+t = sys.argv[1]
+p = bytearray(open(t + '/RET.P', 'rb').read())
+p[0x4029 - 0x4009:0x4029 - 0x4009 + 2] = p[3:5]	# NXTLIN at D_FILE
+open(t + '/NX.P', 'wb').write(p)
+open(t + '/pad.bin', 'wb').write(b'\xc9' + bytes(15365))
+open(t + '/too.bin', 'wb').write(b'\xc9' + bytes(15365 + 212))
+PY
+$P $T/BIG.P $T/pad.bin
+$P $T/TOO.P $T/too.bin
+mkdir -p $T/bad
+head -c 8192 /dev/zero > $T/bad/ZX81.ROM
+(cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/e.imd \
+	apps/zx81/build/ZX81.COM apps/zx81/$T/ZX81.ROM apps/zx81/$T/KEYS.P \
+	apps/zx81/$T/CLS.P apps/zx81/$T/CLSE.P apps/zx81/$T/CLSC.P \
+	apps/zx81/$T/BOTTOM.P apps/zx81/$T/NX.P apps/zx81/$T/BIG.P \
+	apps/zx81/$T/TOO.P)
+(cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/badrom.imd \
+	apps/zx81/build/ZX81.COM apps/zx81/$T/bad/ZX81.ROM apps/zx81/$T/RET.P)
+out=$($EMU -f -T -a $T/e.imd -e 'A:\>' -k 'ZX81 KEYS /F /Y\E\P\P\Pk\P' -t 9 2>&1)
+check "KEYBOARD at 02BBh: K" "@@@@@@@@$(hexd f7bf)" "$out"
+check "DECODE of it: K" "@@@@@@@@$(zt K)@@" "$out"
+check "and its index" "@@@@@@@@$(hexd 20)@@" "$out"
+out=$($EMU -f -T -a $T/e.imd -e 'A:\>' -k 'ZX81 KEYS /F /Y\E\P\P\PK\P' -t 9 2>&1)
+check "KEYBOARD: SHIFT K" "@@@@@@@@$(hexd f6bf)" "$out"
+check "DECODE takes the ROM's table with SHIFT" "@@@@@@@@$(zt F)@@" "$out"
+check "and its index" "@@@@@@@@$(hexd 47)@@" "$out"
+for f in CLS CLSE CLSC; do
+	out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k "ZX81 $f /F /Y\\E" -t 9 2>&1)
+	check "CLS ($f): printing starts at the top" "@@@@@@@@$(zt OK)@@" "$out"
+	check "and goes on below" "@@@@@@@@$(zt AB)@@" "$out"
+	no "and what was there is gone" "$(zt QQ)" "$out"
+	no "the file's own text too" "$(zt CC)" "$out"
+	no "and the variables are where they were" "ROM call not there" "$out"
+done
+out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 BOTTOM /F /Y\E' -t 8 2>&1)
+check "RST 10h past the last line: kept on it" "@@@@@@@@$(zt XY)@@" "$out"
+no "and nothing written past the display file" "ROM call not there" "$out"
+out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 NX /Y\rDIR\r' -t 9 2>&1)
+no "NXTLIN at the display file: the USR found as RUN" "No USR" "$out"
+check "and the game ran and returned" "ZX81     COM" "$out"
+out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 BIG /Y\rDIR\r' -t 12 2>&1)
+no "a .P ending in the record at the limit loads" "too big" "$out"
+check "and runs" "ZX81     COM" "$out"
+out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 TOO /Y\r' -t 10 2>&1)
+check "one record more is too big" "too big" "$out"
+out=$($EMU -f -K -T -a $T/badrom.imd -e 'A:\>' -k 'ZX81 RET /Y\r' -t 7 2>&1)
+check "an 8K file not a ZX81 ROM is refused" "is not a ZX81 ROM" "$out"
+
 # Speed: 0.81 MHz worth, a 229 T-state loop, about 3540 passes a second
 $SJ --nologo --msg=war --raw=$T/speed.bin tests/speed.asm || exit 1
 $P $T/SPEED.P $T/speed.bin
