@@ -71,6 +71,11 @@ Disk images are IMD files, and a loaded image is never written to.
 
 The comment at the top of `max80.c` has each option in full.
 
+When `SOURCE_DATE_EPOCH` is set, the clock chip starts from that time,
+in UTC, and a saved `.imd` carries it in its header, in place of the
+host's time, so a build that writes a disk through the emulator makes
+the same bytes each time.
+
 ## License
 
 MIT, in `LICENSE`.

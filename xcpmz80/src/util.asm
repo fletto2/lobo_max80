@@ -25,6 +25,9 @@ kp_tab:	ld	c,' '
 	pop	bc
 	ret
 
+; Print the string that follows the call, NUL-ended, and return from
+; the caller. Uses HL.
+pmsgr:	pop	hl
 ; Print the NUL-ended string at HL. HL ends past the NUL.
 pstr:	ld	a,(hl)
 	inc	hl
@@ -201,22 +204,16 @@ pp_star: ld	a,b
 	inc	de
 	djnz	pp_star
 	jr	pf_part
-pp_q:	push	af
-	ld	a,(qcount)
-	inc	a
-	ld	(qcount),a
-	pop	af
+pp_q:	push	hl
+	ld	hl,qcount
+	inc	(hl)
+	pop	hl
 	ret
 
 ; Print the 11-byte name at HL as NAME.EXT, no blanks. Keeps HL.
 pname:	push	hl
 	ld	b,8
-pn_1:	ld	a,(hl)
-	and	7Fh
-	cp	' '
-	call	nz,kputc
-	inc	hl
-	djnz	pn_1
+	call	pn_1
 	ld	a,(hl)
 	and	7Fh
 	cp	' '
@@ -224,13 +221,15 @@ pn_1:	ld	a,(hl)
 	ld	a,'.'
 	call	kputc
 	ld	b,3
-pn_2:	ld	a,(hl)
+	call	pn_1
+pn_3:	pop	hl
+	ret
+pn_1:	ld	a,(hl)			; B characters, no blanks
 	and	7Fh
 	cp	' '
 	call	nz,kputc
 	inc	hl
-	djnz	pn_2
-pn_3:	pop	hl
+	djnz	pn_1
 	ret
 
 ; Compare B bytes at HL and DE, the pattern at DE ('?' matches
@@ -244,4 +243,12 @@ match:	ld	a,(de)
 mh_1:	inc	hl
 	inc	de
 	djnz	match
+	ret
+
+; Zero BC + 1 bytes from HL, BC not 0. DE and HL end as LDIR leaves them.
+zfill:	ld	d,h
+	ld	e,l
+	inc	de
+	ld	(hl),0
+	ldir
 	ret

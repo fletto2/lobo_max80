@@ -5,15 +5,11 @@
 
 	org	1000h
 kmain:	ld	hl,BSS			; zero the variables
-	ld	de,BSS+1
 	ld	bc,BSSEND-BSS-1
-	ld	(hl),0
-	ldir
+	call	zfill
 	ld	hl,CBSS			; and those in common memory
-	ld	de,CBSS+1
 	ld	bc,CBSSEND-CBSS-1
-	ld	(hl),0
-	ldir
+	call	zfill
 	call	ubtpa
 	call	scbinit
 	call	diskinit
@@ -100,13 +96,11 @@ cl_3:	call	upeek
 	call	clw
 	ld	de,lcopy
 	call	clw
-	call	pmsg
+	call	pmsgr
 	db	"C library loaded",0Dh,0Ah,0
-	ret
 cl_8:	call	clstub			; a bad file: the stub again
-	call	pmsg
+	call	pmsgr
 	db	"Bad CLIB.SYS",0Dh,0Ah,0
-	ret
 
 ; Records prfrom up to prrecs of the file in CFCB to prdest on, in the
 ; bank UBANK. Z at the end of them or of the file, NZ (A) on an error.
@@ -162,16 +156,14 @@ signon:	db	"XCP/M-Z80 v0.2 for the Lobo MAX-80, ",0
 BOOTDEV: db	0
 
 scbinit: ld	hl,scb
-	ld	de,scb+1
 	ld	bc,SCBSZ-1
-	ld	(hl),0
-	ldir
+	call	zfill
 	ld	a,31h
 	ld	(scb+SCB_VER),a
-	ld	a,COLS-1
-	ld	(scb+SCB_WIDTH),a
-	ld	a,ROWS
-	ld	(scb+SCB_PAGE),a
+	ld	hl,scbcon		; the console's bytes
+	ld	de,scb+SCB_WIDTH
+	ld	bc,SCB_PMODE+1-SCB_WIDTH
+	ldir
 	ld	hl,bdosent		; no RSXs yet
 	ld	(rsxtop),hl
 	ld	(scb+SCB_MXTPA),hl
@@ -181,16 +173,6 @@ scbinit: ld	hl,scb
 	ld	(scb+SCB_PATH),hl	; then A:, as SETDEF shows and sets
 	ld	hl,0FFFFh
 	ld	(scb+SCB_PATH+2),hl
-	ld	a,1			; console page mode off: the screen
-	ld	(scb+SCB_PMODE),a	; does not stop
-	ld	hl,8000h		; the console on the CRT, AUX on SIOA,
-	ld	(scb+SCB_CIVEC),hl	; the list on the printer
-	ld	(scb+SCB_COVEC),hl
-	ld	h,40h
-	ld	(scb+SCB_AIVEC),hl
-	ld	(scb+SCB_AOVEC),hl
-	ld	h,10h
-	ld	(scb+SCB_LOVEC),hl
 	; fall into scbprog
 
 ; The settings each program starts with
@@ -201,18 +183,26 @@ scbprog: ld	a,'$'
 	xor	a
 	ld	(scb+SCB_ERMODE),a
 	ld	(scb+SCB_LIST),a
-	ld	hl,0
+	ld	h,a
+	ld	l,a
 	ld	(scb+SCB_CMODE),hl
 	ld	hl,0080h
 	ld	(scb+SCB_DMA),hl
 	ret
 
+; SCB 1Ah to 2Ch: the width, column, page length, the I/O vectors (the
+; console on the CRT, AUX on SIOA, the list on the printer), and page
+; mode off, so the screen does not stop
+scbcon:	db	COLS-1,0,ROWS,0,0,0,0,0
+	dw	8000h,8000h,4000h,4000h,1000h
+	db	1
+	assert	SCB_WIDTH == 1Ah && SCB_COL == 1Bh && SCB_PAGE == 1Ch
+	assert	SCB_CIVEC == 22h && SCB_LOVEC == 2Ah && SCB_PMODE == 2Ch
+
 ; Zero the TPA's page zero and set its jumps
 clrtpa:	ld	hl,CBUF
-	ld	de,CBUF+1
 	ld	bc,127
-	ld	(hl),0
-	ldir
+	call	zfill
 	ld	hl,CBUF
 	ld	de,0
 	ld	bc,128
@@ -274,8 +264,7 @@ kw_0:	ld	a,(chainf)		; function 47: a command to run next
 	ld	hl,chainbuf
 	ld	de,linebuf
 	ld	bc,127
-	ldir
-	xor	a
+	ldir				; A = 0 still
 	ld	(linebuf+127),a
 	call	crlf
 	jp	docmd
@@ -347,10 +336,8 @@ subname: db	1,"$$$     SUB"
 ; Fill CFCB from the 12 bytes at HL: drive and name, the rest zero
 cfcbset: push	hl
 	ld	hl,CFCB
-	ld	de,CFCB+1
 	ld	bc,35
-	ld	(hl),0
-	ldir
+	call	zfill
 	pop	hl
 	ld	de,CFCB
 	ld	bc,12
@@ -448,17 +435,13 @@ rp_1:	xor	a
 	call	nrecs			; does it fit?
 	jr	c,rp_big
 	ld	(prrecs),hl
-	push	hl			; records under what 0006h gives: the
+	ex	de,hl			; records under what 0006h gives: the
 	ld	hl,0007h		; BDOS, the lowest RSX, or XSUB
-	call	upeek
-	pop	hl
-	sub	1
-	ld	e,a
-	ld	d,0
-	sla	e
-	rl	d
-	ex	de,hl
-	or	a
+	call	upeek			; (keeps DE)
+	dec	a
+	ld	l,a
+	ld	h,0
+	add	hl,hl			; no carry: HL < 512
 	sbc	hl,de
 	jr	c,rp_big
 	ld	hl,0			; a CP/M 3 file with an RSX header
@@ -566,10 +549,7 @@ rsx1:	ld	ix,(rsxent)
 	or	a
 	scf
 	ret	nz
-r1_1:	ld	l,(ix+0)		; HL = the code, DE = its bitmap
-	ld	h,(ix+1)
-	ld	c,(ix+2)
-	ld	b,(ix+3)
+r1_1:	call	rxent			; HL = the code, DE = its bitmap
 	push	hl
 	add	hl,bc
 	ex	de,hl
@@ -604,10 +584,7 @@ r1_3:	inc	hl
 	inc	de			; the next bitmap byte
 	jr	r1_2
 r1_5:	pop	af
-	ld	l,(ix+0)		; move it to the base
-	ld	h,(ix+1)
-	ld	c,(ix+2)
-	ld	b,(ix+3)
+	call	rxent			; move it to the base
 	ld	a,(rsxbias+1)
 	ld	d,a
 	ld	e,0
@@ -622,6 +599,14 @@ r1_5:	pop	af
 	ld	l,6			; it is the lowest now
 	ld	(rsxtop),hl
 	or	a
+	ret
+
+; HL = the RSX's offset in the file, BC its length, from the header
+; entry at IX
+rxent:	ld	l,(ix+0)
+	ld	h,(ix+1)
+	ld	c,(ix+2)
+	ld	b,(ix+3)
 	ret
 
 ; Unlink the RSXs whose remove flag (0Eh) is set, as CP/M 3 does at
@@ -709,10 +694,8 @@ fopenq:	ld	a,0FFh
 ; Page zero for the program: FCB 1 and 2 at 5Ch and 6Ch from the first
 ; two names of the tail, the tail at 80h, the drive at 50h
 settail: ld	hl,pzbuf		; build 5Ch-FFh in pzbuf
-	ld	de,pzbuf+1
 	ld	bc,PZLEN-1
-	ld	(hl),0
-	ldir
+	call	zfill
 	ld	a,(progdrv)
 	ld	(pzbuf),a
 	ld	hl,(tailp)		; the names: parsefn blanks a name
@@ -739,7 +722,7 @@ st_4:	ld	a,b			; the 0 after the tail: pzbuf is zeroed
 	ld	hl,pzbuf		; to 0050h, through CBUF
 	ld	de,0050h
 	ld	bc,PZLEN
-	jr	ustore
+	jp	ucopy
 
 ; Skip a ";password" after a name
 skippw:	ld	a,(hl)
@@ -751,39 +734,6 @@ sp_1:	inc	hl
 	jr	nz,sp_1
 	ret
 
-; Copy BC bytes from the kernel at HL to the program at DE, through
-; CBUF, 128 at a time
-ustore:	ld	a,b
-	or	c
-	ret	z
-	push	bc
-	ld	a,b
-	or	a
-	jr	nz,us_1
-	ld	a,c
-	cp	128
-	jr	c,us_2
-us_1:	ld	bc,128
-us_2:	push	bc
-	push	de
-	ld	de,CBUF
-	ldir
-	pop	de
-	pop	bc
-	push	hl
-	push	bc
-	ld	hl,CBUF
-	call	ucopy			; DE moves on
-	pop	bc
-	pop	hl
-	ex	(sp),hl
-	or	a
-	sbc	hl,bc
-	ld	b,h
-	ld	c,l
-	pop	hl
-	jr	ustore
-
 ; A file call's result: on to the shell's error unless Z and A = 0
 fchk:	jr	nz,sherr
 	or	a
@@ -794,22 +744,13 @@ sherr:	push	af
 	pop	af
 	cp	R_NOFILE
 	jr	z,she_nf
-	ld	hl,errmsgs
-	dec	a
-	add	a,a
-	ld	e,a
-	ld	d,0
-	add	hl,de
-	ld	a,(hl)
-	inc	hl
-	ld	h,(hl)
-	ld	l,a
+	call	perrm
+she_cr:	call	crlf
+	jr	shell
+she_nf:	ld	hl,nofile		; DIR's
 	call	pstr
-	call	crlf
-	jr	shell
-she_nf:	call	pmsg
-	db	"No file",0Dh,0Ah,0
-	jr	shell
+	jr	she_cr
+
 
 	include	"ccp.asm"
 	include	"bdos.asm"

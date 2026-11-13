@@ -15,7 +15,7 @@ kbdos:	ld	(bparam),de
 	cp	NFUNC
 	jr	c,kb_1
 	sub	98			; 98-112
-	jr	c,kb_none
+	ret	c
 	cp	15
 	jr	c,kb_2
 	cp	152-98
@@ -28,7 +28,6 @@ kbdos:	ld	(bparam),de
 	add	hl,hl
 	ld	bc,xtab
 	jr	kb_3
-kb_none: ret
 kb_2:	add	a,NFUNC
 kb_1:	ld	l,a
 	ld	h,0
@@ -79,12 +78,10 @@ f124:	call	bpath
 	xor	a
 	ld	(wlast),a
 	call	walk
-	jp	nz,fff
-	call	cdset
-	xor	a
-fxret:	jp	nz,fff
-	xor	a
-	jp	retA
+	jr	nz,fxff
+	jp	cdset			; 0: bret is 0 from kbdos
+fxret:	ret	z
+fxff:	jp	fff
 ; 125: the current drive's folder into DE, as \GAMES, NUL ended
 f125:	ld	a,(scb+SCB_DRV)
 	call	pthptr
@@ -156,8 +153,8 @@ f59_3:	ld	hl,(prfrom)		; record by record
 	jr	nc,f59_big
 	ld	hl,CBUF
 	ld	de,(prdest)
-	ld	bc,128
-	call	ucopy
+	call	ucp128
+
 	ld	(prdest),de
 	ld	hl,(prfrom)
 	inc	hl
@@ -174,21 +171,20 @@ f0:	jp	wboot
 
 ; 1: read a character, with echo
 f1:	call	xconin			; a patched CONIN too, as 6 and 10
-	push	af
-	call	echo
-	pop	af
-	jp	retA
+	call	retA			; keeps A
+	; fall into echo
 
 ; Echo A as CP/M does: printing characters, CR, LF, BS and tab
 echo:	cp	' '
-	jp	nc,kputc
+	jr	nc,ec_put
 	cp	0Dh
-	jp	z,kputc
+	jr	z,ec_put
 	cp	08h			; BS, tab and LF
 	ret	c
 	cp	0Bh
-	jp	c,kputc
-	ret
+	ret	nc
+ec_put:	jp	kputc
+
 
 
 ; 2: write E, tabs expanded. ^S stops the output until the next key.
@@ -244,9 +240,9 @@ f8:	ld	hl,0003h
 
 ; 9: print the string at DE up to the delimiter ('$')
 f9:	ex	de,hl
-f9_1:	ld	de,CBUF			; 32 bytes at a time into CBUF: most
-	ld	bc,32			; strings are short, and a copy of 128
-	call	ucopy			; cost more than printing them
+f9_1:	ld	bc,32			; 32 bytes at a time into CBUF: most
+	call	ucbufh			; strings are short, and a copy of 128
+					; cost more than printing them
 	ld	de,CBUF			; HL moves on to the next chunk
 	ld	a,(scb+SCB_DELIM)
 	ld	c,a
@@ -273,11 +269,7 @@ f10:	ld	a,d
 	ld	(bparam),de
 f10_1:	ex	de,hl
 	call	upeek			; the maximum
-	ld	(lnmax),a
-	ld	a,(scb+SCB_COL)
-	ld	(lnstart),a
-	ld	(lnend),a
-	call	rdline
+	call	rdlna
 	ld	hl,(bparam)		; count and text back to the program, a
 	inc	hl			; byte at a time: up to 255
 	ld	a,(lnlen)
@@ -293,9 +285,21 @@ f10_2:	inc	hl
 	djnz	f10_2
 	ret
 
-; Read a line into linebuf, lnlen long, at most lnmax. Each key's
-; handler returns to rl1, which it finds on the stack.
-rdline:	xor	a
+; HL = linebuf + A. Keeps A.
+lbptr:	ld	e,a
+	ld	d,0
+	ld	hl,linebuf
+	add	hl,de
+	ret
+
+; Read a line into linebuf, lnlen long, at most A, from the column now.
+; Each key's handler returns to rl1, which it finds on the stack.
+rdlna:	ld	(lnmax),a
+	ld	a,(scb+SCB_COL)
+	ld	(lnstart),a
+	ld	(lnend),a
+	xor	a
+
 	ld	(lnlen),a
 rl1:	ld	hl,rl1
 	push	hl
@@ -336,10 +340,7 @@ rl2:	ld	b,a			; into the line
 	ld	a,(lnlen)
 	cp	c
 	ret	nc			; full
-	ld	e,a
-	ld	d,0
-	ld	hl,linebuf
-	add	hl,de
+	call	lbptr
 	ld	(hl),b
 	inc	a
 	ld	(lnlen),a
@@ -378,28 +379,24 @@ rlbs:	ld	a,(lnlen)
 	ret	z
 	dec	a
 	ld	b,a
-	ld	e,a
-	ld	d,0
-	ld	hl,linebuf
-	add	hl,de
+	call	lbptr
 	ld	a,(hl)
 	cp	' '
 	jr	c,rlbs_2
 	cp	7Fh
 	jr	nc,rlbs_2
+	ld	a,b
+	ld	(lnlen),a
 	ld	a,(CURCOL)		; the screen's column, not SCB_COL, which
 	or	a			; output by function 6 leaves behind
 	jr	z,rlbs_up
-	ld	a,b
-	ld	(lnlen),a
 	ld	a,08h
 	call	kputc
 	call	space
 	ld	a,08h
 	jp	kputc
-rlbs_up: ld	a,b			; at the start of a wrapped row: the
-	ld	(lnlen),a		; last column of the row above
-	call	rlrow
+rlbs_up: call	rlrow			; at the start of a wrapped row: the
+					; last column of the row above
 	call	space			; which wraps back down
 	call	rlrow
 	ld	hl,scb+SCB_COL		; one column less than before the space
@@ -480,8 +477,7 @@ rlup:	ld	b,a
 	ld	b,0
 	ld	hl,histbuf
 	ld	de,linebuf
-	ldir
-	ld	a,(histlen)
+	ldir				; A is still histlen
 	jr	rlset
 
 ; Echo A as the line editor shows it: control characters as ^X, tabs
@@ -496,13 +492,12 @@ ctlout:	cp	' '
 	pop	af
 	add	a,'@'
 co1:	call	kputc
-	push	bc
 	ld	a,(lnend)
-	ld	b,a
+	ld	e,a
 	ld	a,(scb+SCB_COL)
-	cp	b
-	pop	bc
+	cp	e
 	ret	c
+
 	ld	(lnend),a
 	ret
 
@@ -513,11 +508,10 @@ f11:	ld	a,(scb+SCB_CMODE)	; mode bit 0: 1 only for a ^C waiting,
 	call	kpeek
 	cp	3
 	ret	nz
-	ld	a,1
-	jp	retA
+	jr	f11_1
 f11_n:	call	xconst
 	ret	z
-	ld	a,1
+f11_1:	ld	a,1
 	jp	retA
 
 ; 12: version: CP/M 3.1 file system
@@ -537,20 +531,19 @@ f13:	call	kreset
 kreset:	call	flushall
 	ld	b,NDRV			; forget every floppy: it may be changed
 	xor	a
-kr_1:	push	af
-	push	bc
+kr_1:	push	bc
+	push	af
 	call	drvix
 	ld	(ix+D_RO),0		; every drive read-write again
-	ld	a,(ix+D_TYPE)
-	cp	DT_FLOPPY
-	jr	nz,kr_2
-	pop	bc
+	ld	c,(ix+D_TYPE)
 	pop	af
 	push	af
-	push	bc
-	call	umount
-kr_2:	pop	bc
+	dec	c
+	assert	DT_FLOPPY == 1
+	call	z,umount
 	pop	af
+	pop	bc
+
 	inc	a
 	djnz	kr_1
 	ld	hl,0080h
@@ -558,8 +551,7 @@ kr_2:	pop	bc
 	ret
 
 ; 14: select drive E
-f14:	ld	a,e
-	push	af
+f14:	push	af			; A = E from kbdos
 	call	dmount
 	pop	bc
 	jp	nz,dskerr
@@ -591,33 +583,20 @@ fcbout36: push	af
 extchk:	ld	a,(CFCB+F_EX)
 	and	1Fh
 	ret	z
-	ld	hl,DPB
-	ld	de,CBUF
-	ld	bc,17
-	ldir
-	ld	hl,dirblks		; and dirblks, blkk, entk, bnsz
-	ld	bc,4
-	ldir
+	call	dpbswap			; kept in CBUF
 	ld	a,(fdrive)
 	call	drvix
 	call	mkdpb
 	ld	a,(entk)
 	push	af
-	ld	hl,CBUF
-	ld	de,DPB
-	ld	bc,17
-	ldir
-	ld	de,dirblks
-	ld	bc,4
-	ldir
+	call	dpbswap			; and back
 	pop	bc			; B = entk: EX without its low bits
 	ld	a,0FFh
 	inc	b
-ec_1:	dec	b
-	jr	z,ec_2
-	add	a,a
-	jr	ec_1
-ec_2:	ld	b,a
+	jr	ec_2
+ec_1:	add	a,a
+ec_2:	djnz	ec_1
+	ld	b,a
 	ld	a,(CFCB+F_EX)
 	and	1Fh
 	and	b
@@ -641,6 +620,32 @@ ec_ok:	xor	a
 ec_no:	xor	a
 	ld	(CFCB+F_MAGIC),a
 	dec	a
+	ret
+
+; A:HL = HL * 128, records to bytes
+rec2b:	ld	a,h
+	ld	h,l
+	ld	l,0
+	srl	a
+	rr	h
+	rr	l
+	ret
+
+; Swap the DPB, then dirblks, blkk, entk and bnsz, with CBUF
+dpbswap: ld	hl,DPB
+	ld	de,CBUF
+	ld	b,17
+	call	swapb
+	ld	hl,dirblks
+	ld	b,4
+swapb:	ld	a,(de)
+	ld	c,(hl)
+	ld	(hl),a
+	ld	a,c
+	ld	(de),a
+	inc	hl
+	inc	de
+	djnz	swapb
 	ret
 
 ; Open and make set S2 to 0, as CP/M's do: a program may leave anything
@@ -667,9 +672,7 @@ nu_1:	ld	a,(hl)
 	jr	c,nu_2
 	cp	'z'+1
 	jr	nc,nu_2
-	ld	a,(hl)
-	sub	20h
-	ld	(hl),a
+	res	5,(hl)			; to upper case, bit 7 kept
 nu_2:	inc	hl
 	djnz	nu_1
 	ret
@@ -677,7 +680,12 @@ nu_2:	inc	hl
 ; 16: close
 f16:	call	fcbin
 	call	fclose
-	jp	nz,dskerr
+	jr	f22_1
+
+; 22: make
+f22:	call	fcbin0
+	call	fmake
+f22_1:	jp	nz,dskerr
 	jp	fcbout33
 
 ; 17: search first. 18: search next. A directory entry of CP/M's form
@@ -700,32 +708,25 @@ f17_1:	call	fcbdrv
 	call	mkdpb
 	ld	a,(fdrive)
 	ld	(sdrive),a
-	ld	a,(CFCB+F_EX)
-	ld	(sexmode),a
-	call	fcbpat
+	call	expat
 	ld	hl,spat
 	ld	de,sspat
-	ld	bc,11
-	ldir
+	call	ldir11
 	call	dsfirst
 	jr	sfound
 
 f18:	ld	a,(sdrive)		; carry on where 17 or 18 left off
-	call	dmount
-	jp	nz,dskerr
+	call	dmchk
 	call	mkdpb
 	ld	hl,sspat
 	ld	de,spat
-	ld	bc,11
-	ldir
+	call	ldir11
 	ld	a,(sall)		; CP/M reads the FCB that 17 was
 	or	a			; given again: CRCK puts its pattern
 	jr	z,f18_1			; back in it after finding its place
 	ld	de,(sfcba)
 	call	fcbin
-	ld	a,(CFCB+F_EX)
-	ld	(sexmode),a
-	call	fcbpat
+	call	expat
 f18_1:	ld	hl,(sdpos)
 	ld	(dpos),hl
 	ld	a,(sexmode)		; the next extent of the same file?
@@ -751,8 +752,8 @@ sfound:	jr	z,sf_1
 	ld	(sall),a		; the file an earlier search was on
 	ld	(sspat),a
 	ld	(sexmode),a
-	dec	a
-	jp	retA
+	jp	fff
+
 sf_1:	xor	a
 	ld	(sext),a
 	ld	a,(sexmode)		; one asked-for extent: is it there?
@@ -780,6 +781,11 @@ sf_3:	ld	a,b
 	call	dsnext
 	jr	sfound
 
+; The FCB's EX, a number or '?', into sexmode, then fcbpat
+expat:	ld	a,(CFCB+F_EX)
+	ld	(sexmode),a
+	jp	fcbpat
+
 ; HL = a FAT entry: put its extent sext in CP/M's form in CBUF, and
 ; CBUF to the DMA buffer
 semit:	ld	de,(dpos)
@@ -796,8 +802,7 @@ semit:	ld	de,(dpos)
 	ld	de,CBUF
 	ld	(de),a
 	inc	de
-	ld	bc,11
-	ldir
+	call	ldir11
 	ld	a,(hl)			; attributes
 	ld	hl,CBUF+9
 	bit	0,a
@@ -807,24 +812,18 @@ se_1:	inc	hl
 	bit	2,a
 	jr	z,se_2
 	set	7,(hl)
-se_2:	pop	hl
-	ld	de,DE_SIZE		; records of this extent
-	add	hl,de
-	ld	de,CFCB+F_SIZE		; through CFCB's size and EX
-	ld	bc,4
-	ldir
-	call	lastext			; the file's last extent
+se_2:	pop	hl			; records of this extent, through
+	call	szlast			; CFCB's size and EX: the file's last
 	ld	(slast),hl
 	ld	a,(entk)		; the entry's first, and its last:
 	ld	b,a			; the first + EXM, or the file's last
 	ld	hl,(sext)
 	ld	h,0
 	inc	b
-se_s:	dec	b
-	jr	z,se_t
-	add	hl,hl
-	jr	se_s
-se_t:	ld	(sfirst),hl
+	jr	se_t
+se_s:	add	hl,hl
+se_t:	djnz	se_s
+	ld	(sfirst),hl
 	ld	a,(DPB+4)		; EXM
 	ld	e,a
 	ld	d,0
@@ -875,9 +874,7 @@ se_r:	add	hl,hl
 	add	hl,de
 	ld	a,(DPB+2)
 	ld	b,a
-se_b:	srl	h
-	rr	l
-	djnz	se_b
+	call	shrhl
 	ld	a,l
 	or	a
 	jr	z,se_5
@@ -890,29 +887,20 @@ se_4:	ld	(hl),1
 	jr	nz,se_4b
 	inc	hl
 se_4b:	djnz	se_4
-se_5:	ld	hl,CBUF
+se_5:	ld	bc,128
+; BC bytes of CBUF to the DMA buffer. bret is still 0, from kbdos
+cbdma:	ld	hl,CBUF
 	ld	de,(scb+SCB_DMA)
-	ld	bc,128
-	call	ucopy
-	xor	a
-	jp	retA
+	jp	ucopy
 
 ; A = the directory entries of the file whose entry is at HL, each
 ; for EXM + 1 extents: 1 at least, 255 at most
-entexts: ld	de,DE_SIZE
-	add	hl,de
-	ld	de,CFCB+F_SIZE
-	ld	bc,4
-	ldir
-	call	lastext
+entexts: call	szlast
 	ld	a,(entk)
-	inc	a
-en_1:	dec	a
-	jr	z,en_2
-	srl	h
-	rr	l
-	jr	en_1
-en_2:	inc	hl
+	or	a
+	ld	b,a
+	call	nz,shrhl
+	inc	hl
 	ld	a,h
 	or	a
 	ld	a,l
@@ -920,7 +908,16 @@ en_2:	inc	hl
 	ld	a,0FFh
 	ret
 
+; The size of the FAT entry at HL into CFCB, then as lastext
+szlast:	ld	de,DE_SIZE
+	add	hl,de
+	ld	de,CFCB+F_SIZE
+	ld	bc,4
+	ldir
+	; fall into lastext
+
 ; HL = the number of the file's last 16K extent, from its size in CFCB:
+
 ; (records - 1) / 128, 0 for an empty file
 lastext: call	nrecs
 	jr	nc,le_1
@@ -940,7 +937,19 @@ le_1:	ld	a,h
 ; 19: delete
 f19:	call	fcbin
 	call	fdelete
-	jp	nz,dskerr
+	jr	f30_1
+
+; 23: rename
+f23:	call	fcbin
+	ld	hl,CFCB+16+F_NAME	; the new name
+	call	nameup
+	call	frename
+	jr	f30_1
+
+; 30: set file attributes
+f30:	call	fcbin
+	call	fattrib
+f30_1:	jp	nz,dskerr
 	jp	retA
 
 ; 20: read sequential, the multi-sector count of records
@@ -950,11 +959,7 @@ f20_1:	call	seqfix			; CR 128: the next extent now
 	ld	a,(CFCB+F_S2)		; past 8M, 65536 records: the end
 	cp	10h
 	jr	nc,f20_eof
-	push	bc
-	call	seqrec
-	call	rdrec
-	pop	bc
-	jp	nz,dskerr
+	call	rdcur
 	or	a
 	jr	nz,f20_eof
 	call	todma
@@ -982,21 +987,14 @@ f21_1:	call	seqfix
 	cp	10h
 	ld	a,E_FULL
 	jr	nc,f21_err
-	push	bc
-	call	fromdma
-	call	seqrec
-	call	wrrec
-	pop	bc
+	call	wrcur
 	jr	nz,f21_err
 	ld	hl,CFCB+F_CR
 	inc	(hl)
 	inc	c
 	djnz	f21_1
-	push	bc
-	call	setrc			; RC counts what was written
-	pop	bc
-	xor	a
-	jr	f20_9
+	jp	f40_9			; RC counts what was written
+
 f21_err: cp	E_FULL			; disk full: CP/M's 2
 	jp	nz,dskerr
 	ld	a,2
@@ -1075,35 +1073,30 @@ sn_1:	push	bc
 todma:	push	bc
 	ld	hl,CBUF
 	ld	de,(xdma)
-	ld	bc,128
-	call	ucopy
-	ld	(xdma),de
-	pop	bc
-	ret
+	call	ucp128
+	ex	de,hl
+	jr	dma_1
 
 ; The program's xdma to CBUF, and xdma on a record. Keeps BC.
 fromdma: push	bc
 	ld	hl,(xdma)
 	ld	de,CBUF
-	ld	bc,128
-	call	ucopy
-	ld	(xdma),hl
+	call	ucp128
+dma_1:	ld	(xdma),hl
 	pop	bc
 	ret
 
-; 22: make
-f22:	call	fcbin0
-	call	fmake
-	jp	nz,dskerr
-	jp	fcbout33
+; BC (uc4buf 4) bytes from the program's DE (ucbufh HL) to CBUF
+uc4buf:	ld	bc,4
+ucbuf:	ex	de,hl
+ucbufh:	ld	de,CBUF
+	jp	ucopy
 
-; 23: rename
-f23:	call	fcbin
-	ld	hl,CFCB+16+F_NAME	; the new name
-	call	nameup
-	call	frename
-	jp	nz,dskerr
-	jp	retA
+; ucopy of a record, 128 bytes
+ucp128:	ld	bc,128
+	jp	ucopy
+
+
 
 ; 24: login vector, the drives mounted. 29: R/O vector.
 f24:	ld	e,D_MNT
@@ -1140,8 +1133,7 @@ f26:	ld	(scb+SCB_DMA),de
 
 ; 27: the allocation vector of the current drive, one bit a block of
 ; the made-up DPB, in common memory where the program can read it
-f27:	call	curmnt
-	jp	nz,dskerr
+f27:	call	curchk
 	call	mkdpb
 	ld	hl,ALV			; clear it, then the directory blocks
 	ld	de,ALV+1
@@ -1170,19 +1162,16 @@ f27_2:	push	hl
 	dec	hl			; sectors per cluster / sectors a block
 	ld	b,(ix+D_SPCSH)
 	inc	b
-f27_s:	dec	b
-	jr	z,f27_t
-	add	hl,hl
-	jr	f27_s
-f27_t:	ld	a,(ix+D_SPC)		; HL = first sector, the cluster's
+	jr	f27_t
+f27_s:	add	hl,hl
+f27_t:	djnz	f27_s
+	ld	a,(ix+D_SPC)		; HL = first sector, the cluster's
 	ld	c,a			; C sectors cover (C+3)/4 blocks
 f27_3:	push	hl
 	ld	a,(blkk)
 	add	a,2
 	ld	b,a
-f27_5:	srl	h
-	rr	l
-	djnz	f27_5
+	call	shrhl
 	ld	a,(dirblks)
 	ld	e,a
 	ld	d,0
@@ -1208,27 +1197,35 @@ alvset:	ld	a,h			; past the end: drop it
 	assert	low (ALVSZ*8) == 0
 	ld	a,l
 	and	7
-	ld	b,a
-	srl	h
-	rr	l
-	srl	h
-	rr	l
-	srl	h
-	rr	l
+	inc	a
+	ld	e,a
+	ld	b,3
+	call	shrhl
+	ld	b,e			; bit 7 >> (HL and 7)
 	ld	de,ALV
 	add	hl,de
-	ld	a,80h
-	inc	b
-al_1:	dec	b
-	jr	z,al_2
-	rrca
-	jr	al_1
-al_2:	or	(hl)
+	ld	a,1
+al_1:	rrca
+	djnz	al_1
+	or	(hl)
 	ld	(hl),a
 	ret
 
-; Mount the current drive
-curmnt:	ld	a,(scb+SCB_DRV)
+; HL >> B, B 1-255
+shrhl:	srl	h
+	rr	l
+	djnz	shrhl
+	ret
+
+
+; Mount the current drive, or drive A, or end the function with the
+; error
+curchk:	ld	a,(scb+SCB_DRV)
+dmchk:	call	dmount
+	ret	z
+	pop	hl
+	jp	dskerr
+
 ; Mount drive A, noted in fdrive for the error message
 dmount:	ld	(fdrive),a
 	jp	mount
@@ -1238,11 +1235,9 @@ dmount:	ld	(fdrive),a
 ; when the disk has more blocks than the allocation vector holds, as a
 ; CP/M hard disk has. Sets dirblks, the directory blocks, blkk, entk
 ; and bnsz.
-mkdpb:	ld	hl,DPB
-	ld	de,DPB+1
-	ld	bc,16
-	ld	(hl),0
-	ldir
+mkdpb:	ld	hl,0			; CKS and OFF 0: the rest is set below
+	ld	(DPB+11),hl
+	ld	(DPB+13),hl
 	ld	a,(ix+D_SPT)		; records a track
 	or	a
 	jr	nz,mk_1
@@ -1257,6 +1252,7 @@ mk_1:	ld	l,a
 mk_k:	ld	a,(blkk)		; dirblks = entries / (64 << blkk),
 	add	a,6			; rounded up
 	ld	b,a
+	ld	c,a
 	ld	hl,1
 mk_2:	add	hl,hl
 	djnz	mk_2
@@ -1264,12 +1260,8 @@ mk_2:	add	hl,hl
 	ld	e,(ix+D_ROOTENT)
 	ld	d,(ix+D_ROOTENT+1)
 	add	hl,de
-	ld	a,(blkk)
-	add	a,6
-	ld	b,a
-mk_3:	srl	h
-	rr	l
-	djnz	mk_3
+	ld	b,c
+	call	shrhl
 	ld	a,l
 	ld	(dirblks),a
 	ld	l,(ix+D_TOTAL)		; DSM = dirblks + data sectors /
@@ -1281,9 +1273,7 @@ mk_3:	srl	h
 	ld	a,(blkk)
 	add	a,2
 	ld	b,a
-mk_4:	srl	h
-	rr	l
-	djnz	mk_4
+	call	shrhl
 	ld	a,(dirblks)
 	ld	e,a
 	ld	d,0
@@ -1326,11 +1316,10 @@ mk_8:	dec	a
 	ld	(DPB+2),a
 	ld	a,16
 	inc	b
-mk_9:	dec	b
-	jr	z,mk_10
-	add	a,a
-	jr	mk_9
-mk_10:	dec	a
+	jr	mk_10
+mk_9:	add	a,a
+mk_10:	djnz	mk_9
+	dec	a
 	ld	(DPB+3),a
 	ld	l,(ix+D_ROOTENT)	; DRM
 	ld	h,(ix+D_ROOTENT+1)
@@ -1339,36 +1328,26 @@ mk_10:	dec	a
 	ld	a,(dirblks)		; AL0, AL1: that many bits from the top
 	ld	b,a
 	ld	hl,0
-mk_11:	scf
-	rr	h
+mk_11:	scf				; L the first byte, AL0
 	rr	l
+	rr	h
 	djnz	mk_11
-	ld	a,h
-	ld	(DPB+9),a
-	ld	a,l
-	ld	(DPB+10),a
-	ld	a,2			; PSH, PHM: 512-byte sectors
-	ld	(DPB+15),a
-	ld	a,3
-	ld	(DPB+16),a
+	ld	(DPB+9),hl
+	ld	hl,0302h		; PSH 2, PHM 3: 512-byte sectors
+	ld	(DPB+15),hl
 	ret
 
+
 ; 28: write protect the current drive
-f28:	call	curmnt
-	jp	nz,dskerr
+f28:	call	curchk
 	ld	(ix+D_RO),1
 	ret
 
 
-; 30: set file attributes
-f30:	call	fcbin
-	call	fattrib
-	jp	nz,dskerr
-	jp	retA
+
 
 ; 31: the DPB of the current drive
-f31:	call	curmnt
-	jp	nz,dskerr
+f31:	call	curchk
 	call	mkdpb
 	ld	hl,DPB
 	ld	(bret),hl
@@ -1389,11 +1368,7 @@ f32_1:	ld	a,(scb+SCB_USER)
 ; CP/M 3's. The sequential position ends on the last record read.
 f33:	call	ranset
 	jr	nz,ranerr
-f33_1:	push	bc
-	call	seqrec
-	call	rdrec
-	pop	bc
-	jp	nz,dskerr
+f33_1:	call	rdcur
 	or	a
 	jr	nz,ranout
 	call	todma
@@ -1409,11 +1384,7 @@ f33_1:	push	bc
 f34:
 f40:	call	ranset
 	jr	nz,ranerr
-f40_1:	call	fromdma
-	push	bc
-	call	seqrec
-	call	wrrec
-	pop	bc
+f40_1:	call	wrcur
 	jr	nz,f40_err
 	inc	c
 	dec	b
@@ -1433,6 +1404,24 @@ f40_9:	xor	a
 ; The FCB back, R0-R2 as they came: the position is on the last record
 ; read or written. On an error, H = the records done.
 ranout:	jp	f20_9
+
+; Read the record at the FCB's place into CBUF, A = 0 or 1 at the end,
+; or end the function with the error. Keeps BC.
+rdcur:	push	bc
+	call	seqrec
+	call	rdrec
+	pop	bc
+	ret	z
+	pop	hl
+	jp	dskerr
+
+; Write the DMA's record at the FCB's place. Keeps BC.
+wrcur:	call	fromdma
+	push	bc
+	call	seqrec
+	call	wrrec
+	pop	bc
+	ret
 
 ; Copy in the FCB and open it if need be, then as ranini. NZ, A = the
 ; error, if it cannot be opened.
@@ -1468,28 +1457,21 @@ ranset:	call	seqopn
 	ld	a,h
 	and	1Fh
 	ld	(CFCB+F_EX),a
-	ld	a,h
-	rlca
-	rlca
-	rlca
-	and	07h
-	ld	b,a
-	ld	a,(CFCB+F_R0+1)
-	rlca			; bit 7 of R1 is bit 15 of the record
-	and	01h
-	rlca
-	rlca
-	rlca
-	or	b
+	ld	a,(CFCB+F_R0+1)		; S2: bits 15-12 of the record
+	rrca
+	rrca
+	rrca
+	rrca
+	and	0Fh
 	ld	(CFCB+F_S2),a
 	call	setrc
 	xor	a
 	jr	ranini
 
 ; 35: file size in records into R0-R2
-f35:	call	fcbin
-	call	fcbopen
+f35:	call	seqopn			; its xdma, B and C not used
 	jr	nz,f35_no
+
 	call	nrecs
 	ld	a,0
 	jr	nc,f35_1
@@ -1541,28 +1523,20 @@ f45:	ld	(scb+SCB_ERMODE),a
 	ret
 
 ; 46: free space of drive E, in records, 3 bytes into the DMA buffer
-f46:	ld	a,e
-	call	dmount
-	jp	nz,dskerr
+f46:	call	dmchk			; A = E from kbdos
 	call	fatcount		; HL clusters * 4 * SPC records
-	ld	a,0
-	ld	b,(ix+D_SPCSH)
-	inc	b
-	inc	b
-	inc	b
-f46_1:	dec	b
-	jr	z,f46_2
-	add	hl,hl
-	rla
-	jr	f46_1
-f46_2:	ld	(CBUF),hl
-	ld	(CBUF+2),a
-	ld	hl,CBUF
-	ld	de,(scb+SCB_DMA)
-	ld	bc,3
-	call	ucopy
 	xor	a
-	jp	retA
+	ld	b,(ix+D_SPCSH)
+	inc	b			; B = SPCSH + 2, 2 at least
+	inc	b
+f46_1:	add	hl,hl
+	rla
+	djnz	f46_1
+	ld	(CBUF),hl
+	ld	(CBUF+2),a
+	ld	bc,3
+	jp	cbdma
+
 
 ; 47: chain to the command line in the DMA buffer
 f47:	ld	hl,(scb+SCB_DMA)
@@ -1580,10 +1554,7 @@ f48:	call	flushall
 
 ; 49: get or set a byte or word of the SCB. DE = SCBPB: offset, then
 ; FFh set byte, FEh set word, else get, then the value.
-f49:	ex	de,hl
-	ld	de,CBUF
-	ld	bc,4
-	call	ucopy
+f49:	call	uc4buf
 	ld	a,(CBUF)
 	cp	SCBSZ
 	ret	nc
@@ -1606,10 +1577,8 @@ f49_b:	ld	a,(CBUF+2)
 	ret
 
 ; 50: direct BIOS call. DE = BIOSPB: function, A, BC, DE, HL.
-f50:	ex	de,hl
-	ld	de,CBUF
-	ld	bc,9
-	call	ucopy
+f50:	ld	bc,9
+	call	ucbuf
 	ld	a,(CBUF)
 	cp	26			; TIME here: the BIOS one comes in
 	jr	z,f50_t			; through the BDOS
@@ -1672,12 +1641,7 @@ f99:	call	ranset
 	ld	a,h
 	or	l
 	jr	z,f99_x
-	ld	a,h
-	ld	h,l
-	ld	l,0
-	srl	a
-	rr	h
-	rr	l
+	call	rec2b
 	ld	c,a			; C:HL
 	push	hl
 	ld	hl,(CFCB+F_SIZE)	; within the file's last record?
@@ -1705,17 +1669,15 @@ f99_1:	ex	de,hl
 	ld	(CFCB+F_SIZE+2),a
 	xor	a
 	ld	(CFCB+F_SIZE+3),a
-	ld	a,(CFCB+F_FLAG)
-	or	1
-	ld	(CFCB+F_FLAG),a
+	ld	hl,CFCB+F_FLAG
+	set	0,(hl)
 	call	ftrunc
 	jp	nz,dskerr
 	call	fclose
 	jp	nz,dskerr
 	xor	a			; the FCB back: it holds the size
 	jp	fcbout36
-f99_x:	ld	a,0FFh
-	jp	retA
+f99_x:	jp	fff
 
 
 ; 102: read the file's date stamps into the FCB, CP/M 3 style: create
@@ -1811,10 +1773,7 @@ f111:	xor	a
 	db	21h			; ld hl,nn: skips the ld a,1
 f112:	ld	a,1
 blk:	ld	(blkdev),a
-	ex	de,hl
-	ld	de,CBUF
-	ld	bc,4
-	call	ucopy
+	call	uc4buf
 	ld	hl,(CBUF)
 	ld	bc,(CBUF+2)
 bk_1:	ld	a,b
@@ -1840,16 +1799,12 @@ bk_3:	pop	hl
 ; 152: parse a file name. DE = PFCB: the text's address, the FCB's.
 ; HL = the address after the name, 0 at the end of the line, FFFFh
 ; if the name is bad.
-f152:	ex	de,hl
-	ld	de,CBUF
-	ld	bc,4
-	call	ucopy
+f152:	call	uc4buf
 	ld	hl,(CBUF)		; the text's address and the FCB's, kept:
 	push	hl			; ucopybig uses CBUF
-	ld	hl,(CBUF+2)
-	push	hl
-	ld	hl,(CBUF)		; the text, 128 bytes of it
-	ld	de,pbuf
+	ld	de,(CBUF+2)
+	push	de
+	ld	de,pbuf			; the text, 128 bytes of it
 	ld	bc,128
 	call	ucopybig
 	ld	hl,pbuf			; in upper case, as CP/M 3 parses it
@@ -1859,15 +1814,13 @@ pp_u:	ld	a,(hl)
 	ld	(hl),a
 	inc	hl
 	djnz	pp_u
-	ld	hl,pbuf
-	ld	de,CBUF+4		; FCB: drive, name, then zeros
-	push	hl
-	ld	hl,CBUF+4
+	ld	hl,CBUF+4		; FCB: drive, name, then zeros
 	ld	b,36
 pp_1:	ld	(hl),0
 	inc	hl
 	djnz	pp_1
-	pop	hl
+	ld	hl,pbuf
+	ld	de,CBUF+4
 	call	parsefn
 	jr	c,pp_bad
 	ld	a,(hl)			; a password ";PW" is skipped
@@ -1903,16 +1856,12 @@ pp_d:	pop	af
 	add	hl,de
 	ld	(bret),hl
 	ret
-pp_e2:	pop	hl
+pp_bad:	ld	hl,0FFFFh
+	ld	(bret),hl
+pp_e2:	pop	hl			; 0: bret is 0 from kbdos
 	pop	hl
-	ld	hl,0
-	ld	(bret),hl
 	ret
-pp_bad:	pop	de
-	pop	de
-	ld	hl,0FFFFh
-	ld	(bret),hl
-	ret
+
 
 ; Copy BC bytes from the program at HL to the kernel at DE, through CBUF
 ucopybig: ld	a,b
@@ -1952,7 +1901,7 @@ ub_2:	push	bc
 ; is FEh.
 dskerr:	ld	(errcode),a
 	ld	a,(scb+SCB_ERMODE)
-	cp	0FFh
+	inc	a			; FFh
 	jr	z,de_ret
 	push	af
 	call	crlf
@@ -1962,32 +1911,20 @@ dskerr:	ld	(errcode),a
 	dec	a
 	jp	p,dk_1
 	ld	a,(fdrive)
-dk_1:	add	a,'A'
-	call	kputc
-	call	pmsg
-	db	": ",0
+dk_1:	call	pdcol
+	call	space
+
 	ld	a,(errcode)
-	ld	hl,errmsgs
-	dec	a
-	add	a,a
-	ld	e,a
-	ld	d,0
-	add	hl,de
-	ld	a,(hl)
-	inc	hl
-	ld	h,(hl)
-	ld	l,a
-	call	pstr
+	call	perrm
 	call	pmsg
 	db	0Dh,0Ah,"Function ",0
 	ld	a,(bfunc)
-	ld	l,a
-	ld	h,0
-	call	pdec
+	call	pdeca
 	call	crlf
 	pop	af
-	cp	0FEh
+	inc	a			; FEh, + 1 above
 	jp	nz,wboot
+
 de_ret:	ld	a,(errcode)		; CP/M 3's code in H
 	cp	E_FULL
 	jr	c,de_r1
@@ -1997,8 +1934,26 @@ de_r1:	ld	h,a
 	ld	(bret),hl
 	ret
 
-errmsgs: dw	em1,em2,em3,em4,em5,em6,em1
-	dw	em8,em9,em10,em11,em12,em13,em14,em15
+; Print the message of error A, 1-15: the A'th string from em1, 7 as 1
+perrm:	cp	E_WRITE
+	jr	nz,pm_1
+	ld	a,E_READ
+pm_1:	ld	b,a
+	ld	hl,em1
+pm_2:	dec	b
+	jp	z,pstr
+pm_3:	ld	a,(hl)
+	inc	hl
+	or	a
+	jr	nz,pm_3
+	jr	pm_2
+em1:	db	"Disk I/O",0
+em2:	db	"Read/Only",0
+em3:	db	"Read/Only File",0
+em4:	db	"Invalid Drive",0
+em5:	db	"Disk Full",0
+em6:	db	"Not Ready",0
+	db	0			; 7, shown as 1
 em8:	db	"No folder",0
 em9:	db	"Exists",0
 em10:	db	"Not empty",0
@@ -2007,9 +1962,3 @@ em12:	db	"Path too long",0
 em13:	db	"In use",0
 em14:	db	"No memory",0
 em15:	db	"Root full",0
-em1:	db	"Disk I/O",0
-em2:	db	"Read/Only",0
-em3:	db	"Read/Only File",0
-em4:	db	"Invalid Drive",0
-em5:	db	"Disk Full",0
-em6:	db	"Not Ready",0

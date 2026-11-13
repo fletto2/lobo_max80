@@ -51,24 +51,27 @@ mount1:	ld	de,0
 	pop	iy			; IY = the boot sector
 	ld	a,(iy+0Bh)		; 512 bytes a sector
 	or	a
-	jp	nz,mtbad
+	jr	nz,mtbad
 	ld	a,(iy+0Ch)
 	cp	2
-	jp	nz,mtbad
+	jr	nz,mtbad
 	ld	a,(iy+0Dh)		; sectors per cluster, a power of 2
 	or	a
-	jp	z,mtbad
+	jr	z,mtbad
 	ld	(ix+D_SPC),a
 	ld	b,a
 	dec	a
 	and	b
-	jp	nz,mtbad
+	jr	nz,mtbad
 	ld	a,b
 	ld	b,0
 mt1:	rrca
 	jr	c,mt2
 	inc	b
 	jr	mt1
+mtbad:	ld	a,E_READ		; not a BPB we take
+	or	a
+	ret
 mt2:	ld	(ix+D_SPCSH),b
 	ld	l,(iy+0Eh)		; reserved
 	ld	h,(iy+0Fh)
@@ -76,14 +79,14 @@ mt2:	ld	(ix+D_SPCSH),b
 	ld	(ix+D_FATSEC+1),h
 	ld	a,(iy+10h)
 	or	a
-	jp	z,mtbad
+	jr	z,mtbad
 	ld	(ix+D_NFATS),a
 	ld	c,(iy+16h)		; sectors per FAT
 	ld	b,(iy+17h)
 	ld	(ix+D_SPF),c
 	ld	(ix+D_SPF+1),b
 mt3:	add	hl,bc			; root = reserved + FATs * SPF
-	jp	c,mtbad
+	jr	c,mtbad
 	dec	a
 	jr	nz,mt3
 	ld	(ix+D_ROOTSEC),l
@@ -93,17 +96,17 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	h,(iy+12h)
 	ld	a,l
 	and	0Fh
-	jp	nz,mtbad
+	jr	nz,mtbad
 	or	h
 	or	l
-	jp	z,mtbad
+	jr	z,mtbad
 	ld	(ix+D_ROOTENT),l
 	ld	(ix+D_ROOTENT+1),h
 	ld	b,4
 	call	shrb
 	ld	(ix+D_ROOTSECS),l
 	add	hl,de
-	jp	c,mtbad
+	jr	c,mtbad
 	ld	(ix+D_DATASEC),l
 	ld	(ix+D_DATASEC+1),h
 	ex	de,hl			; DE = data start
@@ -111,7 +114,7 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	h,(iy+14h)
 	ld	a,h
 	or	l
-	jp	z,mtbad
+	jr	z,mtbad
 	ld	(ix+D_TOTAL),l
 	ld	(ix+D_TOTAL+1),h
 	or	a
@@ -124,7 +127,7 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	jr	z,mtbad
 	ld	de,0FFF6h
 	sbc	hl,de			; carry clear: A, H or L is not 0
-	jr	nc,mtbad
+	jp	nc,mtbad
 	add	hl,de
 	inc	hl			; highest cluster = clusters + 1
 	ld	(ix+D_MAXCL),l
@@ -159,7 +162,7 @@ mt4:	ex	de,hl
 	ld	h,(ix+D_SPF+1)
 	or	a
 	sbc	hl,de
-	jr	c,mtbad
+	jp	c,mtbad
 	ld	a,(iy+18h)		; floppy geometry
 	ld	(ix+D_SPT),a
 	ld	a,(iy+1Ah)
@@ -174,9 +177,6 @@ mt4:	ex	de,hl
 	ld	(ix+D_HINT+1),0
 	ld	(ix+D_MNT),1
 	jp	cwdchk
-mtbad:	ld	a,E_READ
-	or	a
-	ret
 
 ; Unmount drive A, after writing out its buffers
 umount:	push	af
@@ -229,8 +229,16 @@ fg1:	and	0Fh
 	xor	a
 	ret
 
-; Set the entry for cluster HL to DE. Z on success.
-fatset:	push	de
+; Set the entry for cluster HL to DE. Z on success. Both sectors of a
+; FAT12 entry that spans two are read first, by fatget, so a failed
+; read changes nothing: the second fatloc and fsnext find them.
+fatset:	push	hl
+	push	de
+	call	fatget
+	pop	de
+	pop	hl
+	ret	nz
+	push	de
 	call	fatloc
 	pop	de
 	ret	nz
@@ -241,8 +249,7 @@ fatset:	push	de
 	or	a
 	jr	nz,fsodd
 	ld	(hl),e			; even: low 8 bits, then the low nibble
-	call	bdirty			; of the next byte
-	call	fatnext
+	call	fsnext			; of the next byte
 	ret	nz
 	ld	a,d
 	xor	(hl)
@@ -258,8 +265,7 @@ fsodd:	ld	a,e			; odd: the high nibble of this byte,
 	and	0F0h
 	xor	(hl)
 	ld	(hl),a
-	call	bdirty
-	call	fatnext
+	call	fsnext
 	ret	nz
 	ld	a,e			; DE >> 4, low byte: E's high nibble
 	xor	d			; and D's low one, swapped
@@ -271,8 +277,7 @@ fsodd:	ld	a,e			; odd: the high nibble of this byte,
 	rrca
 	jr	fsput
 fs16:	ld	(hl),e
-	call	bdirty
-	call	fatnext
+	call	fsnext
 	ret	nz
 	ld	a,d
 fsput:	ld	(hl),a
@@ -319,6 +324,8 @@ fl1:	ld	(fbyte),bc
 	add	hl,bc			; Z, A = 0 from getsec
 	ret
 
+; The buffer at IY written, then on into fatnext
+fsnext:	call	bdirty
 ; HL = the byte after HL in the FAT, which may be in the next sector.
 ; Keeps DE. One call after each fatloc: fbyte and fsecn stay put.
 fatnext: inc	hl
@@ -387,6 +394,23 @@ fa_3:	ld	(ix+D_HINT),l
 	ld	a,-1			; one fewer free
 	call	freeadj
 	xor	a
+	ret
+
+; HL = a free cluster, marked as the end of a chain and linked on after
+; cluster HL, the end of a chain. When the link fails, the new cluster
+; is freed again and A = the error, NZ.
+fatgrow: push	hl
+	call	fatalloc
+	pop	de
+	ret	nz
+	push	hl
+	ex	de,hl
+	call	fatset
+	pop	hl
+	ret	z
+	push	af
+	call	fatfree
+	pop	af
 	ret
 
 ; Free the chain starting at HL. dsub's place in a folder goes: the
@@ -485,23 +509,20 @@ fcn_e:	pop	hl
 	ret
 
 ; HL = drive IX's free count in dfree. Keeps BC and DE.
-freeptr: push	de
-	push	ix
+freeptr: push	ix
 	pop	hl
-	ld	de,-drvtab		; drive * DSZ, DSZ 32
-	add	hl,de
 	ld	a,l
+	sub	low drvtab		; drive * DSZ, DSZ 32
 	rrca
 	rrca
 	rrca
 	rrca
 	and	0Eh			; drive * 2, NDRV up to 8
+	add	a,low dfree
 	ld	l,a
-	ld	h,0
-	ld	de,dfree
-	add	hl,de
-	pop	de
+	ld	h,high dfree
 	ret
+	assert	high dfree == high (dfree+NDRV*2-1)
 
 ; The count, if kept, one less (A = -1) or more (A = 1). Keeps BC, DE, HL.
 freeadj: push	hl

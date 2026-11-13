@@ -263,11 +263,33 @@ static int load_imd(struct disk *d, const char *path)
  * data-error marks the source had are kept unless the sector was
  * written. A track whose sectors differ in size cannot be stored.
  */
+/* The host's time, or SOURCE_DATE_EPOCH's in UTC when it is set, so a
+ * build that writes a disk through the emulator makes the same bytes
+ * each time: the IMD header and the clock chip's start */
+static struct tm *host_time(void)
+{
+	static struct tm t;
+	const char *s = getenv("SOURCE_DATE_EPOCH");
+	char *end;
+	time_t now;
+
+	if (s && *s) {
+		long long v = strtoll(s, &end, 10);
+		if (!*end && v >= 0 && v <= 4102444799LL) {	/* to 2099 */
+			now = (time_t)v;
+			t = *gmtime(&now);
+			return &t;
+		}
+	}
+	now = time(NULL);
+	t = *localtime(&now);
+	return &t;
+}
+
 static int save_imd(const struct disk *d, const char *path)
 {
 	FILE *f = fopen(path, "wb");
-	time_t now = time(NULL);
-	struct tm *tm = localtime(&now);
+	struct tm *tm = host_time();
 	const char *src = d->path ? strrchr(d->path, '/') : NULL;
 	int err = 0;
 
@@ -1379,8 +1401,7 @@ static void rtc_sync(void)
 	uint64_t sec = cpu.cycles / CPU_HZ;
 
 	if (!rtc_set) {
-		time_t now = time(NULL);
-		struct tm *tm = localtime(&now);
+		struct tm *tm = host_time();
 		uint8_t v[13] = { tm->tm_sec % 10, tm->tm_sec / 10,
 			tm->tm_min % 10, tm->tm_min / 10, tm->tm_hour % 10,
 			(tm->tm_hour / 10) | 8, tm->tm_wday, tm->tm_mday % 10,

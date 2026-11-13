@@ -111,16 +111,10 @@ dirent:	ld	a,(dircl)
 	ld	a,h
 	sbc	a,(ix+D_ROOTENT+1)
 	jr	nc,ds_end
-	ld	a,l
-	and	0Fh
-	ld	(didx),a
-	ld	b,4
-de_2:	srl	h
-	rr	l
-	djnz	de_2
+	call	dxidx
 	ld	e,(ix+D_ROOTSEC)
 	ld	d,(ix+D_ROOTSEC+1)
-	add	hl,de
+de_s:	add	hl,de			; dsub's sector too
 	ld	(dsec),hl
 	ex	de,hl
 	call	getsec
@@ -138,6 +132,13 @@ deoff:	rrca				; HL += A * 32, for A 0-15
 	xor	a
 	ret
 
+; didx = entry HL's place in its sector, HL = the sector in the folder
+dxidx:	ld	a,l
+	and	0Fh
+	ld	(didx),a
+	ld	b,4
+	jp	shrb
+
 ; HL = the entry the FCB points at (F_DSEC, F_DIDX), in the cache
 fcbent:	ld	de,(CFCB+F_DSEC)
 	call	getsec
@@ -146,6 +147,9 @@ fcbent:	ld	de,(CFCB+F_DSEC)
 	and	0Fh
 	jr	deoff
 
+; fcbdrw, then fcbpat. An error returns from the caller, NZ, A = it.
+fcbdrwp: call	fcbdrw
+	jr	nz,fdp_e
 ; Copy the 11 name bytes of the FCB, attribute bits off, to spat
 fcbpat:	ld	hl,CFCB+F_NAME
 	call	namepat
@@ -157,6 +161,9 @@ fcbpat:	ld	hl,CFCB+F_NAME
 	ld	h,b			; B = 0
 	ld	l,b
 	ld	(dircl),hl
+	ret
+fdp_e:	inc	sp			; out of fcbdrwp's caller too
+	inc	sp
 	ret
 ; Copy the 11 name bytes at HL, attribute bits off, to spat
 namepat: ld	de,spat
@@ -298,9 +305,7 @@ fo_9:	cp	R_NOFILE		; none: Z, A = R_NOFILE
 	ret
 
 ; Make the file. An existing file of that name is emptied and reused.
-fmake:	call	fcbdrw
-	ret	nz
-	call	fcbpat
+fmake:	call	fcbdrwp
 	ld	hl,spat			; a '?' in the name: FAT cannot hold it,
 	ld	bc,11			; and the search would take any file
 	ld	a,'?'			; for it and empty that
@@ -465,10 +470,8 @@ recloc:	ld	(frec),hl
 	sbc	hl,de
 	jp	nc,rl_eof
 rl_1:	ld	hl,(frec)		; sector number in the file
-	srl	h
-	rr	l
-	srl	h
-	rr	l
+	ld	b,2
+	call	shrb
 	ld	a,(ix+D_SPC)		; its sector in the cluster
 	dec	a
 	and	l
@@ -516,13 +519,8 @@ rl_8:	ld	hl,(CFCB+F_CORD)	; there yet?
 	ld	a,(fwflag)		; the end: grow it, or end of file
 	or	a
 	jr	z,rl_eof
-	call	fatalloc
-	ret	nz
-	push	hl
-	ex	de,hl
 	ld	hl,(CFCB+F_CCL)
-	call	fatset
-	pop	hl
+	call	fatgrow
 	ret	nz
 	call	cfresh
 rl_9:	ld	(CFCB+F_CCL),hl	; F_CCL and F_CORD move together, so
@@ -662,12 +660,8 @@ frz_2:	push	bc
 	ret	nz
 	push	hl
 	push	bc
-	ld	d,h
-	ld	e,l
-	inc	de
-	ld	(hl),0
 	ld	bc,511
-	ldir
+	call	zfill
 	call	bdirty
 	pop	bc
 	pop	hl
@@ -811,9 +805,7 @@ lfndel:	ld	a,h
 	jr	lfndel
 
 ; Delete every file matching the FCB. A = 0, or R_NOFILE if none.
-fdelete: call	fcbdrw
-	ret	nz
-	call	fcbpat
+fdelete: call	fcbdrwp
 	ld	a,R_NOFILE
 	ld	(fres),a
 	call	dsfirst			; one R/O match and none go, as in
@@ -857,16 +849,14 @@ fl_9:	cp	R_NOFILE
 ; by a file or a folder, is left as it is. A = 0 when every match was
 ; renamed, R_NOFILE when there was none or one was left; an R/O file
 ; stops it with E_ROFILE, those before it renamed.
-frename: call	fcbdrw
-	ret	nz
-	call	fcbpat
+frename: call	fcbdrwp
 	xor	a
 	ld	(fres),a
 	call	dsfirst
 	jr	nz,fn_e
 fn_1:	call	isro
 	ld	a,E_ROFILE
-	jp	nz,fn_x
+	jr	nz,fn_x
 	ld	de,fnbuf		; the new name
 	ld	bc,11
 	push	hl
@@ -901,13 +891,11 @@ fn_4:	inc	hl
 	ld	bc,11
 	ldir
 	call	bdirty
-	ld	a,(fres)
-	or	1			; bit 0: one renamed
-	ld	(fres),a
+	ld	hl,fres
+	set	0,(hl)			; bit 0: one renamed
 	jr	fn_6
-fn_tk:	ld	a,(fres)
-	or	2			; bit 1: one left
-	ld	(fres),a
+fn_tk:	ld	hl,fres
+	set	1,(hl)			; bit 1: one left
 	ld	hl,CFCB+F_NAME
 	call	namepat
 	ld	hl,(fnpos)
@@ -939,10 +927,7 @@ fmove:	call	fcbdrw
 	ret	nz
 	ld	hl,(dircl)
 	ld	(mvsrc),hl
-	ld	hl,(mvdst)		; the new name must be free there
-	ld	(dircl),hl
-	ld	hl,CFCB+17
-	call	namepat
+	call	mvname			; the new name must be free there
 	call	dsany
 	jr	z,fn_no
 	cp	R_NOFILE
@@ -965,10 +950,7 @@ fm_1:	call	isro
 	ldir
 	ld	hl,(dpos)
 	ld	(mvpos),hl
-	ld	hl,(mvdst)		; a new one in the folder
-	ld	(dircl),hl
-	ld	hl,CFCB+17
-	call	namepat
+	call	mvname			; a new one in the folder
 	call	dnew
 	jr	z,fm_2
 	cp	R_NOFILE		; no room there: as a name taken
@@ -991,13 +973,17 @@ fm_2:	ld	de,11			; with the old one's attributes,
 	call	bdirty
 	jp	flushall
 
+; dircl = mvdst, spat = the name at CFCB+17
+mvname:	ld	hl,(mvdst)
+	ld	(dircl),hl
+	ld	hl,CFCB+17
+	jp	namepat
+
 ; Set the attributes of the files matching the FCB from its t1' (R/O)
 ; and t2' (SYS) bits. A = 0, or R_NOFILE.
 ; Set R/O and SYS of every file the FCB names from t1' and t2', as
 ; CP/M 2.2 (the user's choice, 2026-11-12)
-fattrib: call	fcbdrw			; R/O by 28 too
-	ret	nz
-	call	fcbpat
+fattrib: call	fcbdrwp			; R/O by 28 too
 	call	dsfirst
 	jr	z,fat_1
 	cp	R_NOFILE		; none: Z, A = R_NOFILE

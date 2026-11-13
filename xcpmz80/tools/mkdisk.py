@@ -95,6 +95,8 @@ def f5_bpb(system, kb, ss=False):
     if kb not in PC:
         raise SystemExit('--pc: 360, 180, 720 or 1440')
     cyls, heads, spt, spc, nroot, media = PC[kb]
+    if ss and kb == 1440:       # one side numbered as a PC's, which the
+        raise SystemExit('--ss: --525 360 or 720 only')  # boot takes as Lobo's
     if ss and kb == 360:        # --ss: one side of 40 cylinders, 180K
         cyls, heads, spt, spc, nroot, media = PC[180]
     elif ss:                    # the same cylinders, one side

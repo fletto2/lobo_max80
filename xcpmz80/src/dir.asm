@@ -110,11 +110,15 @@ cc_2:	ex	de,hl
 	sbc	hl,de
 	jr	z,cc_ok
 cc_bad:	pop	hl
+	ld	a,(drvnum)
+; Drive A's current folder back to the root. Z, A = 0.
+cwdroot: push	af
+	call	cwdptr
 	xor	a
 	ld	(hl),a
 	inc	hl
 	ld	(hl),a
-	ld	a,(drvnum)
+	pop	af
 	call	pthptr
 	ld	(hl),0
 	xor	a
@@ -127,11 +131,7 @@ cc_ok:	pop	hl
 ; cluster of the chain walked, for dgrow. The walk goes on from where
 ; the last one in this folder ended when the entry is at or past it,
 ; so a scan is not a walk from the start for every sector.
-dsub:	ld	a,l
-	and	0Fh
-	ld	(didx),a
-	ld	b,4
-	call	shrb			; HL = the sector in the folder
+dsub:	call	dxidx			; HL = the sector in the folder
 	ld	a,(ix+D_SPC)
 	dec	a
 	and	l
@@ -185,16 +185,8 @@ dsu_2:	ld	(dsccl),hl		; kept for the next
 	pop	af
 	ld	l,a
 	ld	h,0
-	add	hl,de
-	ld	(dsec),hl
-	ex	de,hl
-	call	getsec
-	ret	nz
-	ld	a,(didx)
-	jp	deoff
-dsu_x:	pop	af
-	pop	af
-	jp	ds_end
+	jp	de_s			; on as dirent
+dsu_x:	ld	a,R_NOFILE		; past the end, as ds_end
 dsu_e:	ld	b,a
 	pop	af
 	pop	af
@@ -230,19 +222,9 @@ dn_2:	ld	a,(hl)
 	jr	z,dn_3
 	cp	0E5h
 	jr	nz,dn_1
-dn_3:	push	hl
-	ex	de,hl
-	ld	hl,spat
-	ld	bc,11
-	ldir
-	ex	de,hl
-	ld	(hl),A_ARC
-	inc	hl
-	ld	b,20
-dn_4:	ld	(hl),c			; C = 0 after the ldir
-	inc	hl
-	djnz	dn_4
-	pop	hl
+dn_3:	ld	de,spat
+	ld	a,A_ARC
+	call	mkent
 	xor	a
 	ret
 dn_full: ld	a,R_NOFILE
@@ -250,13 +232,8 @@ dn_full: ld	a,R_NOFILE
 	ret
 
 ; One more cluster, empty, on the end of folder dircl: after dlast
-dgrow:	call	fatalloc
-	ret	nz
-	push	hl
-	ex	de,hl
-	ld	hl,(dlast)
-	call	fatset
-	pop	hl
+dgrow:	ld	hl,(dlast)
+	call	fatgrow
 	ret	nz
 ; Fill cluster HL with zeros
 zclus:	call	clsec
@@ -265,12 +242,8 @@ zc_1:	call	newsec			; keeps BC and DE
 	ret	nz
 	push	bc
 	push	de
-	ld	d,h
-	ld	e,l
-	inc	de
-	ld	(hl),0
 	ld	bc,511
-	ldir
+	call	zfill
 	call	bdirty
 	pop	de
 	pop	bc
@@ -504,29 +477,27 @@ wp_e:	or	a
 	ret
 
 ; dsfirst for files and folders alike
-dsany:	ld	a,A_DIR
-	ld	(dsdirs),a
-	call	dsfirst
-	push	af
+dsany:	call	dsdir
+; dsdirs back to 0, files only. Keeps AF.
+dsdone:	push	af
 	xor	a
 	ld	(dsdirs),a
 	pop	af
 	ret
+; dsfirst with dsdirs set: folders found too
+dsdir:	ld	a,A_DIR
+	ld	(dsdirs),a
+	jp	dsfirst
 
 ; HL = the first cluster of the folder spat names in dircl, Z. dpos is
 ; its entry. NZ, A = E_NOPATH if there is none, or its cluster is out of
 ; range on a damaged disk. 0 is the root, as ".." has it.
-wpfind:	ld	a,A_DIR
-	ld	(dsdirs),a
-	call	dsfirst
+wpfind:	call	dsdir
 	jr	wf_2
 wf_1:	call	dsnext
 wf_2:	jr	nz,wf_no
-	push	hl
-	ld	de,DE_ATTR
-	add	hl,de
-	bit	4,(hl)			; A_DIR
-	pop	hl
+	ld	b,A_DIR
+	call	isattr
 	jr	z,wf_1			; a file of that name
 	ld	de,DE_CLUS
 	add	hl,de
@@ -545,11 +516,7 @@ wf_no:	cp	R_NOFILE
 	jr	nz,wf_9
 	ld	a,E_NOPATH
 	or	a
-wf_9:	push	af
-	xor	a
-	ld	(dsdirs),a
-	pop	af
-	ret
+wf_9:	jr	dsdone
 
 ; Parse a file name at HL into the FCB at DE, as parsefn, after a
 ; folder path if there is one: GAMES\X.COM, \X.COM, B:\GAMES\X.COM. A
@@ -634,14 +601,19 @@ cdset:	ld	a,(drvnum)
 
 ; Print drive A and its current folder, as A:\GAMES
 pcwd:	push	af
-	add	a,'A'
+	call	pdcol
+	ld	a,5Ch
 	call	kputc
-	call	pmsg
-	db	":",5Ch,0
 	pop	af
+
 	call	pthptr
 	jp	pstr
 
+; Walk the path at HL but its last part, then lastok
+wklast:	ld	a,1
+	ld	(wlast),a
+	call	walk
+	ret	nz
 ; The last part of a path, in spat, for MKDIR and RMDIR: Z if it is a
 ; name, else NZ, A = E_BADNAME. NZ, A = E_WRPROT on a protected disk.
 lastok:	ld	a,(spat)
@@ -653,11 +625,7 @@ lastok:	ld	a,(spat)
 
 ; ------------------------------------------------------------------
 ; Make the folder the path at HL names. Z, or NZ and A = error.
-xmkdir:	ld	a,1
-	ld	(wlast),a
-	call	walk
-	ret	nz
-	call	lastok
+xmkdir:	call	wklast
 	ret	nz
 	call	dsany			; a file or folder of that name?
 	jr	z,mkd_ex
@@ -708,18 +676,8 @@ mkd_1:	ld	de,spat
 	jp	flushall
 
 ; The folder entry at HL: the 11-byte name at DE, cluster dcl, the time
-dentry:	push	hl
-	ex	de,hl
-	ld	bc,11
-	ldir
-	ex	de,hl
-	ld	(hl),A_DIR
-	inc	hl
-	ld	b,20
-den_1:	ld	(hl),0
-	inc	hl
-	djnz	den_1
-	pop	hl
+dentry:	ld	a,A_DIR
+	call	mkent
 	push	hl
 	ld	de,DE_CLUS
 	add	hl,de
@@ -730,15 +688,29 @@ den_1:	ld	(hl),0
 	pop	hl
 	jp	stamp
 
+; An entry at HL: the 11-byte name at DE, attribute A, the rest 0.
+; Keeps HL.
+mkent:	push	hl
+	push	af
+	ex	de,hl
+	ld	bc,11
+	ldir
+	ex	de,hl
+	pop	af
+	ld	(hl),a
+	inc	hl
+	ld	b,20
+mke_1:	ld	(hl),c			; C = 0 after the ldir
+	inc	hl
+	djnz	mke_1
+	pop	hl
+	ret
+
 dotdot:	db	'.'
 dotnm:	db	".          "
 
 ; Remove the empty folder the path at HL names. Z, or NZ and A = error.
-xrmdir:	ld	a,1
-	ld	(wlast),a
-	call	walk
-	ret	nz
-	call	lastok
+xrmdir:	call	wklast
 	ret	nz
 	call	wpfind
 	ret	nz
@@ -764,9 +736,7 @@ xrmdir:	ld	a,1
 rm_0:	ld	(hl),'?'
 	inc	hl
 	djnz	rm_0
-	ld	a,A_DIR
-	ld	(dsdirs),a
-	call	dsfirst
+	call	dsdir
 rm_1:	jr	nz,rm_2
 	ld	a,(hl)
 	cp	'.'
@@ -774,10 +744,7 @@ rm_1:	jr	nz,rm_2
 	jr	nz,rm_2
 	call	dsnext
 	jr	rm_1
-rm_2:	push	af
-	xor	a
-	ld	(dsdirs),a
-	pop	af
+rm_2:	call	dsdone
 	cp	R_NOFILE
 	jp	nz,wp_e
 	ld	hl,(rmpar)		; it is: off with its entry and chain

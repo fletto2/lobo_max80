@@ -93,6 +93,8 @@ out=$(python3 tools/mkdisk.py $SYS $T/mk.imd $T/a.b.c 2>&1)
 check "mkdisk: a name with two dots refused" "not an 8.3 name" "$out"
 out=$(python3 tools/mkdisk.py $SYS --pc 720 --ss $T/mk.imd 2>&1)
 check "mkdisk: --pc with --ss refused" "not --pc" "$out"
+out=$(python3 tools/mkdisk.py $SYS --525 1440 --ss $T/mk.imd 2>&1)
+check "mkdisk: --525 1440 --ss refused, it would not boot" "--525 360 or 720 only" "$out"
 python3 tools/mkdisk.py $SYS --525 360 --ss $T/mk.imd --raw $T/mk.img >/dev/null
 out=$(minfo -i $T/mk.img :: 2>&1)
 check "mkdisk: --525 360 --ss has the 180K BPB" "media descriptor byte: 0xfc" "$out"

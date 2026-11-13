@@ -73,10 +73,8 @@ drvix:	push	de
 ; used, but for the boot floppy's.
 diskinit:
 	ld	hl,drvtab
-	ld	de,drvtab+1
 	ld	bc,NDRV*DSZ-1
-	ld	(hl),0
-	ldir
+	call	zfill
 	call	bclear
 	ld	a,(BOOTDEV)
 	cp	1
@@ -250,15 +248,7 @@ fdw1:	ld	a,(de)
 	inc	de
 	jp	fdwl
 fdw2:	jp	m,fdwl
-fdend:	exx
-	pop	de
-	pop	bc
-	exx
-	ld	a,(fdiff)
-	or	a
-	jr	z,fde_1
-	ei
-fde_1:
+fdend:	call	fdrest
 	ld	a,(FSTAT)
 	cpl
 	ld	c,a
@@ -329,15 +319,8 @@ f5wl:	ld	a,(hl)
 	jr	nz,f5wl
 f5to:	ld	a,0D0h xor 0FFh		; nothing: stop the FDC
 	ld	(FCTRL),a
-	exx
-	pop	de
-	pop	bc
-	exx
-	ld	a,(fdiff)
-	or	a
-	jr	z,fdto
-	ei
-fdto:	ld	(ix+D_TRK),0FFh		; no disk: Not Ready
+	call	fdrest
+	ld	(ix+D_TRK),0FFh		; no disk: Not Ready
 	ld	c,E_NOTRDY
 fdfail1: ld	a,c
 fdfail:	or	a
@@ -345,6 +328,19 @@ fdfail:	or	a
 	pop	de
 	pop	bc
 	ret
+
+; After a transfer: fdrw's count registers back, and interrupts as
+; they were. Uses A and HL.
+fdrest:	pop	hl
+	exx
+	pop	de
+	pop	bc
+	exx
+	ld	a,(fdiff)
+	or	a
+	jr	z,frs_1
+	ei
+frs_1:	jp	(hl)
 
 ; A run of fdrun sectors, read by one command into a buffer that ends at
 ; TBEND (8000h, so the loop ends when D turns negative). The FDC goes on
@@ -372,7 +368,7 @@ t5l:	ld	a,(hl)
 	dec	e
 	exx
 	jr	nz,t5l
-	jp	f5to
+	jr	f5to
 trl:	ld	a,(hl)			; 50 T a byte: 8-inch MFM gives one
 	add	a,a			; each 81
 	jr	c,tr2
@@ -419,15 +415,8 @@ trc_1:
 	ld	a,(tbsplit)		; then the second part, from the first
 	or	a			; sector of the run
 	jr	nz,trnext
-	exx
-	pop	de
-	pop	bc
-	exx
-	ld	a,(fdiff)
-	or	a
-	jr	z,tr3
-	ei
-tr3:	xor	a
+	call	fdrest
+	xor	a
 	jp	fdfail
 tr2:	jp	m,trl
 	jp	fdend
@@ -462,17 +451,9 @@ trnext:	ld	b,a			; B = the sectors in it
 trc_x:	ld	a,0D0h xor 0FFh		; a run gone wrong: stop it, a read error
 	ld	(FCTRL),a
 	ld	a,E_READ
-trno:	exx				; no run: tbread reads the sector alone
-	pop	de
-	pop	bc
-	exx
-	ld	c,a
-	ld	a,(fdiff)
-	or	a
-	jr	z,trn_1
-	ei
-trn_1:	ld	a,c
-	jp	fdfail
+trno:	ld	c,a			; no run: tbread reads the sector alone
+	call	fdrest
+	jp	fdfail1
 
 ; Before a run: read the next IDs to come round. The first time on a
 ; drive, two of them show its interleave: not 1, and the drive reads a
@@ -909,7 +890,7 @@ srst1:	call	sasack
 	jp	z,rwerr			; Disk I/O
 	ld	a,250			; busy, or not ready yet: a pause
 	call	msdelay
-	jp	sr0
+	jr	sr0
 srnr:	ld	a,E_BADDRV		; nothing answers the select
 	jp	fdfail
 
@@ -978,7 +959,7 @@ sasout:	push	af
 	ld	(UDATA),a
 	jp	sasack
 so_1:	pop	af
-	jp	sasph
+	jr	sasph
 
 ; ------------------------------------------------------------------
 ; HL = HL / C, A = remainder. C not 0.
@@ -1059,7 +1040,7 @@ tbread:
 	jp	nz,rdsec
 	call	tbfind
 	jr	nz,tbr_1
-	push	de			; there: copy it
+tbr_c:	push	de			; there: copy it
 	ex	de,hl
 	ld	h,a
 	ld	l,0
@@ -1123,15 +1104,7 @@ tbr_2:	pop	hl
 	pop	hl
 	ld	(tbix),a
 	pop	af			; its first sector is the one wanted
-	push	de
-	ex	de,hl
-	ld	h,a
-	ld	l,0
-	ld	bc,512
-	ldir
-	pop	de
-	xor	a
-	ret
+	jr	tbr_c
 tbr_f:	cp	E_NOTRDY		; no disk: so again alone, slowly
 	jp	nz,rdsec		; else alone, with the retries
 	or	a
@@ -1368,19 +1341,16 @@ tbmptr:	push	af
 	ld	hl,tbmode
 	add	a,l
 	ld	l,a
-	jr	nc,tbm_1
-	inc	h
-tbm_1:	pop	af
+	pop	af
 	ret
+	assert	high tbmode == high (tbmode+NDRV-1)	; tbmptr, tbzap
 
 ; Forget drive A's interleave, and the track buffer: another disk
 tbzap:	push	hl
 	ld	hl,tbmode
 	add	a,l
 	ld	l,a
-	jr	nc,tbz_1
-	inc	h
-tbz_1:	ld	(hl),0
+	ld	(hl),0
 	xor	a
 	ld	(tbcnt),a
 	pop	hl
@@ -1531,6 +1501,7 @@ bflush1: ld	a,(iy+BH_DIRTY)
 	call	wrsec			; DE = LBA, HL = data
 	jr	nz,bfl3
 	push	hl			; a sector of the first FAT?
+	push	de
 	ex	de,hl
 	ld	e,(ix+D_FATSEC)
 	ld	d,(ix+D_FATSEC+1)
@@ -1540,10 +1511,9 @@ bflush1: ld	a,(iy+BH_DIRTY)
 	ld	b,(ix+D_SPF+1)
 	or	a
 	sbc	hl,bc			; carry if below SPF
+	pop	de			; DE = the LBA again
 	pop	hl
 	jr	nc,bfl2
-	ld	e,(iy+BH_LBA)		; DE = the LBA again
-	ld	d,(iy+BH_LBA+1)
 	ld	a,(ix+D_NFATS)
 bfl1:	dec	a			; the same sector in each other FAT
 	jr	z,bfl2

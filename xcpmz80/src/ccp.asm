@@ -6,6 +6,11 @@
 ; Batch lines come from A:$$$.SUB, last record first, as CP/M 2.2's
 ; SUBMIT writes it, so its SUBMIT.COM works too.
 
+; A new line, then as pmsgsh
+pcmsgsh: call	crlf
+; Print the string after the call, then back to the prompt
+pmsgsh:	pop	hl
+	call	pstr
 shell:	ld	sp,STKTOP
 	xor	a
 	ld	(dsdirs),a
@@ -44,27 +49,18 @@ sh_kbd:	ld	hl,(rsxtop)		; RSXs loaded: through them, as
 	ld	hl,0081h
 	call	upeek
 	ld	(lnlen),a
-	or	a
-	jr	z,sh_len
-	ld	c,a			; by way of common memory
-	ld	b,0
-	push	bc
+	ld	c,a			; by way of common memory, none
+	ld	b,0			; for 0
 	ld	hl,0082h
-	ld	de,CBUF
-	call	ucopy
-	pop	bc
-	ld	hl,CBUF
 	ld	de,linebuf
-	ldir
+	call	ucopybig
 	jr	sh_len
-sh_own:	ld	a,127
-	ld	(lnmax),a
-	ld	a,(scb+SCB_COL)
-	ld	(lnstart),a
-	ld	(lnend),a
-	ld	a,1			; UP brings back the last line here
+
+sh_own:	ld	a,1			; UP brings back the last line here
 	ld	(lnhist),a
-	call	rdline
+	ld	a,127
+	call	rdlna
+
 	xor	a
 	ld	(lnhist),a
 	ld	a,(lnlen)		; kept for UP, if not empty
@@ -77,11 +73,9 @@ sh_own:	ld	a,127
 	ld	de,histbuf
 	ldir
 sh_len:	ld	a,(lnlen)
-	ld	e,a
-	ld	d,0
-	ld	hl,linebuf
-	add	hl,de
+	call	lbptr
 	ld	(hl),0
+
 sh_go:	call	crlf
 	; fall into docmd
 
@@ -112,9 +106,7 @@ dc_2:	ld	hl,linebuf
 	or	a
 	jr	z,dc_what
 	dec	a
-	ld	(fdrive),a
-	call	mount
-	jp	nz,sherr
+	call	mntsh
 	ld	a,(fdrive)
 	ld	(scb+SCB_DRV),a
 	jp	shell
@@ -287,14 +279,15 @@ argcp:	push	de
 	ret
 
 ; argpat, the count zeroed, and the first entry
-dirbeg:	ld	a,A_DIR			; folders too: a path's walk clears it
-	push	af
-	call	argpat
-	pop	af
-	ld	(dsdirs),a
+dirbeg:	call	argpat			; folders too: a path's walk clears it
 	ld	hl,0
 	ld	(ncount),hl
-	jp	dsfirst
+	jp	dsdir
+
+; arg1, then argfcb to CFCB
+arg1s:	call	arg1
+argset:	ld	hl,argfcb
+	jp	cfcbset
 
 ; argpat for one file: a name, no wildcard, else What?
 arg1:	call	argpat
@@ -334,13 +327,10 @@ ap_1:	ld	a,(argfcb)
 	ld	a,(scb+SCB_DRV)
 	inc	a
 ap_2:	dec	a
-	ld	(fdrive),a
-	call	mount
-	jp	nz,sherr
+	call	mntsh
 	ld	hl,argfcb+1
 	ld	de,spat
-	ld	bc,11
-	ldir
+	call	ldir11
 	ld	hl,(argend)
 	ret
 
@@ -351,11 +341,7 @@ cd_1:	jr	nz,cd_9
 	ld	a,(hl)			; not . and ..
 	cp	'.'
 	jr	z,cd_4
-	push	hl
-	ld	de,DE_ATTR
-	add	hl,de
-	ld	a,(hl)
-	pop	hl
+	call	getattr
 	and	A_HID or A_SYS
 	jr	nz,cd_4
 	ld	a,(ncount)
@@ -363,29 +349,20 @@ cd_1:	jr	nz,cd_9
 	jr	nz,cd_2
 	call	crlf
 	ld	a,(fdrive)
-	add	a,'A'
-	call	kputc
-	ld	a,':'
-	call	kputc
+	call	pdcol
 	jr	cd_3
 cd_2:	call	pmsg
 	db	" :",0
 cd_3:	call	space
-	push	hl
-	ld	de,DE_ATTR
-	add	hl,de
-	bit	4,(hl)			; A_DIR
-	pop	hl
+	call	getattr
+	and	A_DIR
 	jr	nz,cd_d
 	ld	b,8
 	call	pchars
 	call	space
 	ld	b,3
 	call	pchars
-cd_5:	ld	hl,(ncount)
-	inc	hl
-	ld	(ncount),hl
-	call	kbreak
+cd_5:	call	cntbrk
 cd_4:	call	dsnext
 	jr	cd_1
 cd_d:	ld	a,(scb+SCB_COL)		; a folder: NAME\, as wide as a file
@@ -395,21 +372,17 @@ cd_d:	ld	a,(scb+SCB_COL)		; a folder: NAME\, as wide as a file
 	ld	a,5Ch
 	call	kputc
 	pop	bc
-cd_p:	ld	a,(scb+SCB_COL)
-	cp	b
-	jr	nc,cd_5
-	call	space
-	jr	cd_p
+	call	padto
+	jr	cd_5
 cd_9:	cp	R_NOFILE
 	jp	nz,sherr
 	ld	hl,(ncount)
 	ld	a,h
 	or	l
 	jp	nz,shell
-	call	crlf
-	call	pmsg
-	db	"No file",0
-	jp	shell
+	call	pcmsgsh
+nofile:	db	"No file",0
+
 
 ; Print B characters at HL, attribute bits off. HL moves on.
 pchars:	ld	a,(hl)
@@ -418,6 +391,34 @@ pchars:	ld	a,(hl)
 	inc	hl
 	djnz	pchars
 	ret
+
+; The A_ attributes of the entry at HL. Keeps HL.
+getattr: push	hl
+	ld	de,DE_ATTR
+	add	hl,de
+	ld	a,(hl)
+	pop	hl
+	ret
+
+; Print drive A as "A:"
+pdcol:	add	a,'A'
+	call	kputc
+	ld	a,':'
+	jp	kputc
+
+; Spaces to column B
+
+padto:	ld	a,(scb+SCB_COL)
+	cp	b
+	ret	nc
+	call	space
+	jr	padto
+
+; ncount on one, then kbreak
+cntbrk:	ld	hl,(ncount)
+	inc	hl
+	ld	(ncount),hl
+	; fall into kbreak
 
 ; A key pressed: back to the shell. ^S waits for the next key, and goes
 ; on unless that is ^C. Keeps HL.
@@ -440,29 +441,15 @@ ls_1:	jp	nz,ls_9
 	push	hl
 	call	crlf
 	call	pname
-	push	hl
-	ld	de,DE_ATTR
-	add	hl,de
-	bit	4,(hl)
-	pop	hl
+	call	getattr
+	and	A_DIR
 	ld	a,5Ch
 	call	nz,kputc
-	ld	a,(scb+SCB_COL)		; sizes at column 14
-	ld	b,a
-	ld	a,13
-	sub	b
-	jr	c,ls_2
-	jr	z,ls_2
-	ld	b,a
-ls_s:	call	space
-	djnz	ls_s
-ls_2:	pop	hl
-	push	hl
-	ld	de,DE_ATTR
-	add	hl,de
-	ld	a,(hl)
-	ld	(lsattr),a
+	ld	b,13			; sizes at column 14
+	call	padto
 	pop	hl
+	call	getattr
+	ld	(lsattr),a
 	and	A_DIR
 	jr	z,ls_f
 	call	pmsg
@@ -491,11 +478,9 @@ ls_3:	ld	a,(lsattr)
 	jr	z,ls_4
 	call	pmsg
 	db	" SYS",0
-ls_4:	ld	hl,(ncount)
-	inc	hl
-	ld	(ncount),hl
-	call	kbreak
-ls_n:	call	dsnext
+ls_4:	call	cntbrk
+ls_n:
+	call	dsnext
 	jp	ls_1
 ls_9:	cp	R_NOFILE
 	jp	nz,sherr
@@ -504,39 +489,31 @@ ls_9:	cp	R_NOFILE
 	call	pdec
 	call	pmsg
 	db	" files, ",0
-	call	pfree
-	jp	shell
 
-; Print "NNNK free" for the mounted drive IX
+; Print "NNNK free" for the mounted drive IX, then back to the prompt
 pfree:	call	fatcount		; clusters * SPC / 2 = K
 	ld	b,(ix+D_SPCSH)
 	inc	b
-pf__1:	dec	b
-	jr	z,pf__2
-	add	hl,hl
-	jr	pf__1
-pf__2:	srl	h
+	jr	pf__2
+pf__1:	add	hl,hl
+pf__2:	djnz	pf__1
+	srl	h
+
 	rr	l
 	call	pdec
-	call	pmsg
+	call	pmsgsh
 	db	"K free",0
-	ret
 
 ; FREE [d:]
 cfree:	call	argpat
 	call	crlf
 	ld	a,(fdrive)
-	add	a,'A'
-	call	kputc
-	call	pmsg
-	db	": ",0
-	call	pfree
-	jp	shell
+	call	pdcol
+	call	space
+	jr	pfree
 
 ; ERA name: delete. All of them asks first.
-cera:	call	skipsp
-	or	a
-	jp	z,dc_what
+cera:	call	cmr_0
 	call	argpat
 	ld	hl,argfcb+1		; every name?
 	ld	b,11
@@ -554,8 +531,7 @@ ce_1:	ld	a,(hl)
 	pop	af
 	cp	'Y'
 	jp	nz,shell
-ce_3:	ld	hl,argfcb
-	call	cfcbset
+ce_3:	call	argset
 	call	fdelete
 	call	fchk
 	jp	shell
@@ -592,8 +568,7 @@ rn_1:	or	a			; both: the same one
 rn_2:
 	ld	hl,renew+1
 	ld	de,CFCB+17
-	ld	bc,11
-	ldir
+	call	ldir11
 	call	frename
 	jp	nz,sherr
 	or	a
@@ -601,9 +576,7 @@ rn_2:
 	jp	mv_tk			; MV's message
 
 ; TYPE name: the text up to ^Z
-ctype:	call	arg1
-	ld	hl,argfcb
-	call	cfcbset
+ctype:	call	arg1s
 	call	fopen
 	call	fchk
 	call	crlf
@@ -619,7 +592,7 @@ ct_1:	push	hl
 	ld	b,128
 ct_2:	ld	a,(hl)
 	cp	1Ah
-	jr	z,ct_9
+	jp	z,shell			; the shell drops what is pushed
 	call	kputc
 	inc	hl
 	djnz	ct_2
@@ -630,38 +603,27 @@ ct_2:	ld	a,(hl)
 	or	l
 	jp	z,shell
 	jr	ct_1
-ct_9:	pop	hl
-	jp	shell
 
 ; SAVE n name: n pages from 0100h
-csave:	call	skipsp
-	call	getnum
-	jp	c,dc_what
+csave:	call	numarg
 	ld	(savepg),a
-	call	arg1
-	ld	hl,argfcb
-	call	cfcbset
+	call	arg1s
 	call	fmake
 	call	fchk
 	ld	hl,0100h
 	ld	(prdest),hl
 	ld	hl,0			; records: pages * 2, up to 510
-sv_0:	push	hl
-	ld	a,(savepg)
+sv_0:	ld	a,(savepg)		; done when prdest reaches the page
+	inc	a			; after the last, 0 after FFh
 	ld	e,a
-	ld	d,0
-	ex	de,hl
-	add	hl,hl
-	ex	de,hl
-	or	a
-	sbc	hl,de
-	pop	hl
+	ld	a,(prdest+1)
+	cp	e
 	jr	z,sv_9
+
 	push	hl
 	ld	hl,(prdest)
 	ld	de,CBUF
-	ld	bc,128
-	call	ucopy
+	call	ucp128
 	ld	(prdest),hl
 	pop	hl
 	push	hl
@@ -674,7 +636,14 @@ sv_9:	call	fclose
 	jp	nz,sherr
 	jp	shell
 
+; The number argument at HL into A, or What?
+numarg:	call	skipsp
+	call	getnum
+	ret	nc
+	jp	dc_what
+
 ; A = the decimal number at HL. Carry if there is none or it is over 255.
+
 getnum:	ld	a,(hl)
 	sub	'0'
 	ret	c
@@ -707,9 +676,7 @@ gn_9:	ld	a,c
 	ret
 
 ; USER n
-cuser:	call	skipsp
-	call	getnum
-	jp	c,dc_what
+cuser:	call	numarg
 	cp	16
 	jp	nc,dc_what
 	ld	(scb+SCB_USER),a
@@ -726,22 +693,16 @@ cmv:	ld	a,1
 	ld	a,(fdrive)		; the source drive, made explicit
 	inc	a
 	ld	(cpsrc),a
-	ld	de,(dirov)		; and its folder
-	ld	(srcdir),de
-	ld	a,(dirovd)
-	ld	(srcdrv),a
+	ld	de,srcdir		; and its folder
+	call	ovsave
 	ld	a,0FFh
 	ld	(dirovd),a
-	call	skipsp
-	or	a
-	jp	z,dc_what
+	call	cmr_0
 	ld	de,cpdst
 	call	parsep
 	jp	c,dc_what
-	ld	de,(dirov)
-	ld	(dstdir),de
-	ld	a,(dirovd)
-	ld	(dstdrv),a
+	ld	de,dstdir
+	call	ovsave
 	call	cpsrcd
 	ld	a,(cpdst)
 	or	a
@@ -752,17 +713,14 @@ cmv:	ld	a,1
 cp_1:	call	cpfold
 	ld	hl,cpsrc+1		; the pattern, kept for each batch
 	ld	de,cppat
-	ld	bc,11
-	ldir
+	call	ldir11
 	xor	a
 	ld	(cpstate),a
 cp_g:	ld	hl,cppat
 	ld	de,cpsrc+1
-	ld	bc,11
-	ldir
-	call	cpsrcd
-	ld	hl,cpsrc		; the names first: copying moves the
-	call	cfcbset			; directory
+	call	ldir11
+	call	srcset			; the names first: copying moves the
+					; directory
 	call	fcbdrv
 	jp	nz,sherr
 	call	fcbpat
@@ -780,8 +738,7 @@ cp_g:	ld	hl,cppat
 cp_g1:	call	dsfirst
 cp_2:	jr	nz,cp_3
 	ld	de,(nameptr)
-	ld	bc,11
-	ldir
+	call	ldir11
 	ld	(nameptr),de
 	ld	hl,ncount
 	inc	(hl)
@@ -815,8 +772,7 @@ cp_5:	ld	hl,namebuf
 	ld	(nameptr),hl
 cp_6:	ld	hl,(nameptr)		; one file: source name
 	ld	de,cpsrc+1
-	ld	bc,11
-	ldir
+	call	ldir11
 	ld	(nameptr),hl
 	ld	hl,cpdst			; the destination name: its own, or
 	ld	de,cpdst2		; the source's
@@ -827,8 +783,7 @@ cp_6:	ld	hl,(nameptr)		; one file: source name
 	jr	nz,cp_7
 	ld	hl,cpsrc+1
 	ld	de,cpdst2+1
-	ld	bc,11
-	ldir
+	call	ldir11
 cp_7:	ld	hl,cpdst2+1		; a ? in the new name takes the
 	ld	de,cpsrc+1		; source's letter, so a wildcard is never
 	ld	b,11			; made, or erased when the disk fills
@@ -857,6 +812,16 @@ cp_8:	call	kbreak
 	or	a
 	jp	z,shell
 	jp	cp_g
+
+; dirov and dirovd to DE: srcdir and srcdrv, or dstdir and dstdrv
+ovsave:	push	hl			; keeps HL, the tail
+	ld	hl,dirov
+	ld	bc,3
+	ldir
+	pop	hl
+	ret
+
+	assert	dirovd == dirov+2 && srcdrv == srcdir+2 && dstdrv == dstdir+2
 
 ; If "to" is the name of a folder, with no \ after it, that folder
 ; becomes the destination and the name is left blank
@@ -893,18 +858,14 @@ cf_1:	ld	a,(hl)			; no wildcards
 ; folder on the drive the directory entry moves, to another drive a
 ; copy and the source erased after it. A ? in the new name keeps the
 ; source's character.
-mvone:	call	cpsrcd
-	ld	hl,cpsrc
-	call	cfcbset
+mvone:	call	srcset
 	call	fcbdrv
 	jp	nz,sherr
 	ld	a,(drvnum)
 	push	af
 	ld	hl,(dircl)
 	push	hl
-	call	cpdstd
-	ld	hl,cpdst2
-	call	cfcbset
+	call	dstset
 	call	fcbdrv
 	jp	nz,sherr
 	pop	de			; the source's folder and drive
@@ -917,13 +878,10 @@ mvone:	call	cpsrcd
 	or	a
 	sbc	hl,de
 	push	af
-	call	cpsrcd
-	ld	hl,cpsrc
-	call	cfcbset
+	call	srcset
 	ld	hl,cpdst2+1
 	ld	de,CFCB+17
-	ld	bc,11
-	ldir
+	call	ldir11
 	pop	af
 	jr	nz,mv_3
 	call	frename
@@ -932,10 +890,8 @@ mv_3:	call	fmove
 mv_4:	jp	nz,sherr
 	or	a
 	ret	z
-mv_tk:	call	crlf
-	call	pmsg
+mv_tk:	call	pcmsgsh
 	db	"No file, or the new name is taken",0
-	jp	shell
 mv_x:	ld	hl,CFCB+F_NAME		; another drive: the name must be free
 	call	fcbpat			; there too, file or folder, or the copy
 	call	dsany			; would replace it
@@ -943,11 +899,22 @@ mv_x:	ld	hl,CFCB+F_NAME		; another drive: the name must be free
 	cp	R_NOFILE
 	jp	nz,sherr
 	call	copy1
-	call	cpsrcd
-	ld	hl,cpsrc
-	call	cfcbset
+	call	srcset
 	call	fdelete
 	jp	fchk
+
+; CFCB from COPY's source, or its destination, in its folder
+srcset:	call	cpsrcd
+	ld	hl,cpsrc
+	jr	ds_1
+dstset:	call	cpdstd
+	ld	hl,cpdst2
+ds_1:	jp	cfcbset
+
+; 11 bytes, a name, from HL to DE
+ldir11:	ld	bc,11
+	ldir
+	ret
 
 ; CFCB to DE, or HL to CFCB: the 36 bytes of an FCB
 fromcfcb: ld	hl,CFCB
@@ -958,18 +925,16 @@ fc_36:	ld	bc,36
 	ret
 
 ; Copy cpsrc to cpdst2, byte exact
-copy1:	call	cpsrcd
-	ld	hl,cpsrc		; open the source, keep its FCB
-	call	cfcbset
+copy1:	call	srcset			; open the source, keep its FCB
 	call	fopen
 	call	fchk
 	ld	hl,(dircl)
 	ld	(srcreal),hl
 	ld	de,srcfcb
 	call	fromcfcb
-	call	cpdstd			; the same file? The same drive,
-	ld	hl,cpdst2		; folder and name
-	call	cfcbset
+	call	dstset			; the same file? The same drive,
+					; folder and name
+
 	call	fcbdrv
 	call	fchk
 	ld	a,(srcfcb+F_DRIVE)
@@ -988,9 +953,8 @@ copy1:	call	cpsrcd
 	ld	b,11
 	call	match
 	jr	nz,c1_0
-	call	pmsg
+	call	pmsgr
 	db	": the same file",0
-	ret
 c1_0:	ld	hl,cpdst2		; make the destination
 	call	cfcbset
 	call	fmake
@@ -999,12 +963,12 @@ c1_0:	ld	hl,cpdst2		; make the destination
 	call	fromcfcb
 	ld	hl,0
 	ld	(cprec),hl
-	ld	hl,6			; the TPA, free while the shell runs, from
-	ld	de,CBUF			; 0100h to the BDOS entry in page zero:
-	ld	bc,2			; read it full, then write it out, so
-	call	ucopy			; from disk to disk the heads move once
-	ld	hl,(CBUF)		; a fill, not every few records
-	ld	l,0
+	ld	hl,7			; the TPA, free while the shell runs, from
+	call	upeek			; 0100h to the BDOS entry's page in page
+	ld	h,a			; zero: read it full, then write it out,
+	ld	l,0			; so from disk to disk the heads move once
+					; a fill, not every few records
+
 	ld	(cptop),hl
 c1_1:	ld	hl,0100h
 	ld	(cpptr),hl
@@ -1012,10 +976,9 @@ c1_1:	ld	hl,0100h
 	ld	(cpn),hl
 	xor	a
 	ld	(cpeof),a
-c1_2:	ld	hl,(cpptr)		; the TPA full?
-	ld	de,(cptop)
-	or	a
-	sbc	hl,de
+c1_2:	ld	a,(cpptr+1)		; the TPA full? cptop is on a page,
+	ld	hl,cptop+1		; cpptr on a record
+	cp	(hl)
 	jr	nc,c1_4
 	ld	hl,srcfcb		; a record from the source
 	call	tocfcb
@@ -1033,8 +996,7 @@ c1_2:	ld	hl,(cpptr)		; the TPA full?
 	jr	nz,c1_3
 	ld	hl,CBUF			; into the TPA
 	ld	de,(cpptr)
-	ld	bc,128
-	call	ucopy
+	call	ucp128
 	ld	(cpptr),de
 	ld	hl,(cpn)
 	inc	hl
@@ -1052,8 +1014,8 @@ c1_5:	ld	hl,(cpn)
 	jr	z,c1_6
 	ld	hl,(cpptr)
 	ld	de,CBUF
-	ld	bc,128
-	call	ucopy
+	call	ucp128
+
 	ld	(cpptr),hl
 	ld	hl,dstfcb
 	call	tocfcb
@@ -1077,9 +1039,7 @@ c1_rer:	push	af			; a read: the source's FCB in CFCB
 	pop	af
 c1_err:	push	af
 	call	fclose
-	call	cpdstd
-	ld	hl,cpdst2
-	call	cfcbset
+	call	dstset
 	call	fdelete
 	pop	af
 	jp	sherr
@@ -1094,9 +1054,8 @@ c1_9:	ld	hl,dstfcb		; the exact size, then close
 	ld	de,CFCB+F_SIZE
 	ld	bc,4
 	ldir
-	ld	a,(CFCB+F_FLAG)
-	or	1
-	ld	(CFCB+F_FLAG),a
+	ld	hl,CFCB+F_FLAG
+	set	0,(hl)
 c1_cl:	call	fclose
 	jp	nz,sherr
 	ret
@@ -1117,26 +1076,25 @@ chelp:	call	skipsp
 	or	a
 	jr	z,ch_1
 	call	tryprog
-ch_1:	call	pmsg
-	db	0Dh,0Ah
-	db	"DIR, LS [d:][name]      list files",0Dh,0Ah
-	db	"TYPE, CAT name          show a text file",0Dh,0Ah
-	db	"ERA, RM, DEL name       delete",0Dh,0Ah
-	db	"REN new=old             rename",0Dh,0Ah
-	db	"MV old new              rename, or move",0Dh,0Ah
-	db	"CP, COPY from to        copy, byte exact",0Dh,0Ah
-	db	"SAVE n name             save n pages from 0100h",0Dh,0Ah
+ch_1:	call	pcmsgsh
+	db	"DIR, LS [d:][name]",09h,"list files",0Dh,0Ah
+	db	"TYPE, CAT name",09h,09h,"show a text file",0Dh,0Ah
+	db	"ERA, RM, DEL name",09h,"delete",0Dh,0Ah
+	db	"REN new=old",09h,09h,"rename",0Dh,0Ah
+	db	"MV old new",09h,09h,"rename, or move",0Dh,0Ah
+	db	"CP, COPY from to",09h,"copy, byte exact",0Dh,0Ah
+	db	"SAVE n name",09h,09h,"save n pages from 0100h",0Dh,0Ah
 	db	"USER n, FREE [d:], CLS, VER",0Dh,0Ah
-	db	"FORMAT d: [MB]          make a boot disk, MB for the hard disk",0Dh,0Ah
-	db	"SYS d:                  put the system on a disk",0Dh,0Ah
-	db	"d:                      change drive",0Dh,0Ah
-	db	"CD [path], PWD          change or show the folder",0Dh,0Ah
-	db	"MD, MKDIR path          make a folder",0Dh,0Ah
-	db	"RD, RMDIR path          remove an empty folder",0Dh,0Ah
-	db	"NAME                    run NAME.COM, NAME.SUB or NAME.BAT",0Dh,0Ah
-	db	"SUBMIT name             run NAME.SUB, $1 to $9 from the line",0Dh,0Ah
-	db	"HELP topic              CP/M 3's HELP.COM",0
-	jp	shell
+	db	"FORMAT d: [MB]",09h,09h,"make a boot disk, MB for the hard disk",0Dh,0Ah
+	db	"SYS d:",09h,09h,09h,"put the system on a disk",0Dh,0Ah
+	db	"d:",09h,09h,09h,"change drive",0Dh,0Ah
+	db	"CD [path], PWD",09h,09h,"change or show the folder",0Dh,0Ah
+	db	"MD, MKDIR path",09h,09h,"make a folder",0Dh,0Ah
+	db	"RD, RMDIR path",09h,09h,"remove an empty folder",0Dh,0Ah
+	db	"NAME",09h,09h,09h,"run NAME.COM, NAME.SUB or NAME.BAT",0Dh,0Ah
+	db	"SUBMIT name",09h,09h,"run NAME.SUB, $1 to $9 from the line",0Dh,0Ah
+	db	"HELP topic",09h,09h,"CP/M 3's HELP.COM",0
+
 
 ; ------------------------------------------------------------------
 ; Batch files
@@ -1182,12 +1140,7 @@ sl_file: ld	hl,subname
 	ld	a,h			; record 0, the last line: the file
 	or	l			; goes. Not the size's low 16 bits,
 	jr	z,sl_del1		; 0 at record 512 too
-	ld	a,h
-	ld	h,l
-	ld	l,0
-	srl	a
-	rr	h
-	rr	l
+	call	rec2b
 	ld	(CFCB+F_SIZE),hl
 	ld	(CFCB+F_SIZE+2),a
 	ld	a,1
@@ -1204,10 +1157,9 @@ sl_bad:	ld	a,3
 	ret
 sl_off:	or	a			; NZ: none
 	ret
-sl_del1: push	af			; the last line: the file goes
-	call	sl_kill
-	pop	af
+sl_del1: call	sl_kill			; the last line: the file goes
 	xor	a
+
 	ret
 sl_del:	call	sl_kill
 sl_none: xor	a
@@ -1292,10 +1244,8 @@ ru_2:	push	hl
 	pop	hl
 	inc	hl
 	jr	ru_2
-ru_big:	call	crlf			; not cut short: none of it runs
-	call	pmsg
+ru_big:	call	pcmsgsh			; not cut short: none of it runs
 	db	"Batch file too long",0
-	jp	shell
 ru_3:	ld	hl,subbuf+SUBMAX	; ends at ^Z: one after the text, when
 	or	a			; there is room, else the file's own
 	sbc	hl,de
@@ -1355,14 +1305,12 @@ ru_7:	ld	bc,(sublines)		; the lines, last first
 ru_9:	call	fclose
 	jr	nz,ru_bad
 	ld	a,1
-	ld	(subact),a
-	or	a
-	ret
+	jr	ru_act
 ru_bad:	call	sl_kill			; a part written: none of it
 ru_mem:	ld	hl,0			; from memory, first line first
 	ld	(subnext),hl
 	ld	a,2
-	ld	(subact),a
+ru_act:	ld	(subact),a
 	or	a
 	ret
 subext:	db	"SUB"
@@ -1422,17 +1370,15 @@ se__9:	ld	a,c
 	xor	a
 	ld	(de),a
 	ret
-se__put: push	af
+se__put: ld	b,a			; B is free in subexp
 	ld	a,c
 	cp	125
-	jr	nc,se__x
-	pop	af
+	ret	nc
+	ld	a,b
 	call	upper
 	ld	(de),a
 	inc	de
 	inc	c
-	ret
-se__x:	pop	af
 	ret
 
 ; Split the tail at HL into words in argbuf, NUL ended, argc of them
@@ -1442,7 +1388,7 @@ splitargs:
 	ld	(argc),a
 sa__1:	call	skipsp
 	or	a
-	jr	z,sa__9
+	ret	z
 	ld	a,(argc)
 	inc	a
 	ld	(argc),a
@@ -1459,7 +1405,6 @@ sa__3:	xor	a
 	ld	(de),a
 	inc	de
 	jr	sa__1
-sa__9:	ret
 
 ; SUBMIT name params: as NAME params, here in the shell.
 csubmit: call	skipsp
@@ -1470,9 +1415,8 @@ csubmit: call	skipsp
 	jp	c,dc_what
 	ld	(cmdtail),hl
 	jp	dc_sub
-cs_use:	call	pmsg
-	db	0Dh,0Ah,"SUBMIT name [parameters]",0Dh,0Ah,0
-	jp	shell
+cs_use:	call	pcmsgsh
+	db	"SUBMIT name [parameters]",0Dh,0Ah,0
 
 ; HL = word A (0 is $1) of argbuf, or an empty string
 argn:	ld	b,a

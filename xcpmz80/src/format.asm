@@ -19,14 +19,13 @@
 ; That way A: can be formatted too.
 
 SYSBUF		equ	1000h		; in the TPA
+	assert	high fmtslt == high (fmtslt+17)	; fslots, trkbuild
 FMTSZ		equ	11900		; 18 sectors of 1.44M, gap 84
 	assert	FMTSZ & 0FFh		; the count in B is not 0
 
 ; FORMAT d:, FORMAT d: size [PC] (fmtab), or FORMAT d: MB
 cformat: call	memchk
-	call	getdrv
 	jp	c,fmt_use
-	ld	(fmtdrv),a
 	push	hl
 	call	seldrv
 	pop	hl
@@ -75,9 +74,8 @@ fmt_h:
 	ld	hl,fmtbuf
 	call	rdsec
 	jr	z,fmt_1
-	call	pmsg
+	call	pmsgsh
 	db	0Dh,0Ah,"The drive is smaller than that",0Dh,0Ah,0
-	jp	shell
 fmt_1:	call	pmsg
 	db	0Dh,0Ah,"Format ",0
 	call	pdrv
@@ -93,10 +91,7 @@ fmt_1:	call	pmsg
 	jp	nz,shell
 	call	sysget			; the system, before A: is touched
 	jp	nz,sherr
-	ld	a,(fmtdrv)
-	call	umount
-	ld	a,(fmtdrv)
-	call	seldrv
+	call	fmtums
 	ld	a,(ix+D_TYPE)
 	cp	DT_SASI
 	jr	z,fmt_hd
@@ -106,51 +101,43 @@ fmt_1:	call	pmsg
 	jp	nz,fmt_err
 	call	fmttrks
 	jp	nz,fmt_err
-	ld	hl,fbpb			; the floppy BPB
-	ld	de,fmtbuf+0Bh
-	ld	bc,3Eh-0Bh
-	ldir
+	call	fbpbcp			; the floppy BPB
 	ld	hl,(fmtk)		; a size: its BPB over it
 	ld	a,h
 	or	l
 	jr	z,fmt_vol
 	ld	de,9
 	add	hl,de
-	ld	de,fmtbuf+0Bh
-	ld	bc,17
+	ld	a,(hl)			; sectors a cluster
+	ld	(fmtbuf+0Dh),a
+	inc	hl
+	ld	de,fmtbuf+11h		; root entries to sectors a FAT
+	ld	bc,7
 	ldir
+	ld	a,(ix+D_SPT)		; and the geometry, as fgeom set it
+	ld	(fmtbuf+18h),a
+	ld	a,(ix+D_HEADS)
+	ld	(fmtbuf+1Ah),a
 	call	fmt25
 	jr	fmt_vol
 fmt_hd:	call	hdbpb
 fmt_vol:	call	fmtvol
 	jp	nz,fmt_err
-	ld	a,(fmtdrv)
-	call	umount
+	call	fmtum
 	ld	a,(fmtdrv)		; its folders are gone: at the root
-	call	cwdptr
-	xor	a
-	ld	(hl),a
-	inc	hl
-	ld	(hl),a
-	ld	a,(fmtdrv)
-	call	pthptr
-	ld	(hl),0
+	call	cwdroot
 	call	pmsg
 	db	"Formatted, ",0
 	ld	a,(fmtdrv)
-	ld	(fdrive),a
-	call	mount
-	jp	nz,sherr
-	call	pfree
-	jp	shell
-fmt_use:	call	pmsg
+	call	mntsh
+	jp	pfree
+fmt_use:	call	pmsgsh
 	db	0Dh,0Ah,"FORMAT d: for a floppy, FORMAT d: DS for a double sided "
 	db	"8-inch,",0Dh,0Ah
 	db	"FORMAT d: 360, 180, 720 or 1440 for other sizes, then PC",0Dh,0Ah
 	db	"for a PC's layout, which does not boot here,",0Dh,0Ah
 	db	"FORMAT d: MB (1 to 32) for the hard disk.",0Dh,0Ah
 	db	"ILV n after d: or at the end sets a floppy's interleave",0Dh,0Ah,0
-	jp	shell
 
 ; BPB byte 25h tells the boot sector that two sides of 9 sectors are
 ; numbered from 0, as mkdisk.py --525 sets it
@@ -184,11 +171,9 @@ fs_1:	call	fdsel
 	ld	a,(SYSFLG)
 	and	10h
 	ret	z
-	ld	a,(fmtdrv)
-	call	umount
-	call	pmsg
+	call	fmtum
+	call	pmsgsh
 	db	"Single sided disk",0Dh,0Ah,0
-	jp	shell
 
 ; Z if the text at HL is the name at DE, up to 4 characters or a 0,
 ; and the line ends there, or goes on with PC alone, which sets fmtpc
@@ -291,8 +276,6 @@ fo_1:	ld	b,e			; B the slot
 	ld	a,e
 	add	a,l
 	ld	l,a
-	jr	nc,fo_2
-	inc	h
 fo_2:	ld	a,(hl)
 	inc	a
 	jr	z,fo_3			; free
@@ -359,11 +342,9 @@ gm_9:	ld	(fmtcyl),a
 	ld	(fmtgap),a
 	ld	(ix+D_TRK),0FFh
 	ld	a,(ix+D_SPT)
-	cp	SPT
-	ld	a,0
+	sub	SPT			; 0 for 17 a track
 	jr	z,gm_b
-	ld	a,(ix+D_SPT)
-	cp	9
+	add	a,SPT-9			; fmtpc for 9
 	ld	a,(fmtpc)
 	jr	z,gm_b
 	ld	a,1
@@ -374,63 +355,40 @@ gm_b:	ld	(ix+D_SBASE),a
 
 ; The floppy sizes FORMAT takes: the name, the connector (1 8-inch, 2
 ; 5-inch), sectors a track, sides, cylinders, the gap after a sector,
-; then the BPB's bytes 0Bh to 1Bh, as mkdisk.py makes them. A 0 ends it.
-FROW	equ	26
-fmtab:	db	"360",0,2,9,2,40,80
-	dw	512
-	db	2
-	dw	RSVD
-	db	2
+; then the BPB's sectors a cluster (0Dh) and its bytes 11h to 17h, as
+; mkdisk.py makes them. The rest of the BPB is the floppy one's (512
+; bytes a sector, RSVD, 2 FATs) and the geometry. A 0 ends it.
+FROW	equ	17
+fmtab:	db	"360",0,2,9,2,40,80, 2
 	dw	112,720
 	db	0FDh
-	dw	1,9,2
-	db	"180",0,2,9,1,40,80
-	dw	512
-	db	1
-	dw	RSVD
-	db	2
+	dw	1
+	db	"180",0,2,9,1,40,80, 1
 	dw	64,360
 	db	0FCh
-	dw	1,9,1
-	db	"720",0,2,9,2,80,80
-	dw	512
-	db	2
-	dw	RSVD
-	db	2
+	dw	1
+	db	"720",0,2,9,2,80,80, 2
 	dw	112,1440
 	db	0F9h
-	dw	2,9,2
-	db	"1440",1,18,2,80,84	; 3.5-inch on the 8-inch connector
-	dw	512
-	db	1
-	dw	RSVD
-	db	2
+	dw	2
+	db	"1440",1,18,2,80,84, 1	; 3.5-inch on the 8-inch connector
 	dw	224,2880
 	db	0F0h
-	dw	9,18,2
-	db	"DS",0,0,1,17,2,77,18	; 8-inch double sided, Lobo's sectors
-	dw	512
-	db	2
-	dw	RSVD
-	db	2
+	dw	9
+	db	"DS",0,0,1,17,2,77,18, 2	; 8-inch double sided, Lobo's sectors
 	dw	256,2618
 	db	0F0h
-	dw	4,17,2
+	dw	4
 	db	0
 fmt_err:	push	af
-	ld	a,(fmtdrv)
-	call	umount
+	call	fmtum
 	pop	af
 	jp	sherr
 
 ; SYS d: the boot code and system of A: onto the FAT volume in d:
 csys:	call	memchk
-	call	getdrv
-	jp	c,sy_use
-	ld	(fmtdrv),a
-	ld	(fdrive),a
-	call	mount
-	jp	nz,sherr
+	jr	c,sy_use
+	call	mntsh
 	call	sysat			; room for it in the reserved sectors,
 	ld	hl,SYSSEC		; from where it goes (a track on in a
 	add	hl,de			; PC's layout) to the first FAT?
@@ -440,46 +398,39 @@ csys:	call	memchk
 	or	a
 	sbc	hl,de
 	jr	nc,sy_1
-	call	pmsg
+	call	pmsgsh
 	db	0Dh,0Ah,"No room for the system",0Dh,0Ah,0
-	jp	shell
 sy_1:	call	sysget
 	jp	nz,sherr
-	ld	a,(fmtdrv)		; its boot sector: our code, its BPB
-	call	umount
-	ld	a,(fmtdrv)
-	call	seldrv
+	call	fmtums			; its boot sector: our code, its BPB
 	ld	de,0
 	ld	hl,fmtbuf
 	call	rdsec
 	jr	nz,fmt_err
-	ld	hl,fmtbuf+0Bh		; keep its BPB through the copy
-	ld	de,fmtbuf+512
-	ld	bc,3Eh-0Bh
-	ldir
-	ld	hl,SYSBUF		; our sector 0
-	ld	de,fmtbuf
-	ld	bc,512
-	call	uload
-	ld	hl,fmtbuf+512
-	ld	de,fmtbuf+0Bh
-	ld	bc,3Eh-0Bh
-	ldir
+	call	bootcp			; our code around its BPB
 	call	syswr
-	jp	nz,fmt_err
-	ld	a,(fmtdrv)
-	call	umount
+	jr	nz,fmt_err
+	call	fmtum
 	call	pmsg
 	db	0Dh,0Ah,"System on ",0
 	call	pdrv
-	call	pmsg
+	call	pmsgsh
 	db	":",0Dh,0Ah,0
-	jp	shell
-sy_use:	call	pmsg
+sy_use:	call	pmsgsh
 	db	0Dh,0Ah,"SYS d:",0Dh,0Ah,0
-	jp	shell
 
-; A = the drive named at HL, as "B:" or "B". Carry if there is none.
+; fmtbuf is in the TPA's common part: on to the shell's error if what
+; 0006h points at, an RSX or a program kept in memory, is below its end.
+; Then on into getdrv.
+memchk:	push	hl
+	ld	hl,0007h
+	call	upeek
+	pop	hl
+	cp	(fmtbuf+FMTSZ+255)/256
+	ld	a,E_NOMEM
+	jp	c,sherr
+; A = fmtdrv = the drive named at HL, as "B:" or "B". Carry if there
+; is none.
 getdrv:	call	skipsp
 	call	upper
 	sub	'A'
@@ -498,19 +449,24 @@ gd_1:	call	isdelim
 	scf
 	ret	nz
 	ld	a,c
+	ld	(fmtdrv),a
 	or	a
 	ret
 
-; fmtbuf is in the TPA's common part: on to the shell's error if what
-; 0006h points at, an RSX or a program kept in memory, is below its end
-memchk:	push	hl
-	ld	hl,0007h
-	call	upeek
-	pop	hl
-	cp	(fmtbuf+FMTSZ+255)/256
-	ret	nc
-	ld	a,E_NOMEM
+; Mount drive A as fdrive, or on to the shell's error
+mntsh:	ld	(fdrive),a
+	call	mount
+	ret	z
 	jp	sherr
+
+; Unmount fmtdrv, then select it
+fmtums:	call	fmtum
+; Select fmtdrv
+fmtsel:	ld	a,(fmtdrv)
+	jp	seldrv
+; Unmount fmtdrv
+fmtum:	ld	a,(fmtdrv)
+	jp	umount
 
 ; Print the letter of fmtdrv
 pdrv:	ld	a,(fmtdrv)
@@ -548,7 +504,7 @@ sg_sec:	push	hl			; sector DE to the TPA at HL, HL on
 	ex	de,hl			; DE = where in the TPA
 	ld	hl,fmtbuf
 	ld	bc,512
-	call	ustore
+	call	ucopy
 	ex	de,hl
 	pop	de
 	xor	a
@@ -571,8 +527,7 @@ sysat:	ld	de,1
 
 ; Write fmtbuf as sector 0 of fmtdrv, and again just before the system
 ; on a PC's layout, then the system from SYSBUF+512
-syswr:	ld	a,(fmtdrv)
-	call	seldrv
+syswr:	call	fmtsel
 	ld	de,0
 	ld	hl,fmtbuf
 	call	wrsec
@@ -586,58 +541,21 @@ sw_0:	call	sysat
 	ld	hl,SYSBUF+512
 	ld	b,SYSSEC
 sw_1:	push	bc
-	push	hl
 	push	de
 	ld	de,fmtbuf
 	ld	bc,512
-	call	uload
+	call	ucopy			; HL moves on
 	pop	de
+	push	hl
 	ld	hl,fmtbuf
 	call	wrsec
 	pop	hl
 	pop	bc
 	ret	nz
-	push	bc
-	ld	bc,512
-	add	hl,bc
-	pop	bc
 	inc	de
 	djnz	sw_1
 	xor	a
 	ret
-
-; Copy BC bytes from the program at HL to the kernel at DE, through
-; CBUF, 128 at a time
-uload:	ld	a,b
-	or	c
-	ret	z
-	push	bc
-	ld	a,b
-	or	a
-	jr	nz,ul_1
-	ld	a,c
-	cp	128
-	jr	c,ul_2
-ul_1:	ld	bc,128
-ul_2:	push	bc
-	push	de
-	ld	de,CBUF
-	call	ucopy			; HL moves on
-	pop	de
-	pop	bc
-	push	hl
-	push	bc
-	ld	hl,CBUF
-	ldir
-	pop	bc
-	pop	hl
-	ex	(sp),hl
-	or	a
-	sbc	hl,bc
-	ld	b,h
-	ld	c,l
-	pop	hl
-	jr	uload
 
 ; ------------------------------------------------------------------
 ; Write all the tracks of the floppy fmtdrv (IX), each side of a
@@ -645,10 +563,8 @@ ul_2:	push	bc
 fmttrks: xor	a
 	ld	(fmttrk),a
 	ld	(fmtsd),a
-ft_1:	ld	a,0Dh
-	call	kputc
-	call	pmsg
-	db	"Track ",0
+ft_1:	call	pmsg
+	db	0Dh,"Track ",0
 	ld	a,(fmttrk)
 	ld	l,a
 	ld	h,0
@@ -773,12 +689,7 @@ tk_3:	djnz	tk_1
 	ld	a,4Eh
 	call	fill
 	ld	c,0
-tb_1:	ld	b,12
-	xor	a
-	call	fill
-	ld	b,3
-	ld	a,0F5h
-	call	fill
+tb_1:	call	syncf
 	ld	(hl),0FEh
 	inc	hl
 	ld	a,(fmttrk)
@@ -797,9 +708,7 @@ tb_r:	push	hl			; the sector in that slot, fslots'
 	ld	hl,fmtslt
 	add	a,l
 	ld	l,a
-	jr	nc,tb_id
-	inc	h
-tb_id:	ld	a,(hl)
+	ld	a,(hl)
 	pop	hl
 	add	a,(ix+D_SBASE)
 	ld	(hl),a
@@ -811,12 +720,7 @@ tb_id:	ld	a,(hl)
 	ld	b,22
 	ld	a,4Eh
 	call	fill
-	ld	b,12
-	xor	a
-	call	fill
-	ld	b,3
-	ld	a,0F5h
-	call	fill
+	call	syncf
 	ld	(hl),0FBh
 	inc	hl
 	ld	b,0
@@ -848,6 +752,14 @@ tb_id:	ld	a,(hl)
 	ldir
 	ret
 
+; 12 x 00h, 3 x F5h (A1h syncs) at HL
+syncf:	ld	b,12
+	xor	a
+	call	fill
+	ld	b,3
+	ld	a,0F5h
+	; fall into fill
+
 ; B bytes of A at HL (0 is 256)
 fill:	ld	(hl),a
 	inc	hl
@@ -871,10 +783,7 @@ hdsize:	ld	a,(fmtmb)
 ; of fmtmb megabytes over it, as mkdisk.py --hd makes it: 512 root
 ; entries, 2K clusters up to 16 MB and 4K above, FAT16 from 4085
 ; clusters, and the fewest FAT sectors that hold them.
-hdbpb:	ld	hl,fbpb			; the floppy one to start from
-	ld	de,fmtbuf+0Bh
-	ld	bc,3Eh-0Bh
-	ldir
+hdbpb:	call	fbpbcp			; the floppy one to start from
 	call	hdsize
 	ld	(fmtbuf+13h),hl
 	ld	a,(fmtmb)		; sectors a cluster
@@ -937,33 +846,28 @@ hb_6:	ld	(fmtf16),a
 	ld	hl,(fmtbuf+16h)
 	inc	hl
 	jr	hb_3
-hb_7:	ld	hl,fat16s
-	ld	a,(fmtf16)
-	or	a
-	jr	nz,hb_8
-	ld	hl,fat12s
-hb_8:	ld	de,fmtbuf+36h
-	ld	bc,8
-	ldir
+hb_7:	ld	a,(fmtf16)		; FAT16: "FAT16" over the floppy
+	or	a			; BPB's "FAT12"
+	ret	z
+	ld	a,'6'
+	ld	(fmtbuf+36h+4),a
 	ret
-fat16s:	db	"FAT16   "
-fat12s:	db	"FAT12   "
+
+; Our boot sector from SYSBUF into fmtbuf, all but the BPB there, 0Bh
+; to 3Dh
+bootcp:	ld	hl,SYSBUF
+	ld	de,fmtbuf
+	ld	bc,0Bh
+	call	ucopy
+	ld	hl,SYSBUF+3Eh
+	ld	de,fmtbuf+3Eh
+	ld	bc,512-3Eh
+	jp	ucopy
 
 ; Write the volume on fmtdrv: the boot sector, in fmtbuf with its BPB
 ; at 0Bh, our code from SYSBUF around it, the system, the FATs empty
 ; and the root directory empty. NZ, A = E_ code.
-fmtvol:	ld	hl,fmtbuf+0Bh		; keep the BPB
-	ld	de,fmtbuf+512
-	ld	bc,3Eh-0Bh
-	ldir
-	ld	hl,SYSBUF
-	ld	de,fmtbuf
-	ld	bc,512
-	call	uload
-	ld	hl,fmtbuf+512
-	ld	de,fmtbuf+0Bh
-	ld	bc,3Eh-0Bh
-	ldir
+fmtvol:	call	bootcp
 	ld	a,(fmtbuf+15h)		; the media byte, for the FATs
 	ld	(fmtmed),a
 	ld	hl,(fmtbuf+16h)		; and the sizes
@@ -973,17 +877,13 @@ fmtvol:	ld	hl,fmtbuf+0Bh		; keep the BPB
 	ld	(fmtf16),a		; 4 for FAT16, 0 for FAT12
 	ld	hl,(fmtbuf+11h)		; root sectors: entries / 16
 	ld	b,4
-fv_r:	srl	h
-	rr	l
-	djnz	fv_r
+	call	shrb
 	ld	(fmtroot),hl
 	call	syswr
 	ret	nz
 	ld	hl,fmtbuf		; then zeros: FATs and the root
-	ld	de,fmtbuf+1
 	ld	bc,511
-	ld	(hl),0
-	ldir
+	call	zfill
 	ld	de,RSVD
 	ld	b,2			; two FATs
 fv_1:	push	bc
@@ -1001,14 +901,13 @@ fv_2:	ld	(fmtbuf+3),a
 	ld	hl,(fmtspf)
 fv_3:	push	hl
 	ld	hl,fmtbuf
-	call	wrsec
+	call	wrsec			; keeps BC, DE, HL
+	ld	b,4			; the rest are zeros (B is pushed)
+fv_z:	ld	(hl),0			; flags kept
+	inc	hl
+	djnz	fv_z
 	pop	hl
 	jr	nz,fv_9
-	xor	a
-	ld	(fmtbuf),a
-	ld	(fmtbuf+1),a
-	ld	(fmtbuf+2),a
-	ld	(fmtbuf+3),a
 	inc	de
 	dec	hl
 	ld	a,h
@@ -1026,6 +925,13 @@ fv_4:	ld	hl,fmtbuf
 	xor	a
 	ret
 fv_9:	pop	bc
+	ret
+
+; The floppy BPB into fmtbuf's boot sector
+fbpbcp:	ld	hl,fbpb
+	ld	de,fmtbuf+0Bh
+	ld	bc,3Eh-0Bh
+	ldir
 	ret
 
 ; The floppy BPB, the same bytes as in the boot sector
