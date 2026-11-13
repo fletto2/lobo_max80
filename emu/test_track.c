@@ -141,10 +141,14 @@ static int sector_status(uint8_t cmd, int n)
 /* The clock chip through the PIO, as Lobo's TIMESET program drives it */
 static void rtc_w(int a, int v)
 {
+	uint8_t m = pio_mask[0];
+
+	pio_mask[0] = 0;		/* port A all outputs for the write */
 	pio_a = (pio_a & 0xf0) | v;
 	pio_write(2, a | 0x40);		/* register, HOLD */
 	pio_write(2, a | 0x50);		/* WRITE */
 	pio_write(2, a | 0x40);
+	pio_mask[0] = m;
 }
 
 static int rtc_r(int a)
@@ -294,6 +298,17 @@ int main(void)
 	while (fdc.busy) {
 		cpu.cycles += CPU_HZ / 100000;
 		fdc_write(3, 0);
+	}
+
+	/* LF types ENTER, as CR does; the tick's cycle past 2^64 */
+	{
+		struct key k = { 0 };
+
+		key_for('\n', &k);
+		expect(k.row == 6 && k.bit == 0 && !k.ctrl, "LF types ENTER");
+		expect(tick_cycle(30000000ULL) > tick_cycle(29000000ULL) &&
+		    tick_cycle(30000000ULL) / 30000000ULL == tick_cycle(1000) / 1000,
+		    "the tick's cycle does not wrap after 5 days");
 	}
 
 	/* a multi-sector read past the last sector: record not found */
@@ -470,6 +485,12 @@ int main(void)
 	time_set = 1;
 	rtc_w(3, 6);
 	expect(rtc_r(3) == 6, "  TIME SET held: an illegal 6 reads back, TIMESET's test");
+	pio_a = (pio_a & 0xf0) | 2;	/* PA3-0 still inputs: the pull-ups */
+	pio_write(2, 0x43);
+	pio_write(2, 0x53);
+	pio_write(2, 0x43);
+	expect(rtc_r(3) == 15, "  a write with PA3-0 inputs stores the pull-ups' 1111");
+	rtc_w(3, 6);
 	rtc_w(3, m10);
 	int s1 = rtc_r(0) + 10 * rtc_r(1);
 	pio_write(2, 0x40);

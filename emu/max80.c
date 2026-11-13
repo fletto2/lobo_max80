@@ -113,6 +113,16 @@
  * due at cycle n * IRQ_NUM / IRQ_DEN */
 #define IRQ_NUM (CPU_HZ * 131072ULL)
 #define IRQ_DEN 8000000ULL
+/* Tick n's cycle, and the ticks before cycle c, in 128 bits: n * IRQ_NUM
+   passes 2^64 after about 5 emulated days */
+static unsigned long long tick_cycle(unsigned long long n)
+{
+	return (unsigned long long)((unsigned __int128)n * IRQ_NUM / IRQ_DEN);
+}
+static unsigned long long tick_count(unsigned long long c)
+{
+	return (unsigned long long)((unsigned __int128)c * IRQ_DEN / IRQ_NUM);
+}
 
 /* ---- Disks: an .imd file held in memory ---- */
 
@@ -1243,8 +1253,8 @@ static unsigned long beep_count;
 /* The cycle of the fourth tick after cycle c */
 static unsigned long long beep_end(unsigned long long c)
 {
-	unsigned long long k = c * IRQ_DEN / IRQ_NUM + 1;	/* next tick */
-	return (k + 3) * IRQ_NUM / IRQ_DEN;
+	unsigned long long k = tick_count(c) + 1;	/* next tick */
+	return tick_cycle(k + 3);
 }
 
 static void beep(void)
@@ -1405,8 +1415,9 @@ static void rtc_port_b(uint8_t old)
 		int a = pio_b & 0x0f;
 		if (a == 0 || a == 1) {	/* either seconds digit clears both */
 			rtc_reg[0] = rtc_reg[1] = 0;
-		} else if (a < 13)
-			rtc_reg[a] = pio_a & 0x0f;
+		} else if (a < 13)	/* PA3-0 that are inputs float to
+					   their pull-ups (PIO-23): 1s */
+			rtc_reg[a] = (pio_a | pio_mask[0]) & 0x0f;
 	}
 }
 
@@ -2631,7 +2642,8 @@ static int key_for(int ch, struct key *k)
 		k->shift = !caps_swap;
 		return 1;
 	}
-	if (ch >= 1 && ch <= 26 && ch != '\r' && ch != '\b' && ch != 3) {
+	if (ch >= 1 && ch <= 26 && ch != '\r' && ch != '\n' && ch != '\b' &&
+	    ch != 3) {	/* LF types ENTER, as CR does */
 		key_for(ch - 1 + 'a', k);
 		k->shift = 0;
 		k->ctrl = 1;
@@ -3409,7 +3421,12 @@ int main(int argc, char **argv)
 		case 'f': fast = 1; break;
 		case 'k': keys = optarg; break;
 		case 'e': prompt = optarg; break;
-		case 't': seconds = atof(optarg); fast = 1; break;
+		case 't':
+			seconds = atof(optarg);
+			fast = 1;
+			if (seconds < 0)
+				return fprintf(stderr, "-t: seconds, 0 or more\n"), 2;
+			break;
 		case 'T': window = 0; break;
 		case 'p': pgm = optarg; break;
 		case 's': wavpath = optarg; break;
@@ -3440,8 +3457,12 @@ int main(int argc, char **argv)
 			}
 			char *at = opt == 'i' ? strrchr(optarg + 2, '@') : NULL;
 			if (at) {	/* a:file@seconds: the first byte comes then */
+				double t = atof(at + 1);
+
+				if (t < 0)
+					return fprintf(stderr, "-i: a time of 0 or more\n"), 2;
 				*at = 0;
-				ch->rx_at = (unsigned long long)(atof(at + 1) * CPU_HZ);
+				ch->rx_at = (unsigned long long)(t * CPU_HZ);
 			}
 			if (opt == 'o' ? !(ch->out = fopen(optarg + 2, "wb"))
 			    : !(ch->in = fopen(optarg + 2, "rb")))
@@ -3462,7 +3483,8 @@ int main(int argc, char **argv)
 				sasi_hang = addr;
 				break;
 			}
-			if (kind == 'd') {
+			if (kind == 'd') {	/* the second in decimal */
+				sscanf(optarg + 2, "%u", &addr);
 				fdc_stuck |= 1 << bit;
 				fdc_stuck_at = (unsigned long long)addr * CPU_HZ;
 				break;
@@ -3606,7 +3628,7 @@ int main(int argc, char **argv)
 			z80_step(&cpu);
 			if (sio_ie)	/* /INT is the tick and the SIO */
 				cpu.irq = tick_flag || sio_int();
-			if (cpu.cycles >= irqs * IRQ_NUM / IRQ_DEN) {
+			if (cpu.cycles >= tick_cycle(irqs)) {
 				tick_flag = 1;
 				cpu.irq = 1;
 				irqs++;
@@ -3696,9 +3718,10 @@ int main(int argc, char **argv)
 	if (seconds) {
 		screen_text(text, sizeof(text));
 		fputs(text, stdout);
-		if (pgm && frame_save(pgm))
-			return 1;
 	}
+	int bad = 0;
+	if (seconds && pgm && frame_save(pgm))
+		bad = 1;	/* and the disks are still saved */
 	if (show_lost)
 		printf("Lost Data: %lu\n", fdc_lost);
 	if (mech)
@@ -3706,7 +3729,6 @@ int main(int argc, char **argv)
 		    "first command to last %.2f s\n", mech_secs, mech_steps,
 		    (double)mech_wait / CPU_HZ,
 		    (double)(mech_last - mech_first) / CPU_HZ);
-	int bad = 0;
 	for (int i = 0; i < 4; i++)
 		if (disks[i].save)
 			bad |= save_imd(&disks[i], disks[i].save);
