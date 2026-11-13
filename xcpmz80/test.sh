@@ -329,6 +329,7 @@ if [ "$(uname)" = Linux ]; then
 		check "C: fgets leaves the bytes after the line, and n of 1 gives an empty string" "tail X 1" "$out"
 		check "C: realloc to near 64K gives NULL" "big null" "$out"
 		check "C: fread with size times count past 64K" "fread2 20" "$out"
+		check "C: a call with nothing to copy runs with the heap full, from deeper" "full 399" "$out"
 		check "C: snprintf cuts and counts" "snprintf truncat 5" "$out"
 		check "C: sscanf %i, %[, widths, %n" "scan 4 12 31 abc def 15" "$out"
 		check "C: sscanf %*d and %o" "scan2 4 511" "$out"

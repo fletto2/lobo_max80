@@ -19,7 +19,7 @@ FILE *stderr = (FILE *)3;
 static void (*fns[NATEXIT])(void);
 static unsigned char nfns;
 
-void __clib_exit(int code);
+void __clib_exit(int code) __LIB;	/* the thunk takes it on the stack */
 
 int atexit(void (*fn)(void)) __LIB
 {

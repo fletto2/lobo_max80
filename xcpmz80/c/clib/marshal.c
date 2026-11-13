@@ -414,8 +414,13 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	/* never under 8000h: there the library sees itself, B2 */
 	if ((unsigned int)afloor < 0x8000u)
 		afloor = (unsigned char *)0x8000u;
-	if ((unsigned int)a < 0x8000u + STACKROOM || abot < afloor)
+	if ((unsigned int)a < 0x8000u + STACKROOM)
 		goto full;
+	/* the heap up to under the arguments, as an editor that takes all
+	 * there is has it: a call with nothing to copy still runs, on the
+	 * stack as the program's own code would */
+	if (abot < afloor)
+		afloor = abot;
 	if (n >= __clib_n || !__clib_tab[n].fn)
 		return 0;
 	sig = __clib_tab[n].sig;

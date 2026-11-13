@@ -57,6 +57,10 @@ helpers, multiply, divide and the long and float arithmetic, and
 | `conio.h` | kbhit, getch, getche, putch, cputs, cprintf, cgets: the console one key at a time with no echo, by function 6 (FEh and FFh by function 2); cgets reads at most buf[0] - 1 characters, so the buffer is buf[0] + 2 bytes |
 | `cpm.h` | bdos, bios (by function 50 under CP/M 3), the version, drive and user, cpm_findfirst and cpm_findnext for the directory, cpm_filesize |
 
+A file opened with "a" or "a+" starts at its end, a text file at its
+^Z, but a write after an fseek goes where the fseek put it, not to the
+end as C has it.
+
 - `lib/crt0.s`: the start-up of a program linked with `cpm.lib`. Puts the stack under the BDOS, zeroes the
   uninitialized data, which C needs and CP/M does not give, and calls
   `main(argc, argv)`. argv comes from the command tail, in upper case,

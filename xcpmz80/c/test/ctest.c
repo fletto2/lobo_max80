@@ -60,6 +60,39 @@ static volatile int sink;
 /* buffers under 8000h, in the program's bank, which the library copies */
 static char sb[800], sb2[800];
 
+/* a call from 400 bytes deeper than the mallocs that filled the heap,
+ * with nothing to copy: it runs */
+static unsigned int deep(void)
+{
+	char b[400];
+	unsigned int k;
+
+	for (k = 0; k < 399; k++)
+		b[k] = 'd';
+	b[399] = 0;
+	return strlen(b);
+}
+
+/* the heap filled up to its limit, a call from deeper, the heap freed */
+static unsigned int fullheap(void)
+{
+	void *last = NULL, *p;
+	unsigned int n, sz;
+
+	for (sz = 4096; sz >= 4; sz /= 2)
+		while ((p = malloc(sz)) != NULL) {
+			*(void **)p = last;
+			last = p;
+		}
+	n = deep();
+	while (last) {
+		p = *(void **)last;
+		free(last);
+		last = p;
+	}
+	return n;
+}
+
 static int initd = 1234;	/* initialized data, copied by crt0 */
 static int zero;		/* zeroed by crt0 */
 
@@ -351,6 +384,8 @@ int main(void)
 		say("fread2 %u\n", (unsigned)fread(p, 128, 513, f));
 		fclose(f);
 	}
+	n = fullheap();
+	say("full %u\n", n);
 	say("name? ");
 	fgets(buf, sizeof(buf), stdin);
 	say("got %s", buf);
