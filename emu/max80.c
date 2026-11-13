@@ -1020,6 +1020,8 @@ static int font_dirty = 1;	/* font RAM written since the style was read */
 static uint8_t vlatch, pio_a, pio_b, pio_mask[2], pio_mpend[2];
 static uint8_t crtc[18], crtc_idx;
 static uint8_t tick_flag;
+static int tick_fault = -1;	/* -F t:0 or t:1, SYSFLG's tick stuck (I294) */
+static int sio_gone;		/* -F u:0, no SIO: its registers read FFh (I294) */
 /*
  * The DIP switches at block+7F8h, bit 7 switch 1 to bit 0 switch 8, set
  * when up (TRM). The boot ROM takes bits 2-0, switches 6-8, as the boot
@@ -1773,7 +1775,8 @@ static uint8_t io_read(int off)
 
 	switch (off & ~3) {
 	case 0x7e0:		/* system flags */
-		r = (tick_flag ? 0x80 : 0) | (dsptmg() ? 0x40 : 0) |
+		r = ((tick_fault >= 0 ? tick_fault : tick_flag) ? 0x80 : 0) |
+		    (dsptmg() ? 0x40 : 0) |
 		    (cpu.cycles < motor_until ? 0x20 : 0);
 		if (fdc.eight && fdc.drive >= 0 && disks[fdc.drive].loaded &&
 		    disks[fdc.drive].one)
@@ -1784,6 +1787,8 @@ static uint8_t io_read(int off)
 		}
 		return r;
 	case 0x7e4:
+		if (sio_gone)
+			return 0xff;
 		return sio_read(off & 3);
 	case 0x7e8:
 		return prn_status();
@@ -3566,12 +3571,22 @@ int main(int argc, char **argv)
 			unsigned addr, bit;
 			char kind;
 
+			if (optarg[0] == 't' && optarg[1] == ':' &&
+			    (optarg[2] == '0' || optarg[2] == '1') && !optarg[3]) {
+				tick_fault = optarg[2] - '0';	/* as read */
+				break;
+			}
+			if (!strcmp(optarg, "u:0")) {
+				sio_gone = 1;
+				break;
+			}
 			if (sscanf(optarg, "%c:%x:%u", &kind, &addr, &bit) != 3 ||
 			    !strchr("vfmcds", kind) || bit > (kind == 'c' ? 3u : 7u) ||
 			    addr > (kind == 'm' ? 0x1ffffu : kind == 'c' ? 3u : 0x7ffu))
 				return fprintf(stderr, "-F takes v, f or m, an offset "
 				    "and a bit, such as v:123:4, c and two chunks, "
-				    "such as c:3:2, or d, a second and an FDC status bit\n"), 2;
+				    "such as c:3:2, d, a second and an FDC status bit, or "
+				    "t:0 or t:1, the tick stuck, or u:0, no SIO\n"), 2;
 			if (kind == 's') {
 				sasi_hang = addr;
 				break;
