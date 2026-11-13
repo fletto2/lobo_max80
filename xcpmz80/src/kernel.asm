@@ -52,9 +52,9 @@ ubtpa:	ld	a,BANK_TPA
 ; The C library: CLIB.SYS from the boot drive, loaded at 0000h in
 ; B2, where libent in common memory jumps. Without it, or with no B2, a
 ; stub there gives 0 for every call, which a program's crt0 takes for
-; no library. The file starts with the dispatcher's jump, then "CLIB"
-; and the version at 0003h. libout's address goes at 0008h, lcopy's at
-; 000Ah.
+; no library. The file starts with the dispatcher's jump, the version
+; at 0003h and a jump to the BDOS at 0005h; libout's address goes at
+; 0008h, lcopy's at 000Ah, and "CLIB" is at 000Ch.
 CLIB_MAX	equ	256		; records, the whole of B2
 TPAK		equ	(bdosent-100h) >> 10	; the TPA in K
 
@@ -324,10 +324,11 @@ ccpent:	ld	hl,0007h
 	jp	ucopy
 
 ; Is there an A:$$$.SUB? Set subact if so. Errors say no. A batch
-; run from memory (subact 2) goes on.
+; run from memory (subact 2) goes on, and one that could not be cut
+; (3) stays stopped.
 subchk:	ld	a,(subact)
 	cp	2
-	ret	z
+	ret	nc
 	xor	a
 	ld	(subact),a
 	ld	hl,subname
@@ -461,6 +462,8 @@ rp_1:	xor	a
 	ld	(rsxhdr),hl
 	call	rdrec
 	jp	nz,sherr
+	or	a			; an empty file: nothing to run, and
+	jp	nz,shell		; CBUF is as it was, no header (I281)
 	ld	a,(CBUF)
 	cp	0C9h
 	jr	nz,rp_2
@@ -508,7 +511,17 @@ comext:	db	"COM"
 ; goes on to what 0006h held, and 0006h comes to its 0006h. Carry if
 ; they do not fit above the file.
 
-rsxload: ld	a,(rsxhdr+0Fh)
+rsxload: ld	hl,(rsxtop)		; as it was, if one does not fit
+	push	hl
+	call	rx_0
+	pop	hl
+	ret	nc
+	ld	(rsxtop),hl		; (I281)
+	ret
+rx_0:	ld	a,(rsxhdr+0Fh)		; 7 at most: rsxhdr has the header's
+	cp	8			; first record only (I281)
+	ccf
+	ret	c
 	ld	(rsxn),a
 	ld	hl,rsxhdr+10h
 rx_1:	ld	a,(rsxn)

@@ -322,6 +322,69 @@ printf '%s\n' "$out" | grep -q "CMD1?" &&
 #PART
 
 
+# A batch of 514 lines: the cut at record 512 made the size 64K, whose
+# low 16 bits are 0, and the rest was dropped as if it were the last
+{ printf 'dir aa.aa\n'; for i in $(seq 1 512); do printf 'cd\n'; done; printf 'dir zz.zz\n'; } >$T/LONG.SUB
+mkdisk $T/long.imd $T/LONG.SUB >/dev/null
+out=$($EMU -a $T/long.imd -T -t 120 -e 'A:\>' -k 'submit long\r' | tr -d '\r' | grep -v '^$' | tail -3 | tr '\n' '|')
+check "a batch of 514 lines runs to its last" "A:\\>DIR ZZ.ZZ|No file|A:\\>|" "$out"
+# A $$$.SUB left on a write-protected A: cannot be cut: its line runs
+# once and the batch stops, where it ran for ever
+python3 - $T <<'EOF'
+import sys
+recs = b''
+for line in ('dir zz.zz', 'dir aa.aa'):	# the last record is the first line
+    recs += bytes([len(line)]) + line.encode() + bytes(127 - len(line))
+open(sys.argv[1] + '/$$$.SUB', 'wb').write(recs)
+EOF
+mkdisk $T/wsub.imd "$T/\$\$\$.SUB" >/dev/null
+n=$($EMU -R a -a $T/wsub.imd -T -t 15 | tr -d '\r' | grep -ic 'dir aa.aa')
+check "a batch that cannot be cut runs its line once" "=1=" "=$n="
+# RSXs: GENCOM's header with two, the second too big; then a program
+# zeroes the TPA under 0006h. The first RSX was left as the lowest,
+# never linked, and the warm boot after the program followed its zeroed
+# links. A count of 8 or more is refused, as the header's first record
+# holds 7. An empty .COM runs nothing: it took the last record read,
+# here a header from TYPE, as its own
+python3 - $T <<'EOF'
+import sys
+d = sys.argv[1]
+h = bytearray(256)
+h[0] = 0xC9				# RET: a GENCOM header, no program
+h[0x0F] = 2
+def ent(at, off, ln, name):
+    h[at:at + 4] = off.to_bytes(2, 'little') + ln.to_bytes(2, 'little')
+    h[at + 5:at + 13] = name.ljust(8).encode()
+ent(0x10, 0x100, 0x100, 'RSXONE')
+ent(0x20, 0x100, 0xF000, 'RSXTWO')	# never fits
+code = bytearray(256)
+code[6:12] = b'\xC3\x20\x01\xC3\x00\x00'	# jp start, jp next
+code[0x10:0x18] = b'RSXONE  '
+code[0x20:0x23] = b'\xC3\x09\x01'		# start: on to the next
+bm = bytearray(32)
+for i in (8, 0x22):
+    bm[i // 8] |= 0x80 >> (i % 8)
+open(d + '/RT.COM', 'wb').write(h + code + bm)
+h8 = bytearray(h[:128])
+h8[0x0F] = 8
+h8[0x20:0x30] = h8[0x10:0x20]		# both fit: 3 to 8 are past the record
+open(d + '/R8.COM', 'wb').write(h8 + bytes(128) + code + bm)
+open(d + '/X.DAT', 'wb').write(h[:128])
+open(d + '/E.COM', 'wb').write(b'')
+# ZF.COM: zeroes from its end to 0006h less 16, then RET
+open(d + '/ZF.COM', 'wb').write(bytes([0x21, 0x1a, 0x01, 0xED, 0x5B, 0x06, 0x00,
+    0xE5, 0x21, 0xF0, 0xFF, 0x19, 0xEB, 0xE1, 0x36, 0x00, 0x23,
+    0x7C, 0xBA, 0x20, 0xF9, 0x7D, 0xBB, 0x20, 0xF5, 0xC9]))
+EOF
+mkdisk $T/rt.imd $T/RT.COM $T/R8.COM $T/ZF.COM $T/X.DAT $T/E.COM >/dev/null
+out=$($EMU -a $T/rt.imd -T -t 30 -e 'A:\>' -k 'rt\rzf\rdir rt.com\r' | tr -d '\r' | grep -v '^$' | tr '\n' '|')
+check "an RSX that does not fit leaves none behind" "A:\\>dir rt.com|A: RT       COM|" "$out"
+out=$($EMU -a $T/rt.imd -T -t 30 -e 'A:\>' -k 'r8\rdir r8.com\r' | tr -d '\r' | grep -v '^$' | tr '\n' '|')
+check "and 8 RSXs are refused" "A:\\>r8|Too big|A:\\>dir r8.com|A: R8       COM|" "$out"
+out=$($EMU -a $T/rt.imd -T -t 30 -e 'A:\>' -k 'type x.dat\re\rdir e.com\r' | tr -d '\r' | grep -v '^$' | tr '\n' '|')
+check "an empty .COM runs nothing" "A:\\>e|A:\\>dir e.com|" "$out"
+
+
 # Lobo's console codes (a Soroc IQ-120's): ESC = row col, ESC T, ESC )
 # and 0Ch, cursor right. The second style is the inverse font.
 printf 'a\014b\r\nab\033=\045\050XY\r\nrow2 \033Tgone\r\n\033)dim\033(\r\n' >$T/ESC.TXT

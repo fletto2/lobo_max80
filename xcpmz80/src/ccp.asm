@@ -1114,8 +1114,11 @@ ch_1:	call	pmsg
 
 ; Take the last line of A:$$$.SUB into linebuf, NUL ended, and cut it
 ; off, or with subact 2 the next line of subbuf. NZ when there is none
-; left (and subact is cleared).
+; left (and subact is cleared). subact 3: a $$$.SUB that could not be
+; cut, so none until the next SUBMIT (I281).
 subline: ld	a,(subact)
+	cp	3
+	jr	z,sl_off
 	cp	2
 	jr	nz,sl_file
 	ld	bc,(subnext)
@@ -1147,6 +1150,9 @@ sl_file: ld	hl,subname
 	push	hl
 	call	sl_cpy
 	pop	hl			; cut the record off
+	ld	a,h			; record 0, the last line: the file
+	or	l			; goes. Not the size's low 16 bits,
+	jr	z,sl_del1		; 0 at record 512 too (I281)
 	ld	a,h
 	ld	h,l
 	ld	l,0
@@ -1157,12 +1163,17 @@ sl_file: ld	hl,subname
 	ld	(CFCB+F_SIZE+2),a
 	ld	a,1
 	ld	(CFCB+F_FLAG),a
-	ld	a,h
-	or	l
-	jr	z,sl_del1
-	call	ftrunc
-	call	fclose
+	call	ftrunc			; not cut, on a protected disk: the
+	jr	nz,sl_bad		; line runs once and the batch stops,
+	call	fclose			; or it would run for ever
+	jr	nz,sl_bad
 	xor	a
+	ret
+sl_bad:	ld	a,3
+	ld	(subact),a
+	xor	a
+	ret
+sl_off:	or	a			; NZ: none
 	ret
 sl_del1: push	af			; the last line: the file goes
 	call	sl_kill

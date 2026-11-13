@@ -2475,7 +2475,7 @@ static int frame_draw(struct geom *g)
 		return 0;
 	g->w = (htotal - hsw) * 8;
 	g->h = fh - vs_lines;
-	if (g->w > FRAME_W || g->h > FRAME_H || g->h <= 0)
+	if (g->w <= 0 || g->w > FRAME_W || g->h > FRAME_H || g->h <= 0)
 		return 0;
 	memset(frame, 0, (size_t)g->w * g->h);
 	g->cols = hdisp < htotal ? hdisp : htotal;
@@ -2664,6 +2664,11 @@ static int key_for(int ch, struct key *k)
 		return 1;
 	}
 	if (ch == '@') { k->row = 0; k->bit = 0; return 1; }
+	if (ch && strchr("`{|}~", ch)) {	/* SHIFT on @ [ \\ ] ^ (I282) */
+		key_for(ch ^ 0x20, k);
+		k->shift = 1;
+		return 1;
+	}
 	if (ch >= '0' && ch <= '7') { k->row = 4; k->bit = ch - '0'; return 1; }
 	if (strchr(row5, ch) && ch) {
 		k->row = 5;
@@ -3297,13 +3302,8 @@ static void dbg_regdump(int cl)
 	dbg_send(cl, buf, n);
 }
 
-/* A disk swapped: drive d's tracks freed, the new image loaded. -w
-   still saves the drive at exit, now this disk */
-static int swap_disk(int d, const char *path)
+static void free_tracks(struct disk *k)
 {
-	struct disk *k = &disks[d];
-	char *p = strdup(path);
-
 	for (int c = 0; c < MAXCYL; c++)
 		for (int h = 0; h < 2; h++) {
 			struct track *t = &k->trk[c][h];
@@ -3312,8 +3312,36 @@ static int swap_disk(int d, const char *path)
 			free(t->sec);
 		}
 	memset(k->trk, 0, sizeof(k->trk));
-	/* -3 stays as it was: a drive, not a disk */
-	return p ? load_imd(k, p) : -1;
+}
+
+/* A disk swapped: the new image loaded aside, and only when it loads
+   are drive d's tracks freed and the new ones put in. Not while the FDC
+   has a command going, which may hold a sector of the old disk (I282).
+   -w still saves the drive at exit, now this disk. 1 busy, -1 no disk */
+static int swap_disk(int d, const char *path)
+{
+	static struct disk tmp;
+	struct disk *k = &disks[d];
+	char *p;
+
+	if (fdc.busy)
+		return 1;
+	p = strdup(path);
+	memset(&tmp, 0, sizeof(tmp));
+	tmp.three = k->three;	/* -3 stays as it was: a drive, not a disk */
+	if (!p || load_imd(&tmp, p)) {
+		free_tracks(&tmp);
+		free(p);
+		return -1;
+	}
+	free_tracks(k);
+	fdc.cur = NULL;
+	memcpy(k->trk, tmp.trk, sizeof(k->trk));
+	k->three = tmp.three;
+	k->one = tmp.one;
+	k->loaded = 1;
+	k->path = p;
+	return 0;
 }
 
 /* "ADDR LEN" in hex: as the CPU sees it now. "ADDR LEN chunk", chunk
@@ -3343,10 +3371,18 @@ static void dbg_memdump(int cl)
 	}
 	if (!strncmp(req, "disk ", 5)) {
 		char *path = req + 7;
-		path[strcspn(path, "\r\n")] = 0;
-		if (req[5] < 'a' || req[5] > 'd' || req[6] != ' ' || !*path)
+		int r;
+		if (nr >= 8)	/* else path is past the request's end */
+			path[strcspn(path, "\r\n")] = 0;
+		if (nr < 8 || req[5] < 'a' || req[5] > 'd' || req[6] != ' ' ||
+		    !*path) {
 			dbg_send(cl, "usage: disk a|b|c|d NEW.imd\n", 28);
-		else if (swap_disk(req[5] - 'a', path))
+			return;
+		}
+		r = swap_disk(req[5] - 'a', path);
+		if (r > 0)
+			dbg_send(cl, "busy, try again\n", 16);
+		else if (r)
 			dbg_send(cl, "no disk swapped\n", 16);
 		else
 			dbg_send(cl, "ok\n", 3);
@@ -3393,7 +3429,9 @@ static void dbg_poll(void)
 	}
 	if (dbg_kbd >= 0 && dbg_kbdcl < 0 && (dbg_kbdcl = accept(dbg_kbd, NULL, NULL)) >= 0)
 		fcntl(dbg_kbdcl, F_SETFL, O_NONBLOCK);
-	if (dbg_kbdcl >= 0) {
+	/* read only while the key queue has room, so the socket holds the
+	   rest and nothing is lost (I282) */
+	if (dbg_kbdcl >= 0 && (keyq_head - keyq_tail - 1 + KEYQ) % KEYQ >= 64) {
 		char in[64];
 		int n = read(dbg_kbdcl, in, sizeof(in));
 		if (n > 0)
@@ -3463,7 +3501,16 @@ int main(int argc, char **argv)
 			break;
 		}
 		case 'f': fast = 1; break;
-		case 'k': keys = optarg; break;
+		case 'k': {	/* the queue holds KEYQ - 1 (I282) */
+			int n;
+			unescape(optarg, &n);
+			if (n >= KEYQ - 1) {
+				fprintf(stderr, "-k: more than %d keys\n", KEYQ - 2);
+				return 2;
+			}
+			keys = optarg;
+			break;
+		}
 		case 'e': prompt = optarg; break;
 		case 't':
 			seconds = atof(optarg);
@@ -3500,9 +3547,11 @@ int main(int argc, char **argv)
 				opt = 'i';
 			}
 			char *at = opt == 'i' ? strrchr(optarg + 2, '@') : NULL;
+			char *end = NULL;
+			double t = at ? strtod(at + 1, &end) : 0;
+			if (at && (end == at + 1 || *end))
+				at = NULL;	/* not a time: part of the name (I282) */
 			if (at) {	/* a:file@seconds: the first byte comes then */
-				double t = atof(at + 1);
-
 				if (t < 0)
 					return fprintf(stderr, "-i: a time of 0 or more\n"), 2;
 				*at = 0;
