@@ -57,6 +57,23 @@ static void merge(unsigned int b)
 		top = b;
 }
 
+/* b in use cut to sz, the rest freed when there are 4 bytes or more
+ * (I290), as in lib/malloc.c */
+static void trim(unsigned int b, unsigned int sz)
+{
+	unsigned int h = HDR(b) & ~USED, r;
+
+	if (h - sz >= 4) {
+		r = b + sz;
+		SETHDR(r, h - sz);
+		SETHDR(b, sz | USED);
+		if (r < low)
+			low = r;
+		nofit = 0xFFFF;
+		merge(r);
+	}
+}
+
 void *malloc(size_t n) __LIB
 {
 	unsigned int b, sz, h;
@@ -143,8 +160,10 @@ void *realloc(void *p, size_t n) __LIB
 	}
 	b = (unsigned int)p - 2;
 	have = (HDR(b) & ~USED) - 2;
-	if (n <= have)
+	if (n <= have) {
+		trim(b, (n + 3) & ~1u);
 		return p;
+	}
 	if (n > 0x7ff0) {	/* as malloc: its size would wrap */
 		errno = ENOMEM;
 		return NULL;
@@ -168,8 +187,10 @@ void *realloc(void *p, size_t n) __LIB
 	} else {
 		h = HDR(b);
 		SETHDR(b, h | USED);
-		if ((h & ~USED) - 2 >= n)
+		if ((h & ~USED) - 2 >= n) {
+			trim(b, (n + 3) & ~1u);
 			return p;
+		}
 	}
 	q = malloc(n);
 	if (!q)

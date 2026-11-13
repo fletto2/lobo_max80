@@ -27,11 +27,15 @@ static int geti(void)
 	return v;
 }
 
+static unsigned char lng;
+
+/* a long, or the low half of a long long, whose high half is passed
+ * over: it took the next argument's place before (I290) */
 static long getl(void)
 {
 	long v = *(long *)vap;
 
-	vap += 4;
+	vap += lng > 1 ? 8 : 4;
 	return v;
 }
 
@@ -80,7 +84,7 @@ int __vfmt(void (*out)(char, void *), void *arg, const char *fmt, va_list ap)
 	char tmp[12], pre[3], *s;
 	int width, prec, len, zeros;
 	unsigned long u;
-	unsigned char base, lng, fl, c;
+	unsigned char base, fl, c;
 
 	fout = out;
 	farg = arg;
@@ -122,7 +126,7 @@ int __vfmt(void (*out)(char, void *), void *arg, const char *fmt, va_list ap)
 		lng = 0;
 		while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 't')
 			if (*fmt++ == 'l')
-				lng = 1;
+				lng++;	/* 2: long long, 8 bytes (I290) */
 		c = *fmt;
 		pre[0] = 0;
 		switch (c) {

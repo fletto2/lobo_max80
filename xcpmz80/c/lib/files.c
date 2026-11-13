@@ -63,6 +63,18 @@ int __mkfcb(unsigned char *fcb, const char *s)
 		s++;
 		field(fcb + 9, &s, 3);
 	}
+	/* ".TXT" has no name, and a path, a second colon or a character
+	 * CP/M keeps out of names would be in the FCB's (I291) */
+	if (fcb[1] == ' ')
+		return -1;
+	{
+		unsigned char i, c;
+		for (i = 1; i < 12; i++) {
+			c = fcb[i];
+			if (c < ' ' || strchr("\\/:<>,;=[]|\"+", c))
+				return -1;
+		}
+	}
 	return 0;
 }
 
@@ -156,10 +168,14 @@ FILE *__fopen(FILE *f, const char *name, const char *mode)
 				unsigned char k = 0;
 
 				f->pos -= 128;
-				if (!__loadrec(f))
+				if (!__loadrec(f)) {
 					while (k < 128 && f->buf[k] != 0x1a)
 						k++;
-				else
+					/* what was after the ^Z, from another
+					 * program, not shown after the new
+					 * text (I290) */
+					memset(f->buf + k, 0x1a, 128 - k);
+				} else
 					k = 128;
 				f->pos += k;
 			}

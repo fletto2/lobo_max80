@@ -2,75 +2,77 @@
 # never changes and is never used again, new ones go at the end, so a
 # program keeps working with a newer CLIB.SYS. Each line: the number, the
 # name a program calls, the signature (clib/marshal.c), and the
-# library's function when it has another name.
+# library's function when it has another name. A signature's first
+# letter is its result: v a value, n a value that is negative, -1 or
+# EOF, when the call fails (I291), p, r, t and f as in marshal.c.
 0	__clib_init	v iiii
 # stdio
 1	fopen	v ss
 2	freopen	f ssf
 3	fdopen	f is
-4	fclose	v f
-5	fflush	v f
-6	fgetc	v f
-7	fputc	v if
-8	ungetc	v if
+4	fclose	n f
+5	fflush	n f
+6	fgetc	n f
+7	fputc	n if
+8	ungetc	n if
 9	fgets	p0 B1if
 10	gets	p0 d
-11	fputs	v sf
-12	puts	v s
-13	putchar	v i
-14	getchar	v
+11	fputs	n sf
+12	puts	n s
+13	putchar	n i
+14	getchar	n
 15	fread	v iiif	__r_fread
 16	fwrite	v iiif	__r_fwrite
 17	feof	v f
 18	ferror	v f
 19	clearerr	v f
 20	fileno	v f
-21	fseek	v fli
-22	ftell	v f
+21	fseek	n fli
+22	ftell	n f
 23	rewind	v f
-24	fgetpos	v fo4
-25	fsetpos	v fI4
+24	fgetpos	n fo4
+25	fsetpos	n fI4
 26	setbuf	v fi
 27	setvbuf	v fiii
-28	printf	v F
-29	fprintf	v fF
-30	sprintf	v dF
-31	snprintf	v B1iF
-32	vprintf	v FV
-33	vfprintf	v fFV
-34	vsprintf	v dFV
-35	vsnprintf	v B1iFV
-36	scanf	v G
-37	fscanf	v fG
-38	sscanf	v sG
-39	vscanf	v GW
-40	vfscanf	v fGW
-41	vsscanf	v sGW
+28	printf	n F
+29	fprintf	n fF
+30	sprintf	n dF
+31	snprintf	n B1iF
+32	vprintf	n FV
+33	vfprintf	n fFV
+34	vsprintf	n dFV
+35	vsnprintf	n B1iFV
+36	scanf	n G
+37	fscanf	n fG
+38	sscanf	n sG
+39	vscanf	n GW
+40	vfscanf	n fGW
+41	vsscanf	n sGW
 42	perror	v s
-43	remove	v s
-44	rename	v ss
+43	remove	n s
+44	rename	n ss
 45	tmpnam	v i	__r_tmpnam
 46	tmpfile	f
 # string.h, strings.h
 47	strlen	v i	__r_strlen
 48	strcpy	v ii	__r_strcpy
-49	strcmp	v ss
+49	strcmp	n ss
 50	strchr	p0 si
 51	memcpy	v iii	__r_memcpy
 52	memmove	v iii	__r_memmove
 53	memset	v iii	__r_memset
-54	memcmp	v b2b2i
+54	memcmp	n iii	__r_memcmp
 55	memchr	p0 b2ii
 56	memrchr	p0 b2ii
 57	memccpy	p0 B3b3ii
 58	mempcpy	p0 B2b2i
-59	strncpy	p0 B2si
+59	strncpy	p0 B2z2i
 60	strcat	p0 Ss
 61	strncat	p0 Ssi
-62	strncmp	v ssi
-63	strcasecmp	v ss
-64	strncasecmp	v ssi
-65	strcoll	v ss
+62	strncmp	n ssi
+63	strcasecmp	n ss
+64	strncasecmp	n ssi
+65	strcoll	n ss
 66	strxfrm	v B2si
 67	strrchr	p0 si
 68	strchrnul	p0 si
@@ -83,8 +85,8 @@
 75	strtok_r	v isi	__r_strtok_r
 76	strsep	v is	__r_strsep
 77	strdup	v s	__r_strdup
-78	strndup	v si	__r_strndup
-79	strnlen	v si
+78	strndup	v z1i	__r_strndup
+79	strnlen	v z1i
 80	stpcpy	p0 ds
 81	stpncpy	p0 B2si
 82	strlcpy	v B2si
@@ -95,7 +97,7 @@
 87	strerror	r i
 88	bzero	v ii	__r_bzero
 89	bcopy	v iii	__r_bcopy
-90	bcmp	v b2b2i
+90	bcmp	n iii	__r_memcmp
 91	index	p0 si
 92	rindex	p0 si
 93	ffs	v i
@@ -156,29 +158,29 @@
 145	__assert	v ssi
 146	warn	v F
 147	warnx	v F
-148	err	v iF
-149	errx	v iF
+148	__clib_err	v iF	err
+149	__clib_errx	v iF	errx
 # unistd.h, fcntl.h
-150	open	v si
-151	creat	v si
-152	read	v iii	__r_read
-153	write	v iii	__r_write
-154	close	v i
-155	lseek	v ili
-156	unlink	v s
-157	access	v si
+150	open	n si
+151	creat	n si
+152	read	n iii	__r_read
+153	write	n iii	__r_write
+154	close	n i
+155	lseek	n ili
+156	unlink	n s
+157	access	n si
 158	isatty	v i
 159	sleep	v i
 160	usleep	v l
-161	chdir	v s
+161	chdir	n s
 162	getcwd	p0 B1i
 # conio.h
 163	kbhit	v
 164	getch	v
 165	getche	v
 166	putch	v i
-167	cputs	v s
-168	cprintf	v F
+167	cputs	n s
+168	cprintf	n F
 169	cgets	v i	__r_cgets
 # cpm.h
 170	cpm_version	v
@@ -189,3 +191,7 @@
 175	cpm_findfirst	v sd
 176	cpm_findnext	v d
 177	cpm_filesize	v s
+# err and errx are the program's, clibr/side.c, so its atexit
+# functions run (I290); 148 and 149 stay for programs built before
+178	vwarn	v FV
+179	vwarnx	v FV

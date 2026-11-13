@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <err.h>
 
 int errno;
 char __clibstr[80];		/* CLIB_STRLEN */
@@ -34,4 +35,25 @@ void exit(int code) __LIB
 	while (nfns)
 		fns[--nfns]();
 	__clib_exit(code);
+}
+
+/* err and errx here, so they end through the exit above (I290) */
+void err(int code, const char *fmt, ...) __LIB
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vwarn(fmt, ap);
+	va_end(ap);
+	exit(code);
+}
+
+void errx(int code, const char *fmt, ...) __LIB
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vwarnx(fmt, ap);
+	va_end(ap);
+	exit(code);
 }

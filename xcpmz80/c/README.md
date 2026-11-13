@@ -34,6 +34,16 @@ whose `_memcpy` takes registers, stays out of the link.
   `CLIB.SYS` is made from it.
 - The library runs with interrupts off, and they are as they were
   after each call.
+- A call copies what its arguments point to under 8000h onto the
+  stack, between the top of the heap and the program's stack. When
+  that room is too small the call fails with errno ENOMEM: -1 or EOF
+  for the functions marked `n` in `clib.lst`, 0 or NULL for the rest
+  (I290, I291). A string the library writes with no size given
+  (sprintf, vsprintf, gets, scanf's %s with no width) gets a share of
+  what room is left, and nothing stops it writing past that share:
+  with the heap nearly full, use snprintf and a width.
+- stdin, stdout and stderr are the console and stay it: freopen of a
+  file onto one gives NULL.
 
 ## The library
 
@@ -52,7 +62,7 @@ helpers, multiply, divide and the long and float arithmetic, and
 | `stdlib.h` | malloc, calloc, realloc, free, exit, _exit, abort, atexit, getenv, system, abs, labs, atoi, atol, strtol, strtoul, itoa, utoa, ltoa, ultoa, qsort, bsearch, rand, srand, random, srandom |
 | `ctype.h` | the C functions, ASCII, and isascii, toascii |
 | `time.h` | time, clock, difftime, mktime, gmtime, localtime and their `_r` forms, asctime, ctime, strftime |
-| `setjmp.h`, `assert.h`, `errno.h`, `err.h` | setjmp and longjmp, assert, errno, err, errx, warn, warnx |
+| `setjmp.h`, `assert.h`, `errno.h`, `err.h` | setjmp and longjmp, assert, errno, err, errx, warn, warnx, vwarn, vwarnx |
 | `unistd.h`, `fcntl.h` | open, creat, read, write, close, lseek, unlink, access, isatty, sleep, usleep, chdir and getcwd for the drive, getopt |
 | `conio.h` | kbhit, getch, getche, putch, cputs, cprintf, cgets: the console one key at a time with no echo, by function 6 (FEh and FFh by function 2); cgets reads at most buf[0] - 1 characters, so the buffer is buf[0] + 2 bytes |
 | `cpm.h` | bdos, bios (by function 50 under CP/M 3), the version, drive and user, cpm_findfirst and cpm_findnext for the directory, cpm_filesize |

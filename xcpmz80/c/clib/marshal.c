@@ -23,6 +23,7 @@
  *   c 1 byte, i 2 bytes, l 4 bytes, as they are
  *   f a FILE: 1, 2 and 3 are stdin, stdout and stderr
  *   s a string read, S a string read and written, d a string written
+ *   zN a string read, no more than the bytes in argument N
  *   bN, BN, xN a buffer read, written, both, of the size in argument N
  *   I4 4 bytes read, o4 and o2 4 or 2 bytes written, T a struct tm
  *     read and written, e a char ** written, pointing into argument 0
@@ -133,6 +134,27 @@ unsigned int __ustrlen(unsigned int us) __LIB
 		n += CHUNK;
 		us += CHUNK;
 	}
+}
+
+/* the length of the program's string, no more than max (I291) */
+static unsigned int ustrnlen(unsigned int us, unsigned int max)
+{
+	unsigned char tmp[CHUNK], i;
+	unsigned int n = 0;
+
+	if (us >= 0x8000u) {
+		while (n < max && ((char *)us)[n])
+			n++;
+		return n;
+	}
+	while (n < max) {
+		__lcopy((void *)us, tmp, CHUNK);
+		for (i = 0; i < CHUNK && n < max; i++, n++)
+			if (!tmp[i])
+				return n;
+		us += CHUNK;
+	}
+	return n;
 }
 
 unsigned int __ugetw(unsigned int up) __LIB
@@ -260,7 +282,7 @@ static unsigned char *fmtargs(const char *fmt, unsigned char *a)
 			unsigned char lng = 0;
 			while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 't')
 				if (*fmt++ == 'l')
-					lng = 1;
+					lng++;
 			switch (*fmt) {
 			case 0:
 				return a;
@@ -277,10 +299,15 @@ static unsigned char *fmtargs(const char *fmt, unsigned char *a)
 			case 'e': case 'E': case 'f': case 'F': case 'g': case 'G':
 				a += 4;
 				break;
-			case '%':
+			case 'd': case 'i': case 'o': case 'u': case 'x':
+			case 'X':
+				a += lng > 1 ? 8 : lng ? 4 : 2;
 				break;
-			default:
-				a += lng ? 4 : 2;
+			case 'p': case 'c':
+				a += 2;
+				break;
+			default:	/* %% and unknown ones take none, as in
+					 * lib/vfmt.c (I290) */
 				break;
 			}
 		}
@@ -408,6 +435,11 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 
 	nslot = 0;
 	csig = NULL;
+	/* the program's errno, which it may have set or cleared, is the
+	 * library's for the call: one the same as the last call's error was
+	 * never written back, and perror printed the library's own (I290) */
+	if (uerrno)
+		errno = __ugetw(uerrno);
 	/* the arena: in A1, above the heap and its margin */
 	abot = a - STACKROOM;
 	afloor = (unsigned char *)__clib_heaptop() + 64;
@@ -422,7 +454,7 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	if (abot < afloor)
 		afloor = abot;
 	if (n >= __clib_n || !__clib_tab[n].fn)
-		return 0;
+		goto full;	/* not the last call's result (I290) */
 	sig = __clib_tab[n].sig;
 	while (*sig && *sig != ' ')
 		sig++;
@@ -478,6 +510,24 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 			{
 				unsigned int len = word(argp[sig[1] - '0']);
 				if (!copyarg(*sig == 'b' ? 0 : *sig, i, a, len, 1))
+					goto full;
+				sig++;
+				a += 2;
+			}
+			break;
+		case 'z':
+			/* a string read, no more than argument N's bytes of
+			 * it and a 0: strnlen's, strncpy's, on a field with
+			 * no 0 in it (I291) */
+			{
+				unsigned int u = word(a), len;
+				if (u && u < 0x8000u) {
+					len = ustrnlen(u, word(argp[sig[1] - '0']));
+					if (!(s = copyarg(0, i, a, len + 1, 0)))
+						goto full;
+					__uget(s->copy, u, len);
+					s->copy[len] = 0;
+				} else if (!copyarg(0, i, a, 0, 1))
 					goto full;
 				sig++;
 				a += 2;
@@ -556,8 +606,12 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	return __clib_tab[n].fn;
 full:
 	errno = ENOMEM;
-	__clib_res[0] = 0;
-	__clib_res[1] = 0;
+	if (uerrno)		/* the program sees why (I290) */
+		__uputw(uerrno, ENOMEM);
+	/* a failure as the function gives one: -1 or EOF for those marked
+	 * n in clib.lst, which 0 told were done or equal (I291), else 0 */
+	__clib_res[0] = __clib_res[1] = n < __clib_n && __clib_tab[n].fn
+	    && __clib_tab[n].sig[0] == 'n' ? 0xFFFFu : 0;
 	return 0;
 }
 

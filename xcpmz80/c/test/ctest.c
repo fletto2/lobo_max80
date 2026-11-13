@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cpm.h>
+#include <err.h>
 
 static jmp_buf jb;
 static FILE *logf;
@@ -91,6 +92,113 @@ static unsigned int fullheap(void)
 		last = p;
 	}
 	return n;
+}
+
+static char cmpa[4000], cmpb[4000];	/* under 8000h */
+
+static void bye(void)
+{
+	printf("atexit ran\r\n");
+}
+
+/* I290: errno, realloc giving back, memcmp of big buffers, printf's
+ * arguments after %ll and an unknown conversion, append after ^Z */
+static void i290(void)
+{
+	char *p, *q, *r, *fence;
+	unsigned int i;
+	int e1, e2, d1, d2, cp;
+	FILE *f;
+	char b[40];
+
+	errno = 0;
+	strtol("99999999999", 0, 10);
+	e1 = errno == ERANGE;
+	errno = 0;
+	strtol("99999999999", 0, 10);
+	e2 = errno == ERANGE;
+	errno = 0;
+	strtol("12", 0, 10);
+	say("errno %d %d %d\n", e1, e2, errno);
+
+	/* smaller: the tail is free for the next malloc */
+	p = malloc(2000);
+	fence = malloc(10);
+	q = realloc(p, 64);
+	r = malloc(1500);
+	say("shrink %s %s\n", q == p ? "same" : "moved",
+	    r > p && r < p + 2000 ? "reused" : "not");
+	free(r);
+	free(q);
+	free(fence);
+	/* grown in place: the rest of the free block after it is left */
+	fence = malloc(100);
+	q = malloc(3000);
+	r = malloc(10);
+	free(q);
+	q = realloc(fence, 200);
+	p = malloc(2500);
+	say("grow %s %s\n", q == fence ? "same" : q ? "moved" : "null",
+	    p && p > q && p < r ? "reused" : "not");
+	free(p);
+	free(q);
+	free(r);
+
+	/* memcmp and bcmp of two buffers under 8000h, which the library
+	 * copies, the last byte different, with the heap taken, so the
+	 * room left for copies is less than they need */
+	fence = NULL;		/* the heap in 1K blocks, chained */
+	while ((r = malloc(1024)) != NULL) {
+		*(char **)r = fence;
+		fence = r;
+	}
+	memset(cmpa, 'm', sizeof(cmpa));
+	memset(cmpb, 'm', sizeof(cmpb));
+	cmpb[sizeof(cmpb) - 1] = 'n';
+	d1 = memcmp(cmpa, cmpb, sizeof(cmpa));
+	d2 = bcmp(cmpa, cmpb, sizeof(cmpa)) != 0;
+	i = memcmp(cmpa, cmpb, sizeof(cmpa) - 1);
+	/* I291: strnlen and strncpy read no more than n of a field with no
+	 * 0 in it, and a call whose copies do not fit says it failed */
+	cmpa[sizeof(cmpa) - 1] = cmpb[sizeof(cmpb) - 1] = 0;
+	cmpa[0] = 'a';
+	cmpb[0] = 'b';
+	e1 = strnlen(cmpa + 1, 5);
+	b[0] = 0;
+	cp = strncpy(b, cmpa, 5) == b;
+	b[5] = 0;
+	e2 = strcmp(cmpa, cmpb);
+	cmpa[0] = cmpb[0] = 'm';
+	while (fence) {
+		r = *(char **)fence;
+		free(fence);
+		fence = r;
+	}
+	say("bigcmp %d %d %d %d\n", d1, d2, i,
+	    cmpb + sizeof(cmpb) <= (char *)0x8000u);
+	say("strn %d %s %s %d\n", e1, cp ? "ok" : "null", b, e2 != 0);
+	say("names %d %d %d %d\n", fopen(".TXT", "w") == NULL,
+	    fopen("D\\X.TXT", "w") == NULL, fopen("B:C:X", "w") == NULL,
+	    remove("A|B") == -1);
+
+	sprintf(b, "[%j %s]", "ok");
+	say("unknown %s\n", b);
+	sprintf(b, "[%lld %s]", 5LL, "ok");
+	say("lld %s\n", b);
+
+	/* a last record of abc ^Z xyz from another program, appended to */
+	f = fopen("CTAPP.TXT", "wb");
+	fputs("abc\032", f);
+	for (i = 4; i < 128; i++)
+		fputc('x', f);
+	fclose(f);
+	f = fopen("CTAPP.TXT", "a");
+	fputs("d", f);
+	fclose(f);
+	f = fopen("CTAPP.TXT", "r");
+	fgets(b, sizeof(b), f);
+	fclose(f);
+	say("append [%s]\n", b);
 }
 
 static int initd = 1234;	/* initialized data, copied by crt0 */
@@ -384,11 +492,15 @@ int main(void)
 		say("fread2 %u\n", (unsigned)fread(p, 128, 513, f));
 		fclose(f);
 	}
+	i290();
 	n = fullheap();
 	say("full %u\n", n);
 	say("name? ");
 	fgets(buf, sizeof(buf), stdin);
 	say("got %s", buf);
 	fclose(logf);
+	/* err and errx end through the program's exit (I290) */
+	atexit(bye);
+	errx(0, "errx");
 	return 0;
 }

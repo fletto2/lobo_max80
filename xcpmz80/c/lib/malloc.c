@@ -38,6 +38,21 @@ static void merge(unsigned int *b)
 		top = b;		/* a free block at the top gives it back */
 }
 
+/* b in use cut to sz, the rest freed when there are 4 bytes or more
+ * (I290): realloc smaller gave nothing back, and grown in place it kept
+ * the whole free block after it */
+static void trim(unsigned int *b, unsigned int sz)
+{
+	unsigned int h = *b & ~USED;
+
+	if (h - sz >= 4) {
+		unsigned int *r = (unsigned int *)((unsigned char *)b + sz);
+		*r = h - sz;
+		*b = sz | USED;
+		merge(r);
+	}
+}
+
 void *malloc(size_t n) __LIB
 {
 	unsigned int *b, sz;
@@ -109,8 +124,10 @@ void *realloc(void *p, size_t n) __LIB
 	}
 	b = (unsigned int *)p - 1;
 	have = (*b & ~USED) - 2;
-	if (n <= have)
+	if (n <= have) {
+		trim(b, (n + 3) & ~1u);
 		return p;
+	}
 	if (n > 0x7ff0) {	/* as malloc: its size would wrap */
 		errno = ENOMEM;
 		return NULL;
@@ -130,6 +147,7 @@ void *realloc(void *p, size_t n) __LIB
 		top = (unsigned int *)((unsigned char *)b + have + 2);
 	} else if ((*b & ~USED) - 2 >= n) {
 		*b |= USED;
+		trim(b, (n + 3) & ~1u);
 		return p;
 	} else
 		*b |= USED;

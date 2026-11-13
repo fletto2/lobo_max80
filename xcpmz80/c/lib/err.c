@@ -8,7 +8,7 @@
 #include <err.h>
 #include "cpmint.h"
 
-static void vwarn(unsigned char e, const char *fmt, va_list ap)
+static void say(unsigned char e, const char *fmt, va_list ap)
 {
 	if (fmt)
 		vfprintf(stderr, fmt, ap);
@@ -25,7 +25,7 @@ void warn(const char *fmt, ...) __LIB
 	va_list ap;
 
 	va_start(ap, fmt);
-	vwarn(1, fmt, ap);
+	say(1, fmt, ap);
 	va_end(ap);
 }
 
@@ -34,7 +34,7 @@ void warnx(const char *fmt, ...) __LIB
 	va_list ap;
 
 	va_start(ap, fmt);
-	vwarn(0, fmt, ap);
+	say(0, fmt, ap);
 	va_end(ap);
 }
 
@@ -43,7 +43,7 @@ void err(int code, const char *fmt, ...) __LIB
 	va_list ap;
 
 	va_start(ap, fmt);
-	vwarn(1, fmt, ap);
+	say(1, fmt, ap);
 	va_end(ap);
 	exit(code);
 }
@@ -53,7 +53,19 @@ void errx(int code, const char *fmt, ...) __LIB
 	va_list ap;
 
 	va_start(ap, fmt);
-	vwarn(0, fmt, ap);
+	say(0, fmt, ap);
 	va_end(ap);
 	exit(code);
+}
+
+/* the message alone: the resident library's err and errx are these
+ * and the program's own exit, which runs its atexit functions (I290) */
+void vwarn(const char *fmt, va_list ap) __LIB
+{
+	say(1, fmt, ap);
+}
+
+void vwarnx(const char *fmt, va_list ap) __LIB
+{
+	say(0, fmt, ap);
 }

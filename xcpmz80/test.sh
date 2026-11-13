@@ -469,6 +469,17 @@ if [ "$(uname)" = Linux ]; then
 		check "C: rename" "rename -1 0" "$out"
 		check "C: ungetc and fscanf" "fscanf l 0" "$out"
 		check "C: a library call gives back the interrupts on, and off" "iff 1 1 0" "$out"
+		check "C: errno set the same as the last error reaches the program (I290)" "errno 1 1 0" "$out"
+		check "C: realloc smaller gives the rest back (I290)" "shrink same reused" "$out"
+		check "C: realloc grown in place leaves the rest free (I290)" "grow same reused" "$out"
+		check "C: memcmp and bcmp of buffers under 8000h bigger than the room left (I290)" "bigcmp -1 1 0 1" "$out"
+		check "C: strnlen and strncpy read no more than n, a call with no room fails (I291)" "strn 5 ok ammmm 1" "$out"
+		check "C: a blank name, a path or a second colon is refused (I291)" "names 1 1 1 1" "$out"
+		check "C: printf takes no argument for an unknown conversion (I290)" "unknown [j ok]" "$out"
+		check "C: printf's %lld takes 8 bytes (I290)" "lld [5 ok]" "$out"
+		check "C: append to a text file with bytes after its ^Z (I290)" "append [abcd]" "$out"
+		out=$(python3 tools/session.py "-a $T/ct.imd" 'ctest\r' '@?name?' 'Walrus\r' '@?A:\>')
+		check "C: errx runs the program's atexit functions (I290)" "atexit ran" "$out"
 		mkdisk $T/ct0.imd $C/CTEST.COM
 		out=$(python3 tools/session.py "-a $T/ct0.imd" 'ctest\r' @20)
 		check "C: with no CLIB.SYS a program says so" "Needs xcpmz80 and its C library, CLIB.SYS" "$out"
