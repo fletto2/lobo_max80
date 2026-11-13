@@ -7,7 +7,8 @@ cd "$(dirname "$0")"
 EMU='../emu/max80 -K'
 DISK=build/xcpmz80.imd
 SYS=build/xcpmz80.sys
-T=build/test
+# tools/testparts.py runs each part with a folder of its own
+T=${XTEST:-build/test}
 fail=0
 rm -rf $T
 mkdir -p $T/out
@@ -56,6 +57,23 @@ fatok() {	# name, raw image: the FAT volume is consistent
 	fi
 }
 
+# What more than one part uses, made once here
+printf 'Hello from a text file.\r\nSecond line.\r\n\032' >$T/HELLO.TXT
+# the emulator without -K, for keys as typed
+RAW=../emu/max80
+order() {	# the sector numbers of an IMD's first track, or track $2
+	python3 -c "
+import sys
+d=open(sys.argv[1],'rb').read(); i=d.index(26)+1
+for t in range(int(sys.argv[2])):
+    n,z=d[i+3],d[i+4]; i+=5+n
+    for k in range(n):
+        c=d[i]; i+=1
+        if c: i+=1 if c%2==0 else 128<<z
+print(' '.join(str(x) for x in d[i+5:i+5+d[i+3]]))" "$1" "${2:-0}"
+}
+
+#PART
 out=$(mdir -i build/xcpmz80.img :: 2>&1)
 check "the disk is a FAT volume mtools reads" "Serial Number is 4D58-3830" "$out"
 
@@ -243,7 +261,8 @@ check "shifted punctuation, TRS-80 layout" 'A:\>Hi! (x*y)=<z>?' "$out"
 printf '%s\n' "$out" | grep -q "CMD1?" &&
 	{ echo "FAIL the first lines should have scrolled off"; fail=1; }
 
-printf 'Hello from a text file.\r\nSecond line.\r\n\032' >$T/HELLO.TXT
+
+#PART
 
 
 # Lobo's console codes (a Soroc IQ-120's): ESC = row col, ESC T, ESC )
@@ -266,6 +285,10 @@ out=$($EMU -a $T/el.imd -T -t 10 -e 'A:\>' -k 'type el.txt\r' | tr '\n' '|')
 check "ESC * clears, ESC E inserts a line, ESC R deletes one" "NEW|L1|L2|L3|" "$out"
 
 
+#PART
+
+
+#PART
 # Programs typed through the emulator's key socket
 if [ "$(uname)" = Linux ]; then
 	# The C programs, built with SDCC when it is there: CTEST
@@ -645,7 +668,10 @@ open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
 else
 	echo "skip the tests through the key socket: Linux only"
 fi
+#PART
 
+
+#PART
 
 # emu/test_iff.c runs iffget's bytes against the NMOS quirk: these
 # must be the ones assembled, the jump aside
@@ -856,6 +882,8 @@ out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'q' @20)
 check "and Q stops it" "line 23 A:\> " "$(last2 "$out")"
 
 
+#PART
+
 # BOLD.FNT, the system's font with its styles swapped: thin text
 make -s build/BOLD.FNT
 mkdisk $T/bf.imd build/LDFONT.COM build/BOLD.FNT >/dev/null
@@ -865,6 +893,8 @@ printf '%s\n' "$out" >$T/out/bf.txt
 r=$(python3 ../emu/test_frame.py $T/out/bf.pgm $T/out/bf.txt build/BOLD.FNT)
 check "and the screen shows its thin main style" ", 0 rows wrong" "$r"
 
+
+#PART
 
 # 5-inch steps: 6 ms, the FDC's rate 0, with DIP switch 1 down, 30 ms,
 # rate 3, with it up. The boot ROM's own seeks are 1Bh either way.
@@ -1247,6 +1277,7 @@ check "and the file in them" "MADE     DAT" "$out"
 fatok "and the hard disk is clean" $T/out/fh.img
 
 
+#PARTS-END
 check "no session.py wait for the screen ran out" "=0=" "=$(wc -l <$SESSION_LOG | tr -d ' ')="
 [ -s $SESSION_LOG ] && cat $SESSION_LOG
 exit $fail

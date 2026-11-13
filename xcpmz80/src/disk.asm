@@ -977,7 +977,11 @@ TBEND		equ	8000h
 
 ; Read sector DE of drive IX into HL, from the track buffer when it is
 ; there. Z on success, else NZ and A = error. Keeps DE, IX, IY.
-tbread:	ld	a,(ix+D_TYPE)
+tbread:
+	ifdef	NORUNS			; a test build: every sector alone
+	jp	rdsec
+	endif
+	ld	a,(ix+D_TYPE)
 	cp	DT_FLOPPY
 	jp	nz,rdsec
 	call	tbfind

@@ -106,7 +106,9 @@ A floppy written by FORMAT reads the same way after
   keys. Its waits are the machine's time, and `@?TEXT` waits for a
   prompt, `@/TEXT` for text anywhere on the screen, so a test costs
   the host little.
-- `test.sh`: the tests.
+- `test.sh`: the tests, in parts cut at its `#PART` lines.
+- `tools/testparts.py`: runs the parts at once, each with a test folder
+  of its own, and prints their output in order, for `make test`.
 
 ## License
 

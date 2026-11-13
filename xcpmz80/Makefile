@@ -15,6 +15,12 @@ build/font.bin: FORCE
 build/xcpmz80.sys: $(SRC)
 	cd src && $(SJASM) --nologo --msg=war --lst=../build/xcpmz80.lst --raw=../build/xcpmz80.sys xcpmz80.asm
 
+# The same system reading every floppy sector alone, with no track
+# buffer, for a test on the machine
+build/noruns/xcpmz80.sys: $(SRC)
+	mkdir -p build/noruns
+	cd src && $(SJASM) --nologo --msg=war -DNORUNS --raw=../build/noruns/xcpmz80.sys xcpmz80.asm
+
 # The boot disk also carries the programs in apps/, the system's font
 # as XCPM.FNT for LDFONT to load again, and both fonts as THIN.FNT and
 # INVERSE.FNT
@@ -118,8 +124,10 @@ build/apps_720.imd: build/xcpmz80.sys tools/mkdisk.py $(APPDISK)
 font:
 	python3 tools/mkfont.py --inverse tools/unscii-8.hex src/font_inverse.bin
 
+# test.sh in its parts at once, each with its own folder in build/test;
+# sh test.sh runs them one after another
 test: all
-	sh test.sh
+	python3 tools/testparts.py
 
 clean:
 	rm -rf build
