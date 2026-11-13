@@ -42,7 +42,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-n drive` | A blank, unformatted disk in this drive, for FORMAT. |
 | `-R drive` | Write-protect this drive's disk. |
 | `-3 drive` | Make this drive a 3.5-inch one at 300 rpm. |
-| `-w drive:file` | At exit, save the drive's disk to a new file, such as `b:new.imd` or `h:new.img`. Never over or beside a loaded image. |
+| `-w drive:file` | At exit, save the drive's disk to a new file, such as `b:new.imd` or `h:new.img`. Never over or beside a loaded image, and a disk swapped in over the debug socket is refused when it would be. A malformed `.imd`, cut short or with a bad track header, is refused. |
 | `-D dips` | The DIP switch byte, default 2, an 8-inch floppy boot. 1 boots a 5-inch floppy, 7 the SASI disk, 0 makes the ROM beep. |
 | `-f` | Run as fast as the host allows. |
 | `-T` | Draw in the terminal, not a window. |
@@ -77,6 +77,12 @@ value, as the MB8866 does in MAME's model: 2 us for an 8-inch drive in
 MFM, 4 us for a 5-inch one. A command takes the held values. The 12
 clocks a command waits before it starts are not modelled: BUSY is set at
 once, and no DRQ could come that soon.
+
+A Force Interrupt during a command clears BUSY and leaves the other
+status bits as they were, Lost Data and DRQ too; only one when the FDC
+is idle gives the type I status (WD179x sheet, MAME). A type I command
+with V set gives seek error when no ID under the head names the track
+register, after 5 index pulses with `-M`.
 
 When `SOURCE_DATE_EPOCH` is set, the clock chip starts from that time,
 in UTC, and a saved `.imd` carries it in its header, in place of the

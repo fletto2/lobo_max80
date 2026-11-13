@@ -338,7 +338,37 @@ int main(void)
 		fputc(5, f); fputc(2, f); fputc(0, f); fputc(1, f);
 		fputc(0xff, f);
 		fclose(f);
+		free_tracks(&dz);
+		memset(&dz, 0, sizeof dz);
 		expect(load_imd(&dz, path) < 0, "  a sector size table is refused");
+		/* a bad or short file refused, never read past */
+		static const struct { const char *what; int n; uint8_t b[12]; } bad[] = {
+			{ "a track cut short", 7, { 5, 0, 0, 30, 1, 0, 1 } },
+			{ "a sector map past the end", 7, { 5, 0, 0, 255, 1, 0, 1 } },
+			{ "a sector's data past the end", 9, { 5, 0, 0, 1, 1, 0, 1, 0xe5, 0xe5 } },
+			{ "a mode over 5", 8, { 6, 0, 0, 1, 1, 0, 2, 0xe5 } },
+			{ "a sector kind over 8", 8, { 5, 0, 0, 1, 1, 0, 9, 0xe5 } },
+			{ "head byte bits 1-5", 8, { 5, 0, 2, 1, 1, 0, 2, 0xe5 } },
+		};
+		for (unsigned k = 0; k < sizeof bad / sizeof bad[0]; k++) {
+			f = fopen(path, "wb");
+			fwrite(im, 1, 5, f);
+			fwrite(bad[k].b, 1, bad[k].n, f);
+			fclose(f);
+			free_tracks(&dz);
+			memset(&dz, 0, sizeof dz);
+			char what[80];
+			snprintf(what, sizeof what, "  %s is refused", bad[k].what);
+			expect(load_imd(&dz, path) < 0, what);
+		}
+		f = fopen(path, "wb");
+		fwrite(im, 1, sizeof im, f);
+		fwrite(im + 10, 1, sizeof im - 10, f);	/* cylinder 1 again */
+		fclose(f);
+		free_tracks(&dz);
+		memset(&dz, 0, sizeof dz);
+		expect(load_imd(&dz, path) < 0, "  a track given twice is refused");
+		free_tracks(&dz);
 		remove(path);
 	}
 
@@ -608,5 +638,77 @@ int main(void)
 	expect(tmin == 13 && tmax == 16, "-V 3: LD A,(FC00h) takes 13 to 16 T");
 	expect(instr_t(0x3a, 0x8000) == 13, "  LD A,(8000h) still 13");
 	vstretch = 0;
+
+	/* a write track whose drive is deselected on the way keeps
+	   no track, on no drive: it crashed, writing disks[-1] */
+	fdc.dd = 1;
+	fdc.eight = 0;
+	disks[0].loaded = 1;
+	disks[0].wprot = 0;
+	mlatch_write(0x41);
+	fdc_command(0xd0);
+	fdc_command(0xf0);
+	int fed = 0;
+	while (fdc.busy && fed < TRACK_MAX + 100) {
+		if (fed == 10)
+			mlatch_write(0x40);
+		fdc_write(3, 0x4e);
+		cpu.cycles += BYTE_T;
+		fdc_tick();
+		fed++;
+	}
+	expect(!fdc.busy, "write track with the drive deselected ends");
+	expect(disks[0].trk[0][0].present && disks[0].trk[0][0].nsec == 9,
+	    "  and leaves drive A's track as it was");
+	struct track was1 = disks[1].trk[0][0];
+	mlatch_write(0x41);
+	fdc_command(0xd0);
+	fdc_command(0xf0);
+	fed = 0;
+	while (fdc.busy && fed < TRACK_MAX + 100) {
+		if (fed == 10)
+			mlatch_write(0x42);
+		fdc_write(3, 0x4e);
+		cpu.cycles += BYTE_T;
+		fdc_tick();
+		fed++;
+	}
+	expect(!fdc.busy && disks[0].trk[0][0].present &&
+	    !memcmp(&was1, &disks[1].trk[0][0], sizeof was1),
+	    "  another drive picked on the way gets no track either");
+
+	/* a force interrupt during a read clears BUSY and leaves
+	   Lost Data; one when idle gives type I status */
+	mlatch_write(0x41);
+	fdc_command(0xd0);
+	fdc.sector = 1;
+	fdc_command(0x88);
+	cpu.cycles += FIRST_T + 5 * BYTE_T;
+	fdc_tick();
+	uint8_t st = fdc_read(0);
+	expect((st & 0x05) == 0x05, "a read left alone: busy and Lost Data");
+	fdc_command(0xd0);
+	st = fdc_read(0);
+	expect((st & 0x05) == 0x04 && !fdc.type1,
+	    "  a force interrupt then clears busy and keeps Lost Data");
+	fdc_read(3);
+	expect(!(fdc_read(0) & 0x02), "  and a data read drops DRQ");
+	fdc_command(0xd0);
+	expect(fdc.type1, "  a second, idle, gives type I status");
+
+	/* verify. Cylinder 2 formatted with the IDs of 7 */
+	track_from_stream(&disks[0].trk[2][0], b, format_stream(b, 1, 7, 9, 2));
+	fdc_command(0x00);
+	fdc.data = 2;
+	fdc_command(0x10);
+	expect(!(fdc_read(0) & 0x10), "a seek with no verify to IDs of 7 at 2: no error");
+	fdc_command(0x00);
+	fdc_command(0x14);
+	expect(fdc_read(0) & 0x10, "  with verify: seek error");
+	fdc.data = 3;
+	fdc_command(0x14);
+	expect(fdc_read(0) & 0x10, "  and to an unformatted cylinder");
+	fdc_command(0x04);
+	expect(!(fdc_read(0) & 0x10), "  a restore with verify to cylinder 0's IDs: none");
 	return fails != 0;
 }

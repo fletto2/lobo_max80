@@ -179,12 +179,16 @@ static int load_imd(struct disk *d, const char *path)
 	if (!b || fread(b, 1, n, f) != (size_t)n) {
 		fprintf(stderr, "%s: read error\n", path);
 		fclose(f);
+		free(b);
 		return -1;
 	}
 	fclose(f);
 	for (i = 0; i < n && b[i] != 0x1a; i++)
 		;
 	i++;
+	/* Every length is checked against the file: a truncated or bad
+	   image is refused, never read past */
+#define IMD_NEED(k) do { if ((k) > n - i) goto short_file; } while (0)
 	while (i + 5 <= n) {
 		int mode = b[i], cyl = b[i + 1], head = b[i + 2];
 		int ns = b[i + 3], size;
@@ -194,28 +198,40 @@ static int load_imd(struct disk *d, const char *path)
 		if (b[i + 4] > 6) {	/* FFh: a size table, not handled */
 			fprintf(stderr, "%s: sector size code %02x\n", path,
 			    b[i + 4]);
+			free(b);
 			return -1;
 		}
 		size = 128 << b[i + 4];
+		if (mode > 5 || (head & 0x3e) || cyl >= MAXCYL) {
+			fprintf(stderr, "%s: bad track header, cylinder %d "
+			    "head %02x mode %d\n", path, cyl, head, mode);
+			free(b);
+			return -1;
+		}
 
 		i += 5;
+		IMD_NEED(ns);
 		smap = b + i;
 		i += ns;
 		if (head & 0x80) {
+			IMD_NEED(ns);
 			cmap = b + i;
 			i += ns;
 		}
 		if (head & 0x40) {
+			IMD_NEED(ns);
 			hmap = b + i;
 			i += ns;
-		}
-		if (cyl >= MAXCYL || (head & 1) > 1) {
-			fprintf(stderr, "%s: track %d out of range\n", path, cyl);
-			return -1;
 		}
 		if (!ns)		/* a track with no sectors: as none */
 			continue;
 		t = &d->trk[cyl][head & 1];
+		if (t->present) {
+			fprintf(stderr, "%s: cylinder %d head %d twice\n", path,
+			    cyl, head & 1);
+			free(b);
+			return -1;
+		}
 		t->present = 1;
 		t->mfm = mode >= 3;
 		t->fast = mode % 3 == 0;
@@ -224,8 +240,16 @@ static int load_imd(struct disk *d, const char *path)
 		t->nsec = ns;
 		t->sec = calloc(ns, sizeof(struct sector));
 		for (int s = 0; s < ns; s++) {
+			IMD_NEED(1);
 			int kind = b[i++];
 			struct sector *sp = &t->sec[s];
+
+			if (kind > 8) {
+				fprintf(stderr, "%s: sector kind %d\n", path, kind);
+				free(b);
+				return -1;
+			}
+			IMD_NEED(kind == 0 ? 0 : kind & 1 ? size : 1);
 			sp->id = smap[s];
 			sp->size = size;
 			sp->data = malloc(size);
@@ -242,6 +266,13 @@ static int load_imd(struct disk *d, const char *path)
 		}
 	}
 	free(b);
+	if (0) {
+short_file:
+		fprintf(stderr, "%s: ends inside a track\n", path);
+		free(b);
+		return -1;
+	}
+#undef IMD_NEED
 	/* 500 kbit/s tracks past cylinder 76: no 8-inch disk has them, so a
 	   1.44M disk, in a 3.5-inch drive */
 	for (int c = 77; c < MAXCYL; c++)
@@ -377,7 +408,8 @@ static struct disk disks[4];
 #define BYTE_T ((fdc.dd ? CPU_HZ / 62500 : CPU_HZ / 31250) * (fdc.eight ? 1 : 2))
 /* 8-inch drives turn at 360 rpm, the index pulse is about 2 ms. A
    3.5-inch drive on the 8-inch connector turns at 300. */
-#define REV_T (fdc.eight && !disks[fdc.drive].three ? CPU_HZ / 6 : CPU_HZ / 5)
+#define REV_T (fdc.eight && !(fdc.drive >= 0 && disks[fdc.drive].three) ? \
+    CPU_HZ / 6 : CPU_HZ / 5)
 #define INDEX_T (CPU_HZ / 500)
 
 static unsigned long long motor_until;	/* 5-inch motors turn until then */
@@ -413,6 +445,7 @@ static struct {
 	uint8_t *buf;
 	int len, idx, writing, multi, lost;
 	int wtrack;		/* the command is write track */
+	int wt_drive;		/* and the drive it started on */
 	int wdel;		/* write sector with the deleted data mark */
 	unsigned long long deadline;	/* T-state the pending byte is lost */
 	unsigned long long drq_at;	/* T-state a read's first byte comes */
@@ -485,7 +518,7 @@ static uint8_t trackbuf[TRACK_MAX];
 
 static int track_bytes(void)
 {
-	if (fdc.eight && !disks[fdc.drive].three)
+	if (fdc.eight && !(fdc.drive >= 0 && disks[fdc.drive].three))
 		return fdc.dd ? 10416 : 5208;
 	if (fdc.eight)		/* a 3.5-inch drive, 300 rpm */
 		return fdc.dd ? 12500 : 6250;
@@ -757,10 +790,17 @@ static void fdc_command(uint8_t cmd)
 	fdc.cur = NULL;
 	fdc.side_cmp = -1;
 	if ((cmd & 0xf0) == 0xd0) {	/* force interrupt */
-		fdc.busy = fdc.drq = fdc.wtrack = 0;
+		/* During a command it clears BUSY and leaves the other
+		   status bits, DRQ too; only when idle does it give type I
+		   status (WD179x sheet, MAME's wd_fdc.cpp) */
+		if (!fdc.busy) {
+			fdc.drq = 0;
+			fdc.type1 = 1;
+			type1_status();
+		}
+		fdc.busy = fdc.wtrack = 0;
+		fdc.status &= ~0x01;
 		fdc.buf = NULL;
-		fdc.type1 = 1;
-		type1_status();
 		/* Appendix D p.6: I3 at once, I2 at each index pulse, I1 on
 		   ready to not ready, I0 on not ready to ready. A status read
 		   leaves INTRQ set after one of these (p.5). */
@@ -805,11 +845,21 @@ static void fdc_command(uint8_t cmd)
 		/* no drive there: a restore gives up after 255 steps */
 		if (!on_connector() && (cmd >> 4) == 0)
 			fdc.t1err = 0x10;
+		/* V: an ID under the head must name the track register, or
+		   after 5 index pulses it is a seek error */
+		int vfail = 0;
+		if ((cmd & 0x04) && !fdc.t1err) {
+			struct track *t = cur_track();
+			if (!t || !turning() || t->cyl_id != fdc.track)
+				vfail = 1, fdc.t1err = 0x10;
+		}
 		type1_status();
-		if (mech && steps) {
+		if (mech && (steps || vfail)) {
 			static const int rate[4] = { 3, 6, 10, 15 };
 			unsigned long long t = (unsigned long long)steps *
 			    rate[cmd & 3] * (fdc.eight ? 1 : 2) * (CPU_HZ / 1000);
+			if (vfail)
+				t += 5 * REV_T;
 
 			mech_steps += steps;
 			fdc.busy = 1;
@@ -892,6 +942,7 @@ static void fdc_command(uint8_t cmd)
 		fdc.idx = 0;
 		fdc.writing = cmd & 0x10;
 		fdc.wtrack = fdc.writing;
+		fdc.wt_drive = fdc.drive;
 		fdc.multi = 0;
 		if (!fdc.writing)
 			stream_from_track(cur_track(), trackbuf, fdc.len);
@@ -934,8 +985,11 @@ static void fdc_byte_done(int lost)
 	}
 	if (fdc.wtrack) {	/* the index pulse ends the track */
 		fdc.wtrack = 0;
-		track_from_stream(&disks[fdc.drive].trk[fdc.pos[fdc.drive]][fdc.side],
-		    trackbuf, fdc.len);
+		/* the drive deselected or changed on the way: no track is
+		   kept, rather than half of one on another drive */
+		if (fdc.drive == fdc.wt_drive)
+			track_from_stream(&disks[fdc.drive].trk[fdc.pos[fdc.drive]][fdc.side],
+			    trackbuf, fdc.len);
 		fdc_done(0);
 		return;
 	}
@@ -1023,7 +1077,8 @@ static uint8_t fdc_read(int reg)
 		if (fdc.drq && fdc.buf && !fdc.writing) {
 			fdc.data = fdc.buf[fdc.idx];
 			fdc_byte_done(0);
-		}
+		} else if (!fdc.buf)
+			fdc.drq = 0;	/* left by a force interrupt */
 		return fdc.data;
 	}
 }
@@ -1049,7 +1104,8 @@ static void fdc_write(int reg, uint8_t v)
 		if (fdc.drq && fdc.buf && fdc.writing) {
 			fdc.buf[fdc.idx] = v;
 			fdc_byte_done(0);
-		}
+		} else if (!fdc.buf)
+			fdc.drq = 0;	/* left by a force interrupt */
 		break;
 	}
 }
@@ -3432,9 +3488,26 @@ static int swap_disk(int d, const char *path)
 	if (fdc.busy)
 		return 1;
 	p = strdup(path);
+	if (!p)
+		return -1;
+	/* every -w save still a new file away from the loaded images,
+	   with this one in the drive */
+	const char *was = k->path;
+	int ok = 1;
+	k->path = p;
+	for (int i = 0; i < 4 && ok; i++)
+		if (disks[i].save && !save_allowed(disks[i].save))
+			ok = 0;
+	if (ok && sasi.save && !save_allowed(sasi.save))
+		ok = 0;
+	k->path = was;
+	if (!ok) {
+		free(p);
+		return -1;
+	}
 	memset(&tmp, 0, sizeof(tmp));
 	tmp.three = k->three;	/* -3 stays as it was: a drive, not a disk */
-	if (!p || load_imd(&tmp, p)) {
+	if (load_imd(&tmp, p)) {
 		free_tracks(&tmp);
 		free(p);
 		return -1;
