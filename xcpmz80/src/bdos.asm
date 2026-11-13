@@ -1968,7 +1968,7 @@ de_r1:	ld	h,a
 	ret
 
 errmsgs: dw	em1,em2,em3,em4,em5,em6,em1
-	dw	em8,em9,em10,em11,em12,em13,em14
+	dw	em8,em9,em10,em11,em12,em13,em14,em15
 em8:	db	"No folder",0
 em9:	db	"Exists",0
 em10:	db	"Not empty",0
@@ -1976,6 +1976,7 @@ em11:	db	"Bad name",0
 em12:	db	"Path too long",0
 em13:	db	"In use",0
 em14:	db	"No memory",0
+em15:	db	"Root full",0
 em1:	db	"Disk I/O",0
 em2:	db	"Read/Only",0
 em3:	db	"Read/Only File",0

@@ -52,6 +52,7 @@ E_BADNAME	equ	11		; Bad name
 E_LONG		equ	12		; Path too long
 E_INUSE		equ	13		; In use, the current folder
 E_NOMEM		equ	14		; No memory, for FORMAT's track
+E_DIRFULL	equ	15		; Root full, no room for MKDIR's entry
 
 ; Point IX at drive A's table entry (A = 0, 1, 2). Keeps the others.
 drvix:	push	de

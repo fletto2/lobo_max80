@@ -780,6 +780,31 @@ isattr:	push	hl
 	and	b
 	ret
 
+; The long-name entries just before entry HL of folder dircl go with
+; it. A read error leaves them.
+lfndel:	ld	a,h
+	or	l
+	ret	z
+	dec	hl
+	push	hl
+	call	dirent
+	pop	de
+	ret	nz
+	ld	a,(hl)
+	cp	0E5h
+	ret	z
+	push	hl
+	ld	bc,DE_ATTR
+	add	hl,bc
+	ld	a,(hl)
+	pop	hl
+	cp	0Fh
+	ret	nz
+	ld	(hl),0E5h
+	call	bdirty
+	ex	de,hl
+	jr	lfndel
+
 ; Delete every file matching the FCB. A = 0, or R_NOFILE if none.
 fdelete: call	fcbdrw
 	ret	nz
@@ -807,6 +832,8 @@ fl_1:	jr	nz,fl_9
 	ex	de,hl
 	call	fatfree
 	ret	nz
+	ld	hl,(dpos)
+	call	lfndel
 	xor	a
 	ld	(fres),a
 	call	dsnext

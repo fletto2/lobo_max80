@@ -361,19 +361,20 @@ pc_0:	ld	(de),a
 	djnz	pc_0
 	pop	de
 	ld	b,8
-	ld	a,(hl)			; . and ..
+	ld	a,(hl)			; . and .., and nothing after
 	cp	'.'
 	jr	nz,pc_1
 	ld	(de),a
-	inc	de
 	inc	hl
-	dec	b
 	cp	(hl)
-	jr	nz,pc_1
-	ld	(de),a
+	jr	nz,pc_d
 	inc	de
+	ld	(de),a
 	inc	hl
-	dec	b
+pc_d:	ld	a,(hl)
+	call	pcend
+	jr	z,pc_9
+	jr	pc_bad
 pc_1:	ld	a,(hl)
 	call	pcend
 	jr	z,pc_9
@@ -674,8 +675,13 @@ xmkdir:	ld	a,1
 	ld	a,b
 	cp	R_NOFILE
 	ret	nz
+	ld	hl,(dircl)		; no entry: the root has no more, a
+	ld	a,h			; folder could not grow
+	or	l
 	ld	a,E_FULL
-	or	a
+	jr	nz,mkd_f
+	ld	a,E_DIRFULL
+mkd_f:	or	a
 	ret
 mkd_ex:	ld	a,E_EXISTS
 	or	a
@@ -781,4 +787,6 @@ rm_2:	push	af
 	ld	hl,(dcl)
 	call	fatfree
 	ret	nz
+	ld	hl,(rmpos)
+	call	lfndel
 	jp	flushall

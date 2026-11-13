@@ -590,6 +590,44 @@ DMGEOF
 				-k 'dir c:\r' | tr -d '\r' | grep -v '^$' | grep -iA1 'dir c:' | tail -1)
 			check "a BPB with $bpb is not mounted" "Disk I/O" "$out"
 		done
+		# ERA of a file whose first cluster is free already frees
+		# nothing more, ERA and RD take the long names mtools made
+		# before the entry, CD ..X is a bad name, not CD ..
+		python3 tools/mkdisk.py $SYS --hd 1 $T/ln.img $T/DA.TXT $T/DB.TXT \
+			--in F $T/FF.TXT >/dev/null
+		mcopy -i $T/ln.img $T/DA.TXT "::A long file name.txt"
+		mmd -i $T/ln.img "::Long folder name"
+		python3 $T/dmg.py $T/ln.img root DB.TXT 300
+		python3 - $T/ln.img <<'EOF'
+import sys
+b = bytearray(open(sys.argv[1], 'rb').read())
+i = b.find(b'LONGFO~1   ')	# a short name the keys can type
+b[i:i + 11] = b'LONGFOLD   '
+open(sys.argv[1], 'wb').write(b)
+EOF
+		rm -f $T/out/ln.img
+		out=$($EMU -a $T/wf.imd -h $T/ln.img -w h:$T/out/ln.img -T -t 120 \
+			-e 'A:\>|C:\>|C:\F>' -k 'c:\rfree\rera db.txt\rfree\rera along*.txt\rrd longfold\rfree\rcd f\rcd ..x\r' |
+			tr -d '\r' | grep -v '^$' | tr '\n' '|')
+		check "ERA of a file on a free cluster frees no more" "C: 960K free|C:\\>era db.txt|C:\\>free|C: 960K free" "$out"
+		check "and the others free theirs" "C: 964K free" "$out"
+		check "CD ..X is a bad name" "C:\\F>cd ..x|Bad name|C:\\F>" "$out"
+		n=$(python3 - $T/out/ln.img <<'EOF'
+import sys, struct
+b = open(sys.argv[1], 'rb').read()
+root = (struct.unpack_from('<H', b, 14)[0] + b[16] * struct.unpack_from('<H', b, 22)[0]) * 512
+print(sum(1 for i in range(struct.unpack_from('<H', b, 17)[0])
+          if b[root + i * 32 + 11] == 0x0F and b[root + i * 32] not in (0, 0xE5)))
+EOF
+)
+		check "ERA and RD take the long names before the entry" "0" "$n"
+		# MD in a full root: 16 root entries, 15 taken
+		python3 tools/mkdisk.py $SYS --hd 1 $T/rf.img $T/DA.TXT >/dev/null
+		python3 $T/dmg.py $T/rf.img bpb 0x11 1000
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do mmd -i $T/rf.img ::D$i; done
+		out=$($EMU -a $T/wf.imd -h $T/rf.img -T -t 60 -e 'A:\>' \
+			-k 'md c:x\rmd c:y\r' | tr -d '\r' | grep -v '^$' | tr '\n' '|')
+		check "MD in a full root says so" "md c:y|Root full" "$out"
 		# The page module on the host, page.c and page.s on the
 		# Z80 core: down and up, jumps, 3000 random edits and saves
 		# checked against a model, and a file of LF lines saved as it was

@@ -398,6 +398,9 @@ ffr_1:	call	fateoc
 	call	fatget
 	pop	de
 	ret	nz
+	ld	a,h			; free already: not counted again
+	or	l
+	jr	z,ff9
 	push	hl
 	ex	de,hl
 	ld	de,0
