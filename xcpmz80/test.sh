@@ -1599,6 +1599,85 @@ check "mtools reads the folders BDOS 118 made" "Directory for ::/TOOLS/SUB" "$ou
 check "and the file in them" "MADE     DAT" "$out"
 fatok "and the hard disk is clean" $T/out/fh.img
 
+# Function 10 (I283): a maximum of 255 takes 255 keys and gives them
+# all back, a full line ends with no Enter, ^E then the back arrow
+# edits the line on its new row, and a warm boot after EQ.COM left
+# an ESC = half sent starts the prompt on a line of its own
+cat > $T/ln.asm <<'EOF'
+	org	100h
+	ld	de,p1
+	call	str
+	ld	a,255
+	call	line
+	ld	de,p2
+	call	str
+	ld	a,3
+	call	line
+	ld	de,p3
+	call	str
+	ld	a,20
+	call	line
+	ld	de,buf+2		; the text, as typed
+	ld	a,(buf+1)
+	ld	b,a
+tx:	ld	a,(de)
+	push	bc
+	push	de
+	ld	e,a
+	ld	c,2
+	call	5
+	pop	de
+	pop	bc
+	inc	de
+	djnz	tx
+	ld	de,p4
+	call	str
+	jp	0
+line:	ld	(buf),a
+	ld	de,buf
+	ld	c,10
+	call	5
+	ld	a,(buf+1)		; [count], in decimal, on a new line
+	ld	b,'0'-1
+d100:	inc	b
+	sub	100
+	jr	nc,d100
+	add	a,100
+	ld	c,'0'-1
+d10:	inc	c
+	sub	10
+	jr	nc,d10
+	add	a,'0'+10
+	ld	(num+5),a
+	ld	a,c
+	ld	(num+4),a
+	ld	a,b
+	ld	(num+3),a
+	ld	de,num
+str:	ld	c,9
+	jp	5
+p1:	db	13,10,"1>$"
+p2:	db	13,10,"2>$"
+p3:	db	13,10,"3>$"
+p4:	db	"]END$"
+num:	db	13,10,"[000]$"
+buf:	ds	260
+EOF
+(cd $T && sjasmplus --nologo --msg=war --raw=LN.COM ln.asm >/dev/null)
+mkdisk $T/ln.imd $T/LN.COM >/dev/null
+out=$($EMU -T -a $T/ln.imd -t 90 -e 'A:\>' \
+	-k "ln\E\P$(printf 'a%.0s' $(seq 255))xyz\PAB$(printf '\005\010')C\r" 2>&1)
+check "function 10 with a maximum of 255 takes 255 keys and ends" "[255]" "$out"
+check "a full line ends with no Enter" "=2>xyz|[003]|=" \
+	"=$(printf '%s\n' "$out" | grep -A1 -x '2>xyz' | tr '\n' '|')="
+check "^E and the back arrow: the line on its new row" "=1=" \
+	"=$(printf '%s\n' "$out" | grep -cx 'AC')="
+python3 -c "import sys; open(sys.argv[1],'wb').write(bytes.fromhex('110b010e09cd0500c30000')+b'END\x1b=\$')" $T/EQ.COM
+mkdisk $T/eq.imd $T/EQ.COM >/dev/null
+out=$($EMU -T -a $T/eq.imd -t 20 -e 'A:\>' -k 'eq\rdir\r' 2>&1)
+check "the prompt after an ESC = half sent is on a line of its own" "=1 0=" \
+	"=$(printf '%s\n' "$out" | grep -cx 'END') $(printf '%s\n' "$out" | grep -c 'ENDA:')="
+
 
 #PARTS-END
 check "no session.py wait for the screen ran out" "=0=" "=$(wc -l <$SESSION_LOG | tr -d ' ')="

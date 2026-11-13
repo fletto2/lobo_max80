@@ -301,7 +301,11 @@ kret:	ld	hl,0001h
 	jr	kw_0
 ; Both ways back: the TPA bank, the disks, the program's settings, the
 ; shell's drive
-kwcom:	call	ubtpa
+kwcom:	xor	a			; the console as the shell wants it,
+	ld	(ESCST),a		; whatever the program left (I283)
+	ld	(DIM),a
+	ld	(CURHID),a
+	call	ubtpa
 	call	kreset
 	call	scbprog
 	ld	a,(shdrv)

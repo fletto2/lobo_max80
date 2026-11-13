@@ -278,23 +278,20 @@ f10_1:	ex	de,hl
 	ld	(lnstart),a
 	ld	(lnend),a
 	call	rdline
-	ld	a,(lnlen)		; count and text back to the program
-	ld	(CBUF),a
-	ld	hl,linebuf
-	ld	de,CBUF+1
-	ld	c,a
-	ld	b,0
-	or	a
-	jr	z,f10_2
-	ldir
-f10_2:	ld	hl,CBUF
-	ld	de,(bparam)
-	inc	de
+	ld	hl,(bparam)		; count and text back to the program, a
+	inc	hl			; byte at a time: up to 255 (I283)
 	ld	a,(lnlen)
-	inc	a
-	ld	c,a
-	ld	b,0
-	jp	ucopy
+	call	upoke
+	or	a
+	ret	z
+	ld	b,a
+	ld	de,linebuf
+f10_2:	inc	hl
+	ld	a,(de)
+	call	upoke
+	inc	de
+	djnz	f10_2
+	ret
 
 ; Read a line into linebuf, lnlen long, at most lnmax. Each key's
 ; handler returns to rl1, which it finds on the stack.
@@ -308,7 +305,7 @@ rl1:	ld	hl,rl1
 	cp	0Ah
 	jr	z,rlend
 	cp	08h
-	jr	z,rlbs
+	jp	z,rlbs
 	cp	7Fh
 	jr	z,rlbs
 	cp	1Eh			; the back arrow, 08h on Lobo's 5.25-inch
@@ -321,8 +318,8 @@ rl1:	ld	hl,rl1
 	jp	z,rlkill
 	cp	12h			; ^R
 	jr	z,rlretype
-	cp	05h			; ^E
-	jp	z,crlf
+	cp	05h			; ^E: the line again from the start of
+	jp	z,rle			; the next row, so the back arrow knows
 	cp	10h			; ^P
 	jr	z,rlprn
 	cp	03h			; ^C
@@ -347,7 +344,11 @@ rl2:	ld	b,a			; into the line
 	inc	a
 	ld	(lnlen),a
 	ld	a,b
-	jp	ctlout
+	call	ctlout
+	ld	a,(lnmax)		; full: the line ends, as CP/M's does
+	ld	hl,lnlen		; (I283)
+	cp	(hl)
+	ret	nz
 rlend:	pop	hl			; the line is done
 	ld	a,0Dh
 	jp	kputc
@@ -355,6 +356,9 @@ rlprn:	ld	a,(scb+SCB_LIST)
 	xor	1
 	ld	(scb+SCB_LIST),a
 	ret
+rle:	xor	a			; ^E
+	ld	(lnstart),a
+	ld	(lnend),a
 rlretype: call	crlf
 	ld	a,(lnstart)
 	or	a

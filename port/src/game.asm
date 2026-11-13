@@ -1038,9 +1038,11 @@ ln_2:	ld	a,(hl)
 ln_3:	pop	bc
 	pop	hl
 	jr	z,ln_4		; a hole
+	ld	a,(nrows)	; 4 at most: a full row moved down from
+	cp	4		; rows 0-1, never checked, could make 5
+	jr	z,ln_4		; (I284). The rest go at the next lock.
 	ld	(hl),b
 	inc	hl
-	ld	a,(nrows)
 	inc	a
 	ld	(nrows),a
 ln_4:	inc	b
@@ -1585,6 +1587,14 @@ fills:	; 1: row 17 full but for columns 2-5, where the I lands
 	db	15, W,W,W,0,W,W,W,W,W,W
 	db	16, W,W,W,0,W,W,W,W,W,W
 	db	17, W,W,W,0,W,W,W,W,W,W
+	db	0FFh
+	; 5: rows 13-16 full but column 3, and row 17 full, as a row moved
+	; down from row 1 would be: the I makes 5 full rows
+	db	13, W,W,W,0,W,W,W,W,W,W
+	db	14, W,W,W,0,W,W,W,W,W,W
+	db	15, W,W,W,0,W,W,W,W,W,W
+	db	16, W,W,W,0,W,W,W,W,W,W
+	db	17, W,W,W,W,W,W,W,W,W,W
 	db	0FFh
 	endif
 

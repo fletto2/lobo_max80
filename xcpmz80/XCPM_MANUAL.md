@@ -71,9 +71,12 @@ waits for a key. While typing:
 | ^X or ^U | rub out the line |
 | UP, at the `A:\>` prompt | bring back the last command, to run again or change |
 | ^R | type the line again |
-| ^E | go on to the next screen line |
+| ^E | go on to the next screen line, with the line typed there again |
 | ^P | echo everything to the printer, until the next ^P |
 | ^C at the start of a line | restart the system |
+
+A line ends when it is full too, as CP/M's does: a program that asks
+for 3 characters gets them as the third is typed.
 
 A word that is not a built-in command runs the program of that name:
 `ZORK` runs `ZORK.COM`, from the current folder of the current drive or

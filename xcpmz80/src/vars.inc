@@ -95,7 +95,7 @@ lnlen		equ	lnmax+1
 lnstart		equ	lnlen+1
 lnend		equ	lnstart+1
 linebuf		equ	lnend+1
-lnhist		equ	linebuf+130	; not 0: UP brings back the last line
+lnhist		equ	linebuf+255	; not 0: UP brings back the last line
 histlen		equ	lnhist+1	; the shell's last line, its length
 histbuf		equ	histlen+1	; and its text
 ; clock
