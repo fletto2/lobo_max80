@@ -69,6 +69,15 @@ fmt_h:
 	cp	33
 	jp	nc,fmt_use
 	ld	(fmtmb),a
+	call	hdsize			; its last sector must read: a drive
+	dec	hl			; smaller than the volume is refused
+	ex	de,hl			; before anything is asked or written
+	ld	hl,fmtbuf
+	call	rdsec
+	jr	z,fmt_1
+	call	pmsg
+	db	0Dh,0Ah,"The drive is smaller than that",0Dh,0Ah,0
+	jp	shell
 fmt_1:	call	pmsg
 	db	0Dh,0Ah,"Format ",0
 	call	pdrv
@@ -846,6 +855,18 @@ fill:	ld	(hl),a
 	ret
 
 ; ------------------------------------------------------------------
+; HL = the hard disk volume's sectors, MB * 2048, 65504 at most:
+; whole tracks of 32 sectors, which mtools checks
+hdsize:	ld	a,(fmtmb)
+	ld	h,a
+	ld	l,0
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	ret	nc
+	ld	hl,0FFE0h
+	ret
+
 ; The boot sector from SYSBUF into fmtbuf, the BPB for the hard disk
 ; of fmtmb megabytes over it, as mkdisk.py --hd makes it: 512 root
 ; entries, 2K clusters up to 16 MB and 4K above, FAT16 from 4085
@@ -854,15 +875,8 @@ hdbpb:	ld	hl,fbpb			; the floppy one to start from
 	ld	de,fmtbuf+0Bh
 	ld	bc,3Eh-0Bh
 	ldir
-	ld	a,(fmtmb)		; total = MB * 2048, 65504 at most:
-	ld	h,a			; whole tracks of 32 sectors, which
-	ld	l,0			; mtools checks
-	add	hl,hl
-	add	hl,hl
-	add	hl,hl
-	jr	nc,hb_1
-	ld	hl,0FFE0h
-hb_1:	ld	(fmtbuf+13h),hl
+	call	hdsize
+	ld	(fmtbuf+13h),hl
 	ld	a,(fmtmb)		; sectors a cluster
 	cp	17
 	ld	a,4

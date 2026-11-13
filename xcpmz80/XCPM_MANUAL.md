@@ -172,7 +172,7 @@ on an error.
 | `CLS` or `CLEAR` | clear the screen |
 | `VER` | show the version |
 | `FORMAT d: [size] [PC] [ILV n]` | format a floppy and make it a boot disk. See below |
-| `FORMAT d: MB` | make an empty FAT volume of MB megabytes on the hard disk |
+| `FORMAT d: MB` | make an empty FAT volume of MB megabytes (1 to 32) on the hard disk, refused if the drive is smaller |
 | `SYS d:` | put the system on a disk that is already formatted |
 | `SUBMIT name [args]` | run `NAME.SUB` as a batch file |
 | `CD`, `MD`, `RD`, `PWD` | folders, above |
