@@ -235,10 +235,17 @@ static int do_decode(const char *filename)
      * are passed over, and the data ends at a line that is not
      * base64 ('.' alone, the prompt) or at a padded group. */
     started = 0;
+    int cont = 0;
     while (fgets(line, sizeof line, stdin)) {
         size_t n = strcspn(line, "\r\n");
-        size_t k;
-        int good = n > 0;
+        size_t k, len = strlen(line);
+        int good = n > 0, more = cont;
+
+        /* a line longer than the buffer comes in pieces: the last
+           piece, its end alone, is no line of its own */
+        cont = len > 0 && line[len - 1] != '\n';
+        if (more && n == 0)
+            continue;
 
         while (n > 0 && (line[n - 1] == ' ' || line[n - 1] == '\t'))
             n--;

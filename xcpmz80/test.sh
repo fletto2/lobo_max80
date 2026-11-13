@@ -91,6 +91,48 @@ check "mkdisk: --pc with --ss refused" "not --pc" "$out"
 python3 tools/mkdisk.py $SYS --525 360 --ss $T/mk.imd --raw $T/mk.img >/dev/null
 out=$(minfo -i $T/mk.img :: 2>&1)
 check "mkdisk: --525 360 --ss has the 180K BPB" "media descriptor byte: 0xfc" "$out"
+sz=$(printf '\303\237')		# a German sharp s, in UTF-8
+echo d >"$T/stra${sz}e.c"
+out=$(python3 tools/mkdisk.py $SYS $T/mk.imd "$T/stra${sz}e.c" 2>&1)
+check "mkdisk: a name not in ASCII refused, not made STRASSE.C" "not an 8.3 name" "$out"
+out=$(python3 tools/mkdisk.py $SYS --ds --ss $T/mk.imd 2>&1)
+check "mkdisk: --ss on an 8-inch disk refused, not made double sided" "an 8-inch disk is one sided" "$out"
+out=$(python3 tools/mkdisk.py $SYS --ds --525 360 $T/mk.imd 2>&1)
+check "mkdisk: --ds with --525 refused" "--525 and --pc set the sides" "$out"
+out=$(python3 tools/mkdisk.py $SYS --525 360 --pc 720 $T/mk.imd 2>&1)
+check "mkdisk: --525 with --pc refused" "one or the other" "$out"
+out=$(python3 tools/mkdisk.py $SYS --ilv 0 $T/mk.imd 2>&1)
+check "mkdisk: --ilv 0 refused" "--ilv: 1 or more" "$out"
+out=$(python3 tools/mkdisk.py $SYS $T/mk.imd $T/a.b.c --in 2>&1)
+check "mkdisk: --in with nothing after it refused" "a folder, or ., after it" "$out"
+# fatcheck: two files whose chains end on a free cluster, not the end
+echo e >$T/B.TXT
+head -c 3000 /dev/urandom >$T/A.BIN
+python3 tools/mkdisk.py $SYS --pc 720 $T/fc.imd --raw $T/fc.img $T/A.BIN $T/B.TXT >/dev/null
+check "fatcheck: the disk clean first" "clean" "$(python3 tools/fatcheck.py $T/fc.img)"
+python3 - $T/fc.img <<'PY'
+import struct, sys
+d = bytearray(open(sys.argv[1], 'rb').read())
+bps, spc, res, nfat = struct.unpack_from('<HBHB', d, 11)
+fsz = struct.unpack_from('<H', d, 22)[0]
+def put(n, v):
+    for f in range(nfat):
+        o = (res + f * fsz) * bps + n * 3 // 2
+        w = struct.unpack_from('<H', d, o)[0]
+        w = (w & 0x000f) | v << 4 if n & 1 else (w & 0xf000) | v
+        struct.pack_into('<H', d, o, w)
+def get(n):
+    o = res * bps + n * 3 // 2
+    w = struct.unpack_from('<H', d, o)[0]
+    return w >> 4 if n & 1 else w & 0xfff
+for n in range(2, 16):          # the two files' chains: each one's last freed
+    if get(n) >= 0xff8:
+        put(n, 0)
+open(sys.argv[1], 'wb').write(d)
+PY
+out=$(python3 tools/fatcheck.py $T/fc.img)
+check "fatcheck: a chain that ends on a free cluster is a fault" "A.BIN: chain ends on a free cluster" "$out"
+check "and the other file's too, the FATs alike" "=B.TXT: chain ends on a free cluster, after 5=" "=$(echo "$out" | tail -1)="
 
 out=$($EMU -a "$DISK" -t 5)
 check "boot to sign-on" "XCP/M-Z80 v0.2 for the Lobo MAX-80" "$out"
@@ -449,12 +491,19 @@ open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
 		head -n 20 $T/T.TXT | $C/base64_host -d $T/out/H2.BIN >/dev/null 2>&1
 		n="rc=$? $(test -e $T/out/H2.BIN && echo file || echo none)"
 		check "and a text cut short fails, with no file" "rc=1 none" "$n"
+		# a line of 4095 characters, as long as the host's buffer less one
+		sed '$d' $T/T.TXT | tr -d '\n' | python3 -c "import sys; t = sys.stdin.read()
+print(t[:4095]); print(t[4095:])" | $C/base64_host -d $T/out/H3.BIN >/dev/null 2>&1
+		n=$(cmp $T/out/H3.BIN $T/T.BIN && echo same)
+		check "base64_host -d takes a line of 4095 characters" "same" "$n"
+		printf 'AAAAAwAAAA==\r\n' >$T/BAD.TXT
 		printf abc >$T/S.BIN
 		$C/base64_host $T/S.BIN 2>/dev/null | head -n 1 >$T/S.TXT
-		mkdisk $T/b64k.imd $C/CLIB.SYS $C/BASE64.COM $T/T.TXT >/dev/null
+		mkdisk $T/b64k.imd $C/CLIB.SYS $C/BASE64.COM $T/T.TXT $T/BAD.TXT >/dev/null
 		out=$($EMU -a $T/b64k.imd -T -t 30 -e 'A:\>' \
-			-k "base64 -d t.txt t.txt\\rbase64 -d s.bin\\E\\P\\P$(cat $T/S.TXT)\\E\\P.\\E\\P\\Pdir\\r" |
+			-k "base64 -d bad.out bad.txt\\rbase64 -d t.txt t.txt\\rbase64 -d s.bin\\E\\P\\P$(cat $T/S.TXT)\\E\\P.\\E\\P\\Pdir\\r" |
 			tr -d '\r')
+		check "BASE64 -D refuses a match from before the start" "not a BASE64 text, or damaged: no BAD.OUT" "$out"
 		check "BASE64 -D X X refuses" "would be erased before it is read" "$out"
 		check "BASE64 -D takes keys from the C library's getch" "3 bytes to" "$out"
 		n="=$(echo "$out" | grep -c '^A:\\>\.\?$')="

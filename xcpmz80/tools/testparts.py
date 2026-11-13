@@ -53,6 +53,10 @@ def main():
         raise SystemExit('test.sh: the header must cd as %r once' % cd)
     head[head.index(cd)] = 'cd %s' % here
     pick = [int(a) for a in args] or list(range(1, len(parts) + 1))
+    bad = [n for n in pick if not 1 <= n <= len(parts)]
+    if bad or len(set(pick)) != len(pick):
+        raise SystemExit('testparts: parts 1 to %d, each once, not %s'
+                         % (len(parts), ' '.join(args)))
     for cmd in PREBUILD:
         subprocess.call(cmd, stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL)

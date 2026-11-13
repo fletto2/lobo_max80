@@ -58,6 +58,9 @@ def check(disk):
             c = get(c)
         if 0 < c < 2 or (eoc > c >= nclus + 2 and c != 0):
             faults.append('%s: chain ends on %d' % (name, c))
+        elif c == 0 and chain:  # the next file written takes it
+            faults.append('%s: chain ends on a free cluster, after %d'
+                          % (name, chain[-1]))
         return chain
 
     def folder(data, path, me, parent):

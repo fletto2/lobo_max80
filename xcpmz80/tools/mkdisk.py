@@ -146,7 +146,10 @@ OK83 = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'()-@^_`{}~")
 def name83(path):
     """The 11 bytes of an 8.3 name, as DOS allows them: ASCII letters,
     digits and its few marks, one dot"""
-    base = os.path.basename(path).upper()
+    base = os.path.basename(path)
+    if not base.isascii():  # upper() makes a German sharp s SS
+        raise SystemExit('%s: not an 8.3 name' % path)
+    base = base.upper()
     stem, _, ext = base.partition('.')
     if (not stem or len(stem) > 8 or len(ext) > 3 or
             not set(stem + ext) <= OK83):
@@ -258,6 +261,8 @@ def folder_args(args):
     out, folder, i = [], None, 0
     while i < len(args):
         if args[i] == '--in':
+            if i + 1 == len(args):
+                raise SystemExit('--in: a folder, or ., after it')
             folder = None if args[i + 1] == '.' else args[i + 1]
             i += 2
             continue
@@ -317,6 +322,15 @@ def main():
                 skew = v
             else:
                 hskew = v
+    if ilv is not None and ilv < 1:
+        raise SystemExit('--ilv: 1 or more')
+    if '--525' in args and '--pc' in args:
+        raise SystemExit('--525 and --pc: one or the other')
+    five = '--525' in args or '--pc' in args
+    if '--ss' in args and not five:
+        raise SystemExit('--ss: an 8-inch disk is one sided unless --ds')
+    if '--ds' in args and five:
+        raise SystemExit('--ds: for an 8-inch disk; --525 and --pc set the sides')
     if '--ds' in args:
         args.remove('--ds')
         system = ds_bpb(system)

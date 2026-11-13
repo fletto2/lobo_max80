@@ -184,6 +184,7 @@ static int encode(const char *name)
 
 static FILE *out;
 static long dsize, dgot;
+static unsigned char dbad;	/* a match from before the start */
 static unsigned char hdr, dflags, dbit, dhalf, db1;
 static unsigned int rpos;
 
@@ -195,7 +196,7 @@ static void lzbyte(unsigned char c)
 		hdr++;
 		return;
 	}
-	if (dgot >= dsize)
+	if (dbad || dgot >= dsize)
 		return;
 	if (dbit == 8) {
 		dflags = c;
@@ -218,7 +219,13 @@ static void lzbyte(unsigned char c)
 	dbit++;
 	{
 		unsigned char len = (db1 >> 4) + MINM;
-		unsigned int from = rpos - ((((unsigned int)db1 & 15) << 8 | c) + 1);
+		unsigned int off = (((unsigned int)db1 & 15) << 8 | c) + 1;
+		unsigned int from = rpos - off;
+
+		if (off > dgot) {	/* not our stream, or damaged */
+			dbad = 1;
+			return;
+		}
 
 		while (len-- && dgot < dsize) {
 			unsigned char b = ring[from++ & (WINSZ - 1)];
@@ -316,6 +323,12 @@ static int decode(const char *name, const char *text)
 	}
 	if (in)
 		fclose(in);
+	if (dbad) {
+		fclose(out);
+		remove(name);
+		printf("BASE64: not a BASE64 text, or damaged: no %s\n", name);
+		return 1;
+	}
 	if (fclose(out) || hdr < 4 || dgot != dsize) {
 		printf("BASE64: %s is short, %ld of %ld bytes\n", name, dgot, dsize);
 		return 1;
