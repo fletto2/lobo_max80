@@ -42,7 +42,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-n drive` | A blank, unformatted disk in this drive, for FORMAT. |
 | `-R drive` | Write-protect this drive's disk. |
 | `-3 drive` | Make this drive a 3.5-inch one at 300 rpm. |
-| `-w drive:file` | At exit, save the drive's disk to a new file, such as `b:new.imd` or `h:new.img`. Never over or beside a loaded image, and a disk swapped in over the debug socket is refused when it would be. A malformed `.imd`, cut short or with a bad track header, is refused. |
+| `-w drive:file` | At exit, save the drive's disk to a new file, such as `b:new.imd` or `h:new.img`. Never over or beside a loaded image, and a disk swapped in over the debug socket is refused when it would be. A malformed `.imd`, cut short or with a bad track header, is refused. The save is made only when the emulator ends by itself (`-t`, Ctrl-] or the window closed), not when it is killed by a signal. |
 | `-D dips` | The DIP switch byte, default 2, an 8-inch floppy boot. 1 boots a 5-inch floppy, 7 the SASI disk, 0 makes the ROM beep. |
 | `-f` | Run as fast as the host allows. |
 | `-T` | Draw in the terminal, not a window. |
@@ -53,6 +53,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-p frame.pgm` | With `-t`, also save the last frame as a PGM image. |
 | `-s sound.wav` | Record the beeps to a WAV file. |
 | `-l printer.txt` | A printer on the parallel port, saving what it prints. |
+
 | `-o ch:file` | Save what serial channel `a` or `b` sends. |
 | `-i ch:file[@secs]` | Feed a file to a serial channel, from `secs` emulated seconds on. The sender waits while the SIO's FIFO is full. |
 | `-I ch:file[@secs]` | The same, but the sender never waits, so unread bytes are lost. |
@@ -68,6 +69,11 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-G fdc.log` | Log each FDC command with its emulated time. |
 | `-g` | Debug sockets, Linux only, described at the top of `max80.c`. |
 | `-N name` | With `-g`, appends `_name` to each socket's name, `/tmp/max80_name.sock` and so on, so two emulators with `-g` can run at once. |
+
+No file `-l`, `-o`, `-G`, `-s`, `-p` or `-w` writes may be one the
+emulator reads, a loaded image, the ROM or an `-i` file, or one
+another of them writes: such a run is refused before anything is
+opened.
 
 The comment at the top of `max80.c` has each option in full.
 

@@ -433,6 +433,7 @@ static int mech;
 static unsigned long long head_ok;	/* no ID can be read before this */
 static unsigned long long motor_up;	/* nor on a 5-inch disk before this */
 static FILE *fdlog;			/* -G, a line for each command */
+static const char *fdlog_path, *prn_path;	/* -G, -l: opened once checked */
 static unsigned long mech_secs, mech_steps;
 static unsigned long long mech_wait, mech_first, mech_last;
 
@@ -1650,6 +1651,7 @@ static const unsigned baud_div[16] = {	/* COM8116, 16x clock, App B */
 static struct sio_chan {
 	uint8_t ptr, wr[8], baud;
 	FILE *in, *out;
+	const char *in_path, *out_path;	/* -i, -o */
 	unsigned long long shift_end;	/* the character being sent ends */
 	int buf;		/* a byte waiting to be sent + 1, or 0 */
 	unsigned long long rx_at;	/* -i a:file@s: the remote starts then */
@@ -3290,6 +3292,21 @@ static void folder_of(const char *path, char *out)
 		out[0] = 0;
 }
 
+/* The same file: one inode if both are there, else one folder and name */
+static int same_file(const char *a, const char *b)
+{
+	struct stat sa, sb;
+	char da[PATH_MAX], db[PATH_MAX], ta[PATH_MAX], tb[PATH_MAX];
+
+	if (stat(a, &sa) == 0 && stat(b, &sb) == 0)
+		return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+	folder_of(a, da);
+	folder_of(b, db);
+	snprintf(ta, sizeof ta, "%s", a);
+	snprintf(tb, sizeof tb, "%s", b);
+	return da[0] && !strcmp(da, db) && !strcmp(basename(ta), basename(tb));
+}
+
 /*
  * -w never writes over a loaded image, or into the folder one came from,
  * so an archived disk is never changed.
@@ -3711,10 +3728,7 @@ int main(int argc, char **argv)
 					"digits, '-', '_' and '.'\n"), 2;
 			inst = optarg;
 			break;
-		case 'l':
-			if (!(prn = fopen(optarg, "wb")))
-				return perror(optarg), 1;
-			break;
+		case 'l': prn_path = optarg; break;	/* opened once checked */
 		case 'o': case 'i': case 'I': {
 			struct sio_chan *ch;
 
@@ -3738,9 +3752,13 @@ int main(int argc, char **argv)
 				*at = 0;
 				ch->rx_at = (unsigned long long)(t * CPU_HZ);
 			}
-			if (opt == 'o' ? !(ch->out = fopen(optarg + 2, "wb"))
-			    : !(ch->in = fopen(optarg + 2, "rb")))
+			if (opt == 'o') {	/* opened once checked */
+				ch->out_path = optarg + 2;
+				break;
+			}
+			if (!(ch->in = fopen(optarg + 2, "rb")))
 				return perror(optarg + 2), 1;
+			ch->in_path = optarg + 2;
 			break;
 		}
 		case 'F': {
@@ -3839,11 +3857,7 @@ int main(int argc, char **argv)
 			mech = 1;
 			break;
 		case 'G':
-			fdlog = fopen(optarg, "w");
-			if (!fdlog) {
-				perror(optarg);
-				return 2;
-			}
+			fdlog_path = optarg;	/* opened once checked */
 			break;
 		case 'K':
 			caps_swap = 1;
@@ -3889,6 +3903,36 @@ int main(int argc, char **argv)
 		return fprintf(stderr, "-w h: no hard disk, give -h\n"), 2;
 	if (sasi.save && !save_allowed(sasi.save))
 		return 2;
+	/* No file written over one the emulator reads, a loaded image
+	   above all, nor two outputs in one file */
+	{
+		const char *ins[] = { disks[0].path, disks[1].path, disks[2].path,
+		    disks[3].path, sasi.path, rompath, sio[0].in_path,
+		    sio[1].in_path };
+		const char *outs[] = { prn_path, sio[0].out_path, sio[1].out_path,
+		    fdlog_path, wavpath, pgm, disks[0].save, disks[1].save,
+		    disks[2].save, disks[3].save, sasi.save };
+		int nin = sizeof ins / sizeof ins[0], nout = sizeof outs / sizeof outs[0];
+		for (int i = 0; i < nout; i++) {
+			if (!outs[i])
+				continue;
+			for (int j = 0; j < nin; j++)
+				if (ins[j] && same_file(outs[i], ins[j]))
+					return fprintf(stderr, "%s: a file the emulator "
+					    "reads, not written over\n", outs[i]), 2;
+			for (int j = 0; j < i; j++)
+				if (outs[j] && same_file(outs[i], outs[j]))
+					return fprintf(stderr, "%s: given twice as a "
+					    "file to write\n", outs[i]), 2;
+		}
+	}
+	if (prn_path && !(prn = fopen(prn_path, "wb")))
+		return perror(prn_path), 1;
+	for (int c = 0; c < 2; c++)
+		if (sio[c].out_path && !(sio[c].out = fopen(sio[c].out_path, "wb")))
+			return perror(sio[c].out_path), 1;
+	if (fdlog_path && !(fdlog = fopen(fdlog_path, "w")))
+		return perror(fdlog_path), 2;
 	f = fopen(rompath, "rb");
 	if (!f || fread(rom, 1, 512, f) != 512) {
 		fprintf(stderr, "%s: cannot read the 512-byte boot ROM\n", rompath);
