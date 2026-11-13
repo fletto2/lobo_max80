@@ -125,7 +125,7 @@ beep(void)
 
 /*
  * Caps Lock: xcpmz80 boots with it on, and VI's commands are case
- * sensitive. Off while VI runs, back as it was at the end (I278).
+ * sensitive. Off while VI runs, back as it was at the end.
  * KCAPS in src/common.asm, F52Fh: 0 on, 20h off. F1 still flips it.
  */
 #define KCAPS (*(volatile unsigned char *) 0xF52F)
@@ -139,7 +139,7 @@ windinit(void)
     oldcaps = KCAPS;
     KCAPS = 0x20;
     bdos(45, 0xFF);	/* a disk error returned, not a warm boot, which
-			   would lose the edits and Caps Lock (I286) */
+			   would lose the edits and Caps Lock */
 }
 
 void

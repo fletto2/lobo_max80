@@ -101,7 +101,7 @@ static void bye(void)
 	printf("atexit ran\r\n");
 }
 
-/* I290: errno, realloc giving back, memcmp of big buffers, printf's
+/* errno, realloc giving back, memcmp of big buffers, printf's
  * arguments after %ll and an unknown conversion, append after ^Z */
 static void i290(void)
 {
@@ -158,7 +158,7 @@ static void i290(void)
 	d1 = memcmp(cmpa, cmpb, sizeof(cmpa));
 	d2 = bcmp(cmpa, cmpb, sizeof(cmpa)) != 0;
 	i = memcmp(cmpa, cmpb, sizeof(cmpa) - 1);
-	/* I291: strnlen and strncpy read no more than n of a field with no
+	/* strnlen and strncpy read no more than n of a field with no
 	 * 0 in it, and a call whose copies do not fit says it failed */
 	cmpa[sizeof(cmpa) - 1] = cmpb[sizeof(cmpb) - 1] = 0;
 	cmpa[0] = 'a';
@@ -499,7 +499,7 @@ int main(void)
 	fgets(buf, sizeof(buf), stdin);
 	say("got %s", buf);
 	fclose(logf);
-	/* err and errx end through the program's exit (I290) */
+	/* err and errx end through the program's exit */
 	atexit(bye);
 	errx(0, "errx");
 	return 0;

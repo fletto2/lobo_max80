@@ -1020,8 +1020,8 @@ static int font_dirty = 1;	/* font RAM written since the style was read */
 static uint8_t vlatch, pio_a, pio_b, pio_mask[2], pio_mpend[2];
 static uint8_t crtc[18], crtc_idx;
 static uint8_t tick_flag;
-static int tick_fault = -1;	/* -F t:0 or t:1, SYSFLG's tick stuck (I294) */
-static int sio_gone;		/* -F u:0, no SIO: its registers read FFh (I294) */
+static int tick_fault = -1;	/* -F t:0 or t:1, SYSFLG's tick stuck */
+static int sio_gone;		/* -F u:0, no SIO: its registers read FFh */
 /*
  * The DIP switches at block+7F8h, bit 7 switch 1 to bit 0 switch 8, set
  * when up (TRM). The boot ROM takes bits 2-0, switches 6-8, as the boot
@@ -1418,7 +1418,7 @@ static void rtc_port_b(uint8_t old)
 {
 	uint8_t now = pio_b;
 	pio_b = old;		/* the seconds up to now count as HOLD was */
-	rtc_sync();		/* before this write (I301) */
+	rtc_sync();		/* before this write */
 	pio_b = now;
 	if ((old & 0x50) != 0x50 && (pio_b & 0x50) == 0x50 && rtc_held()) {
 		int a = pio_b & 0x0f;
@@ -1844,7 +1844,7 @@ static void io_write(int off, uint8_t v)
 	case 0x7f4: sasi_ctrl(v); break;
 	case 0x7f8: beep(); break;
 	case 0x7fc: pio_write(off & 3, v); break;
-	case 0x7e4:	/* -F u:0: no SIO to take it (I301) */
+	case 0x7e4:	/* -F u:0: no SIO to take it */
 		if (!sio_gone)
 			sio_write(off & 3, v);
 		break;
@@ -2624,7 +2624,7 @@ enum { K_UP = 0x80, K_DOWN, K_LEFT, K_RIGHT, K_F1, K_F2, K_F3, K_F4,
  * -K: type letters in the case written under xcpmz80, which boots with
  * Caps Lock on: SHIFT for lower case while it is on. Its flag is KCAPS,
  * F52Fh in the I/O block, so A1's 752Fh, 0 on and 20h off (VI turns it
- * off while it runs, I278), read as each key goes down.
+ * off while it runs), read as each key goes down.
  */
 static int caps_swap;
 
@@ -2675,7 +2675,7 @@ static int key_for(int ch, struct key *k)
 		return 1;
 	}
 	if (ch == '@') { k->row = 0; k->bit = 0; return 1; }
-	if (ch && strchr("`{|}~", ch)) {	/* SHIFT on @ [ \\ ] ^ (I282) */
+	if (ch && strchr("`{|}~", ch)) {	/* SHIFT on @ [ \\ ] ^ */
 		key_for(ch ^ 0x20, k);
 		k->shift = 1;
 		return 1;
@@ -3263,7 +3263,7 @@ static int dbg_open(void)
 	atexit(dbg_close);
 	signal(SIGTERM, dbg_term);
 	/* a client gone before its answer is a failed write, not the end
-	   of the emulator and its -w saves (I301) */
+	   of the emulator and its -w saves */
 	signal(SIGPIPE, SIG_IGN);
 	if (dbg_regs < 0 || dbg_mem < 0 || dbg_kbd < 0)
 		return 1;
@@ -3330,7 +3330,7 @@ static void free_tracks(struct disk *k)
 
 /* A disk swapped: the new image loaded aside, and only when it loads
    are drive d's tracks freed and the new ones put in. Not while the FDC
-   has a command going, which may hold a sector of the old disk (I282).
+   has a command going, which may hold a sector of the old disk.
    -w still saves the drive at exit, now this disk. 1 busy, -1 no disk */
 static int swap_disk(int d, const char *path)
 {
@@ -3444,7 +3444,7 @@ static void dbg_poll(void)
 	if (dbg_kbd >= 0 && dbg_kbdcl < 0 && (dbg_kbdcl = accept(dbg_kbd, NULL, NULL)) >= 0)
 		fcntl(dbg_kbdcl, F_SETFL, O_NONBLOCK);
 	/* read only while the key queue has room, so the socket holds the
-	   rest and nothing is lost (I282) */
+	   rest and nothing is lost */
 	if (dbg_kbdcl >= 0 && (keyq_head - keyq_tail - 1 + KEYQ) % KEYQ >= 64) {
 		char in[64];
 		int n = read(dbg_kbdcl, in, sizeof(in));
@@ -3515,7 +3515,7 @@ int main(int argc, char **argv)
 			break;
 		}
 		case 'f': fast = 1; break;
-		case 'k': {	/* the queue holds KEYQ - 1 (I282) */
+		case 'k': {	/* the queue holds KEYQ - 1 */
 			int n;
 			unescape(optarg, &n);
 			if (n >= KEYQ - 1) {
@@ -3529,7 +3529,7 @@ int main(int argc, char **argv)
 		case 't':
 			seconds = atof(optarg);
 			fast = 1;
-			/* 0 was taken and ran for ever (I301) */
+			/* 0 was taken and ran for ever */
 			if (!(seconds > 0 && seconds <= 1e7))
 				return fprintf(stderr, "-t: seconds, more than 0, "
 				    "10000000 at most\n"), 2;
@@ -3566,9 +3566,9 @@ int main(int argc, char **argv)
 			char *end = NULL;
 			double t = at ? strtod(at + 1, &end) : 0;
 			if (at && (end == at + 1 || *end))
-				at = NULL;	/* not a time: part of the name (I282) */
+				at = NULL;	/* not a time: part of the name */
 			if (at) {	/* a:file@seconds: the first byte comes then */
-				if (!(t >= 0 && t <= 1e7))	/* NaN too (I301) */
+				if (!(t >= 0 && t <= 1e7))	/* NaN too */
 					return fprintf(stderr, "-i: a time of 0 to "
 					    "10000000 seconds\n"), 2;
 				*at = 0;
@@ -3593,7 +3593,7 @@ int main(int argc, char **argv)
 				break;
 			}
 			/* d's second is decimal, read so before the range
-			   check (I301) */
+			   check */
 			int dec = optarg[0] == 'd' && optarg[1] == ':';
 			if (dec ? sscanf(optarg, "%c:%u:%u", &kind, &addr, &bit) != 3 ||
 			    bit > 7 :

@@ -4,7 +4,7 @@
 # name a program calls, the signature (clib/marshal.c), and the
 # library's function when it has another name. A signature's first
 # letter is its result: v a value, n a value that is negative, -1 or
-# EOF, when the call fails (I291), p, r, t and f as in marshal.c.
+# EOF, when the call fails, p, r, t and f as in marshal.c.
 0	__clib_init	v iiii
 # stdio
 1	fopen	v ss
@@ -192,6 +192,6 @@
 176	cpm_findnext	v d
 177	cpm_filesize	v s
 # err and errx are the program's, clibr/side.c, so its atexit
-# functions run (I290); 148 and 149 stay for programs built before
+# functions run; 148 and 149 stay for programs built before
 178	vwarn	v FV
 179	vwarnx	v FV

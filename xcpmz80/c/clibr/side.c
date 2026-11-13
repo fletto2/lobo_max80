@@ -37,7 +37,7 @@ void exit(int code) __LIB
 	__clib_exit(code);
 }
 
-/* err and errx here, so they end through the exit above (I290) */
+/* err and errx here, so they end through the exit above */
 void err(int code, const char *fmt, ...) __LIB
 {
 	va_list ap;

@@ -279,7 +279,7 @@ f10_1:	ex	de,hl
 	ld	(lnend),a
 	call	rdline
 	ld	hl,(bparam)		; count and text back to the program, a
-	inc	hl			; byte at a time: up to 255 (I283)
+	inc	hl			; byte at a time: up to 255
 	ld	a,(lnlen)
 	call	upoke
 	or	a
@@ -346,7 +346,7 @@ rl2:	ld	b,a			; into the line
 	ld	a,b
 	call	ctlout
 	ld	a,(lnmax)		; full: the line ends, as CP/M's does
-	ld	hl,lnlen		; (I283)
+	ld	hl,lnlen		;
 	cp	(hl)
 	ret	nz
 rlend:	pop	hl			; the line is done

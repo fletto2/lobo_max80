@@ -135,7 +135,7 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	neg
 	ld	(ix+D_FAT16),a
 	ld	l,(ix+D_MAXCL)		; sectors per FAT enough for the
-	ld	h,(ix+D_MAXCL+1)	; entries, 0 to the highest (I260)
+	ld	h,(ix+D_MAXCL+1)	; entries, 0 to the highest
 	inc	hl
 	or	a
 	jr	z,mt12
@@ -188,7 +188,7 @@ umount:	push	af
 	jp	bforget
 
 ; Drive A is unmounted: its fresh cluster is forgotten, never zeroed
-; on a disk that may have been changed since (I299). Keeps A.
+; on a disk that may have been changed since. Keeps A.
 frlose:	ld	hl,frdrv
 	inc	a
 	cp	(hl)

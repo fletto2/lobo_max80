@@ -59,7 +59,7 @@ void errx(int code, const char *fmt, ...) __LIB
 }
 
 /* the message alone: the resident library's err and errx are these
- * and the program's own exit, which runs its atexit functions (I290) */
+ * and the program's own exit, which runs its atexit functions */
 void vwarn(const char *fmt, va_list ap) __LIB
 {
 	say(1, fmt, ap);

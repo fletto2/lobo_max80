@@ -880,7 +880,7 @@ static void zsave(void)
 	u8 ok = 0;
 	u16 st[4];
 
-	if (askname("Save") &&	/* not over the story itself (I287) */
+	if (askname("Save") &&	/* not over the story itself */
 	    strcasecmp(basename_of(line), basename_of(storyname)) != 0) {
 		makehdr();
 		st[0] = pcpage;

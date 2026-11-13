@@ -42,7 +42,7 @@ def main():
     args = sys.argv[1:]
     jobs = os.cpu_count() or 4
     if args[:1] == ['-j']:
-        jobs = max(1, int(args[1]))  # -j 0 started none (I289)
+        jobs = max(1, int(args[1]))  # -j 0 started none
         args = args[2:]
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.chdir(here)
@@ -59,7 +59,7 @@ def main():
                          % (len(parts), ' '.join(args)))
     for cmd in PREBUILD:
         # A failed build is said, the parts' own makes then fail as
-        # tests (I289). Not fatal: bascom/ is not in every tree.
+        # tests. Not fatal: bascom/ is not in every tree.
         if subprocess.call(cmd, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL):
             print('testparts: failed: ' + ' '.join(cmd), file=sys.stderr)

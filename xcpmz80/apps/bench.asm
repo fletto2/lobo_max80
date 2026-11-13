@@ -237,7 +237,7 @@ empty:	ld	de,msgemp
 	call	puts
 	jp	0
 noclock: ld	c,1			; the key read, not left for the
-	call	BDOS			; prompt after (I302)
+	call	BDOS			; prompt after
 	ld	de,msgclk
 	call	puts
 	jp	0

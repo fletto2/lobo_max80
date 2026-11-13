@@ -57,7 +57,7 @@ unsigned int __r_memmove(unsigned int d, unsigned int s, unsigned int n) __LIB
 }
 
 /* memcmp and bcmp in pieces: both copied whole, two buffers over the
- * arena's room gave 0, equal (I290) */
+ * arena's room gave 0, equal */
 int __r_memcmp(unsigned int a, unsigned int b, unsigned int n) __LIB
 {
 	unsigned char x[PIECE / 2], y[PIECE / 2];

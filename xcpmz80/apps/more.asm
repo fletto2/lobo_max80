@@ -55,7 +55,7 @@ quit:	ld	c,9
 	jp	0
 
 ; A character to the screen, counting columns and lines
-show:	and	7Fh			; bit 7 off, as the console (I302)
+show:	and	7Fh			; bit 7 off, as the console
 	cp	9
 	jr	z,sh_tab
 	cp	13
@@ -63,7 +63,7 @@ show:	and	7Fh			; bit 7 off, as the console (I302)
 	cp	10
 	jr	z,sh_lf
 	cp	' '
-	jr	c,sh_ctl		; other controls as ^X, counted (I302)
+	jr	c,sh_ctl		; other controls as ^X, counted
 	cp	7Fh
 	jr	z,sh_ctl
 	call	out
@@ -91,7 +91,7 @@ sh_cr:	xor	a
 	ld	a,13
 	jr	out
 sh_lf:	ld	a,10			; down a row, the column kept, as
-	call	out			; the console does (I302)
+	call	out			; the console does
 newln:	ld	hl,line
 	inc	(hl)
 	ld	a,(hl)
@@ -103,7 +103,7 @@ mo_pr:	ld	de,m_more
 	call	BDOS
 mo_key:	ld	c,1			; not 6: DRI's BDOS 2.2 keeps a key
 	call	BDOS			; typed while the screen filled in
-					; a buffer that only 1 reads (I280).
+					; a buffer that only 1 reads.
 					; Its echo goes with the prompt.
 	cp	' '
 	ld	b,0			; a new screen
@@ -117,7 +117,7 @@ mo_key:	ld	c,1			; not 6: DRI's BDOS 2.2 keeps a key
 	cp	'Q'
 	jr	z,mo_q
 	ld	de,m_wipe		; another key: its echo off, and the
-	ld	c,9			; prompt again (I302)
+	ld	c,9			; prompt again
 	call	BDOS
 	jr	mo_pr
 mo_q:	ld	de,m_wipe		; Q or ^C: the prompt off, and out

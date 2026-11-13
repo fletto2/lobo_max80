@@ -1479,7 +1479,7 @@ ci2:	call	blinkon			; shown again for the program
 	ld	a,(KTAKE)
 	ld	l,a
 	ld	h,high KRING
-	ld	c,(hl)			; read before the slot is freed (I283)
+	ld	c,(hl)			; read before the slot is freed
 	inc	a
 	and	7Fh
 	ld	(KTAKE),a

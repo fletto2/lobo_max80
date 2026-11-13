@@ -46,7 +46,7 @@ sdr_1:	ld	(dircl),hl
 ; this disk, which may have been changed, back to the root. Its first
 ; entry must be "." with the folder's own cluster, and the folder above
 ; must name it as its path ends: two disks made alike can have another
-; folder at the same cluster (I260). Leaves spat and dpos changed.
+; folder at the same cluster. Leaves spat and dpos changed.
 cwdchk:	ld	a,(drvnum)
 	call	cwdptr
 	push	hl
@@ -222,7 +222,7 @@ dn_0:	ld	(dpos),hl
 dn_1:	ld	hl,(dpos)
 	inc	hl
 	ld	a,h			; past entry FFFFh: a full folder
-	or	l			; whose chain goes round (I299)
+	or	l			; whose chain goes round
 	jr	z,dn_full
 	jr	dn_0
 dn_2:	ld	a,(hl)
@@ -515,7 +515,7 @@ dsany:	ld	a,A_DIR
 
 ; HL = the first cluster of the folder spat names in dircl, Z. dpos is
 ; its entry. NZ, A = E_NOPATH if there is none, or its cluster is out of
-; range on a damaged disk (I260). 0 is the root, as ".." has it.
+; range on a damaged disk. 0 is the root, as ".." has it.
 wpfind:	ld	a,A_DIR
 	ld	(dsdirs),a
 	call	dsfirst

@@ -64,7 +64,7 @@ int __mkfcb(unsigned char *fcb, const char *s)
 		field(fcb + 9, &s, 3);
 	}
 	/* ".TXT" has no name, and a path, a second colon or a character
-	 * CP/M keeps out of names would be in the FCB's (I291) */
+	 * CP/M keeps out of names would be in the FCB's */
 	if (fcb[1] == ' ')
 		return -1;
 	{
@@ -173,7 +173,7 @@ FILE *__fopen(FILE *f, const char *name, const char *mode)
 						k++;
 					/* what was after the ^Z, from another
 					 * program, not shown after the new
-					 * text (I290) */
+					 * text */
 					memset(f->buf + k, 0x1a, 128 - k);
 				} else
 					k = 128;

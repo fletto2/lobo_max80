@@ -17,7 +17,7 @@ RD	equ	20h
 	call	rtread
 	ld	hl,regs+5		; hours tens: bit 3 24-hour, bit 2 PM
 	ld	a,(hl)
-	ld	(h10),a			; for AM or PM (I302)
+	ld	(h10),a			; for AM or PM
 	and	03h
 	ld	(hl),a
 	ld	hl,regs+8		; date tens: bit 2 leap year
@@ -45,7 +45,7 @@ cl_2:	push	hl
 	pop	hl
 	jr	cl_1
 
-; In 12-hour mode AM or PM after the time (I302)
+; In 12-hour mode AM or PM after the time
 cl_end:	ld	a,(h10)
 	ld	de,m_crlf
 	bit	3,a

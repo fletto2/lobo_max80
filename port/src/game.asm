@@ -1040,7 +1040,7 @@ ln_3:	pop	bc
 	jr	z,ln_4		; a hole
 	ld	a,(nrows)	; 4 at most: a full row moved down from
 	cp	4		; rows 0-1, never checked, could make 5
-	jr	z,ln_4		; (I284). The rest go at the next lock.
+	jr	z,ln_4		;. The rest go at the next lock.
 	ld	(hl),b
 	inc	hl
 	inc	a

@@ -127,7 +127,7 @@ readcmdline(char firstc, char *cmdline)
 		continue;
 	    }
 	    if (p >= buff + CMDBUFFSIZE - 3)
-		continue;	/* full: buff and the bottom row (I286) */
+		continue;	/* full: buff and the bottom row */
 	    if (literal_next_flag) {
 		literal_next_flag = FALSE;
 		outchar('\b');

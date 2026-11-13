@@ -1,6 +1,6 @@
 /*
  * Devices driven through the I/O block and the PIO the way programs do
- * it (I301): the clock chip's count across a HOLD pulse with -C, and
+ * it: the clock chip's count across a HOLD pulse with -C, and
  * the SIO taken out with -F u:0 taking no writes. Built with max80.c
  * itself, its main renamed.
  */

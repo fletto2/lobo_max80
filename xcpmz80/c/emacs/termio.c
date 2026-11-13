@@ -18,7 +18,7 @@ static void flush_obuf(void)
 {
     int i;
     /* FDh-FFh are function 6's input requests: those without bit 7,
-       which the console drops anyway (I286) */
+       which the console drops anyway */
     for (i = 0; i < obuf_len; i++)
         bdos(6, (obuf[i] & 0xFF) >= 0xFD ? obuf[i] & 0x7F : obuf[i] & 0xFF);
     obuf_len = 0;
@@ -29,7 +29,7 @@ static void flush_obuf(void)
  */
 int ttopen(void)
 {
-    bdos(45, 0xFF);	/* a disk error returned, not a warm boot (I286) */
+    bdos(45, 0xFF);	/* a disk error returned, not a warm boot */
     return (TRUE);
 }
 

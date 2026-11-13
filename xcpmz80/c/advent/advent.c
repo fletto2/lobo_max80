@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 		limit = 330;
 	saveflg = 0;
 	srand(511); /* seed random	*/
-	for (;;) {	/* a SAVE that fails plays on (I287) */
+	for (;;) {	/* a SAVE that fails plays on */
 		while (!saveflg)
 			turn();
 		if (saveadv())
@@ -205,7 +205,7 @@ void opentxt(void)
 }
 
 /* What a saved game holds, in order: SAVE writes it and RESTORE reads
-   it all before it changes any of it (I287) */
+   it all before it changes any of it */
 static struct { int *p; int n; } savetab[] = {
 	{ &turns, 1 },
 	{ &loc, 1 },
@@ -258,7 +258,7 @@ int saveadv(void)
 	savefile(1, nm, sizeof(nm));
 
 	fp = fopen(nm, "wb");
-	if (!fp) {	/* the game goes on, to try another name (I287) */
+	if (!fp) {	/* the game goes on, to try another name */
 		warn("Sorry, I cannot save your game to %s", nm);
 		return 0;
 	}
@@ -295,7 +295,7 @@ void restore(void)
 		warn("Failed reading saved gave file, %s, data format error", nm);
 		free(buf);
 		fclose(fp);
-		return;	/* the game as it was (I287) */
+		return;	/* the game as it was */
 	}
 	fclose(fp);
 	for (q = buf, i = 0; i < NSAVE; q += savetab[i].n, i++)
@@ -340,7 +340,7 @@ char *savefile(int save, char *path, size_t len)
 			*sptr = '\0'; /* kill extension	*/
 	}
 
-	{	/* max 8 char filename, after a drive or folder (I287) */
+	{	/* max 8 char filename, after a drive or folder */
 		char *base = fn, *sp;
 		for (sp = fn; *sp; sp++)
 			if (*sp == ':' || *sp == '\\' || *sp == '/')

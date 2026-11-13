@@ -1144,7 +1144,7 @@ ch_1:	call	pmsg
 ; Take the last line of A:$$$.SUB into linebuf, NUL ended, and cut it
 ; off, or with subact 2 the next line of subbuf. NZ when there is none
 ; left (and subact is cleared). subact 3: a $$$.SUB that could not be
-; cut, so none until the next SUBMIT (I281).
+; cut, so none until the next SUBMIT.
 subline: ld	a,(subact)
 	cp	3
 	jr	z,sl_off
@@ -1181,7 +1181,7 @@ sl_file: ld	hl,subname
 	pop	hl			; cut the record off
 	ld	a,h			; record 0, the last line: the file
 	or	l			; goes. Not the size's low 16 bits,
-	jr	z,sl_del1		; 0 at record 512 too (I281)
+	jr	z,sl_del1		; 0 at record 512 too
 	ld	a,h
 	ld	h,l
 	ld	l,0

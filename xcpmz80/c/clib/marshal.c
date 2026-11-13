@@ -136,7 +136,7 @@ unsigned int __ustrlen(unsigned int us) __LIB
 	}
 }
 
-/* the length of the program's string, no more than max (I291) */
+/* the length of the program's string, no more than max */
 static unsigned int ustrnlen(unsigned int us, unsigned int max)
 {
 	unsigned char tmp[CHUNK], i;
@@ -307,7 +307,7 @@ static unsigned char *fmtargs(const char *fmt, unsigned char *a)
 				a += 2;
 				break;
 			default:	/* %% and unknown ones take none, as in
-					 * lib/vfmt.c (I290) */
+					 * lib/vfmt.c */
 				break;
 			}
 		}
@@ -437,7 +437,7 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	csig = NULL;
 	/* the program's errno, which it may have set or cleared, is the
 	 * library's for the call: one the same as the last call's error was
-	 * never written back, and perror printed the library's own (I290) */
+	 * never written back, and perror printed the library's own */
 	if (uerrno)
 		errno = __ugetw(uerrno);
 	/* the arena: in A1, above the heap and its margin */
@@ -454,7 +454,7 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	if (abot < afloor)
 		afloor = abot;
 	if (n >= __clib_n || !__clib_tab[n].fn)
-		goto full;	/* not the last call's result (I290) */
+		goto full;	/* not the last call's result */
 	sig = __clib_tab[n].sig;
 	while (*sig && *sig != ' ')
 		sig++;
@@ -518,7 +518,7 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 		case 'z':
 			/* a string read, no more than argument N's bytes of
 			 * it and a 0: strnlen's, strncpy's, on a field with
-			 * no 0 in it (I291) */
+			 * no 0 in it */
 			{
 				unsigned int u = word(a), len;
 				if (u && u < 0x8000u) {
@@ -606,10 +606,10 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	return __clib_tab[n].fn;
 full:
 	errno = ENOMEM;
-	if (uerrno)		/* the program sees why (I290) */
+	if (uerrno)		/* the program sees why */
 		__uputw(uerrno, ENOMEM);
 	/* a failure as the function gives one: -1 or EOF for those marked
-	 * n in clib.lst, which 0 told were done or equal (I291), else 0 */
+	 * n in clib.lst, which 0 told were done or equal, else 0 */
 	__clib_res[0] = __clib_res[1] = n < __clib_n && __clib_tab[n].fn
 	    && __clib_tab[n].sig[0] == 'n' ? 0xFFFFu : 0;
 	return 0;

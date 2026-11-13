@@ -39,7 +39,7 @@ static void merge(unsigned int *b)
 }
 
 /* b in use cut to sz, the rest freed when there are 4 bytes or more
- * (I290): realloc smaller gave nothing back, and grown in place it kept
+ *: realloc smaller gave nothing back, and grown in place it kept
  * the whole free block after it */
 static void trim(unsigned int *b, unsigned int sz)
 {

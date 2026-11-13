@@ -18,7 +18,7 @@ export SESSION_LOG
 : >$SESSION_LOG
 
 check() {	# name, text to find, output
-	if [ -z "$2" ]; then	# a failed $(...): nothing to look for (I288)
+	if [ -z "$2" ]; then	# a failed $(...): nothing to look for
 		echo "FAIL $1: no text to look for"
 		fail=1
 		return
@@ -326,7 +326,7 @@ printf '%s\n' "$out" | grep -q "CMD1?" &&
 
 # A file saved on B: leaves the rest of its last cluster to be zeroed.
 # B:'s disk swapped and ^C, then a file saved on A:: the zeros are not
-# written to the new disk in B:, on its F.TXT (I299)
+# written to the new disk in B:, on its F.TXT
 python3 -c "open('$T/FZ.TXT', 'wb').write(b'x' * 1024)"
 mkdisk $T/fza.imd >/dev/null
 python3 tools/mkdisk.py $SYS --pc 720 $T/fz1.imd >/dev/null
@@ -336,7 +336,7 @@ python3 tools/session.py "-a $T/fza.imd -b $T/fz1.imd -w b:$T/out/fz.imd" \
 	'save 1 b:x.com\r' '@?>' "@!disk b $T/fz2.imd" '\x03' @10 \
 	'save 1 y.com\r' '@?>' >/dev/null
 getfile $T/out/fz.imd FZ.TXT $T/out/FZ.TXT
-same "a fresh cluster on a disk swapped out is not zeroed on the new one (I299)" $T/FZ.TXT $T/out/FZ.TXT
+same "a fresh cluster on a disk swapped out is not zeroed on the new one" $T/FZ.TXT $T/out/FZ.TXT
 #PART
 
 
@@ -431,7 +431,7 @@ check "ESC * clears, ESC E inserts a line, ESC R deletes one" "NEW|L1|L2|L3|" "$
 if [ "$(uname)" = Linux ]; then
 	# The C programs, built with SDCC when it is there: CTEST
 	# checks the CP/M C library, ADVENT plays, saves and restores
-	# A build that fails is a FAIL, not a skip (I288)
+	# A build that fails is a FAIL, not a skip
 	if [ -x "${SDCC_BIN:-/opt/cross/sdcc-4.6.0/bin}/sdcc" ]; then
 		make -s -C c >/dev/null 2>&1 ||
 			{ echo "FAIL the C programs do not build: make -C c"; fail=1; }
@@ -482,17 +482,17 @@ if [ "$(uname)" = Linux ]; then
 		check "C: rename" "rename -1 0" "$out"
 		check "C: ungetc and fscanf" "fscanf l 0" "$out"
 		check "C: a library call gives back the interrupts on, and off" "iff 1 1 0" "$out"
-		check "C: errno set the same as the last error reaches the program (I290)" "errno 1 1 0" "$out"
-		check "C: realloc smaller gives the rest back (I290)" "shrink same reused" "$out"
-		check "C: realloc grown in place leaves the rest free (I290)" "grow same reused" "$out"
-		check "C: memcmp and bcmp of buffers under 8000h bigger than the room left (I290)" "bigcmp -1 1 0 1" "$out"
-		check "C: strnlen and strncpy read no more than n, a call with no room fails (I291)" "strn 5 ok ammmm 1" "$out"
-		check "C: a blank name, a path or a second colon is refused (I291)" "names 1 1 1 1" "$out"
-		check "C: printf takes no argument for an unknown conversion (I290)" "unknown [j ok]" "$out"
-		check "C: printf's %lld takes 8 bytes (I290)" "lld [5 ok]" "$out"
-		check "C: append to a text file with bytes after its ^Z (I290)" "append [abcd]" "$out"
+		check "C: errno set the same as the last error reaches the program" "errno 1 1 0" "$out"
+		check "C: realloc smaller gives the rest back" "shrink same reused" "$out"
+		check "C: realloc grown in place leaves the rest free" "grow same reused" "$out"
+		check "C: memcmp and bcmp of buffers under 8000h bigger than the room left" "bigcmp -1 1 0 1" "$out"
+		check "C: strnlen and strncpy read no more than n, a call with no room fails" "strn 5 ok ammmm 1" "$out"
+		check "C: a blank name, a path or a second colon is refused" "names 1 1 1 1" "$out"
+		check "C: printf takes no argument for an unknown conversion" "unknown [j ok]" "$out"
+		check "C: printf's %lld takes 8 bytes" "lld [5 ok]" "$out"
+		check "C: append to a text file with bytes after its ^Z" "append [abcd]" "$out"
 		out=$(python3 tools/session.py "-a $T/ct.imd" 'ctest\r' '@?name?' 'Walrus\r' '@?A:\>')
-		check "C: errx runs the program's atexit functions (I290)" "atexit ran" "$out"
+		check "C: errx runs the program's atexit functions" "atexit ran" "$out"
 		mkdisk $T/ct0.imd $C/CTEST.COM
 		out=$(python3 tools/session.py "-a $T/ct0.imd" 'ctest\r' @20)
 		check "C: with no CLIB.SYS a program says so" "Needs xcpmz80 and its C library, CLIB.SYS" "$out"
@@ -513,7 +513,7 @@ if [ "$(uname)" = Linux ]; then
 		check "and a game saved is restored" "Game restored from mygame.adv" "$out"
 		check "where it was" "You're inside building." "$out"
 		check "and XYZZY goes on from there" "It is now pitch dark." "$out"
-		# I287: a RESTORE of a short file leaves the game as it was, a
+		# a RESTORE of a short file leaves the game as it was, a
 		# SAVE to a name that cannot be made plays on
 		printf 'XXXXXXXXXX' >$T/SHORT.ADV
 		mkdisk $T/adv2.imd $C/CLIB.SYS $C/ADVENT.COM $C/ADVENT1.TXT $C/ADVENT2.TXT \
@@ -522,7 +522,7 @@ if [ "$(uname)" = Linux ]; then
 			'in\r' @20 'restore\r' @20 'short\r' @20 'look\r' @20 \
 			'suspend\r' @20 'q:bad\r' @20 \
 			'inventory\r' @20)
-		check "ADVENT: a short saved game is refused (I287)" "data format error" "$out"
+		check "ADVENT: a short saved game is refused" "data format error" "$out"
 		check "and the game is where it was" "=1=" \
 			"=$(printf '%s\n' "$out" | sed -n '/data format error/,$p' | grep -c 'You are inside a building')="
 		check "a SAVE that cannot be made says so" "Sorry, I cannot save your game to q:bad.adv" "$out"
@@ -566,7 +566,7 @@ if [ "$(uname)" = Linux ]; then
 			check "and takes inventory" "You are empty-handed." "$out"
 			out=$($EMU -a $T/zk.imd -T -t 60 -e "$ZP" -k 'zork zork1.dat\r$verify\r')
 			check "and VERIFY reads all of the story file" "The disk is correct." "$out"
-			# a save under the story's own name fails, the story kept (I287)
+			# a save under the story's own name fails, the story kept
 			out=$($EMU -a $T/zk.imd -T -t 60 -e "$ZP" -w a:$T/out/zk2.imd \
 				-k 'zork zork1.dat\rsave\rzork1.dat\rnorth\r')
 			check "ZORK will not save over its story" "Failed." "$out"
@@ -698,7 +698,7 @@ DMGEOF
 		check "and the disk is there after it" "C: DA       TXT : DB       TXT" "$out"
 		check "a folder whose first cluster is 1, on the root, is not entered" "No folder" "$out"
 		# A full folder whose one cluster points to itself: a new
-		# entry there, which went round for ever, fails (I299)
+		# entry there, which went round for ever, fails
 		for i in $(seq 1 62); do echo $i >$T/H$i.TXT; done
 		python3 tools/mkdisk.py $SYS --hd 1 $T/dl.img \
 			--in H $(for i in $(seq 1 62); do echo $T/H$i.TXT; done) >/dev/null
@@ -707,7 +707,7 @@ DMGEOF
 		rm -f $T/out/dl.img
 		out=$($EMU -a $T/wf.imd -h $T/dl.img -w h:$T/out/dl.img -T -t 1500 \
 			-e 'A:\>' -k 'save 1 c:\\h\\new.com\r' | tr -d '\r')
-		check "a new file in a full folder that goes round fails (I299)" "No file" "$out"
+		check "a new file in a full folder that goes round fails" "No file" "$out"
 		n=$(cmp $T/dl.img $T/out/dl.img && echo same)
 		check "and the disk is left as it was" "same" "$n"
 		# A BPB that does not add up is not mounted: 3 sectors a
@@ -891,7 +891,7 @@ EOF
 		check "VI: the back arrow rubs out on the : line" "A: VI       TXT" "$out"
 		getfile $T/out/vi3.imd VI.TXT $T/out/VI3.TXT
 		check "and while typing" "XQone two three" "$(head -1 $T/out/VI3.TXT)"
-		# I286: VI on a .BAK saves it in place, a write to a
+		# VI on a .BAK saves it in place, a write to a
 		# write-protected disk is VI's own message, not a warm boot,
 		# and the file is left, a : line of 100 keys is cut, not run
 		# over the stack. EMACS shows an FDh byte as }, not a wait.
@@ -901,7 +901,7 @@ EOF
 			$T/FD.TXT >/dev/null
 		out=$(python3 tools/session.py "-a $T/vk.imd -w a:$T/out/vk.imd" \
 			'vi notes.bak\r' @40 'x' ':w\r' @20 ':q\r' @20 'dir notes.*\r' @10)
-		check "VI saves a .BAK in place (I286)" "A: NOTES    BAK" "$out"
+		check "VI saves a .BAK in place" "A: NOTES    BAK" "$out"
 		getfile $T/out/vk.imd NOTES.BAK $T/out/NOTES.BAK
 		check "with the change" "=ne=" "=$(head -1 $T/out/NOTES.BAK | tr -d '\r')="
 		out=$(python3 tools/session.py "-a $T/vk.imd -R a" 'vi vi.txt\r' @40 'x' ':w\r' @20)
@@ -1037,7 +1037,7 @@ EOF
 		# The apps disk: boots, loads CLIB.SYS, and runs the programs on
 		# it, on 8-inch and 5.25-inch
 		make -s apps >/dev/null 2>&1 ||
-			{ echo "FAIL make apps"; fail=1; }	# not tested as it was (I288)
+			{ echo "FAIL make apps"; fail=1; }	# not tested as it was
 		out=$(python3 tools/session.py "-a build/apps.imd" @10 'dir\r' @20 'zork\r' @20)
 		check "the apps disk loads CLIB.SYS" "C library loaded" "$out"
 		check "and has the C programs" "CLIB     SYS : VI       COM" "$out"
@@ -1080,7 +1080,7 @@ check "CLOCK reads the date from the clock chip" "$(date +%m/%d/%y) " "$out"
 n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} [0-2][0-9]:[0-5][0-9]:[0-5][0-9]$')
 check "and the time, every digit" "=1=" "=$n="
 # The clock put in 12-hour mode, PM, by a program with TIME SET held
-# (-C): the hours tens written as 5, then CLOCK says PM (I302)
+# (-C): the hours tens written as 5, then CLOCK says PM
 cat >$T/h12.asm <<'EOW'
 	org	100h
 	ld	a,0CFh			; port A all outputs, for the digit
@@ -1109,7 +1109,7 @@ EOW
 mkdisk $T/clk12.imd build/CLOCK.COM $T/H12.COM >/dev/null
 out=$($EMU -C -a $T/clk12.imd -T -t 15 -e 'A:\>' -k 'h12\rclock\r' | tr -d '\r')
 n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} 1[0-9]:[0-5][0-9]:[0-5][0-9] PM$')
-check "CLOCK in 12-hour mode says PM (I302)" "=1=" "=$n="
+check "CLOCK in 12-hour mode says PM" "=1=" "=$n="
 
 # BENCH reads BENCH.DAT over and over for 30 clock seconds.
 # With the drives' mechanics (-M) a pass of 40000 bytes takes seconds.
@@ -1123,9 +1123,9 @@ mkdisk $T/nb.imd build/BENCH.COM >/dev/null
 out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
 check "BENCH says No file" "No file" "$out"
 # A key typed while BENCH waits for the clock stops it, and is read,
-# not left at the prompt after (I302)
+# not left at the prompt after
 out=$($EMU -a $T/bn.imd -T -t 20 -e 'A:\>' -k 'bench\Ez\P\P' | tr -d '\r')
-check "a key stops BENCH's wait and is not left for the prompt (I302)" \
+check "a key stops BENCH's wait and is not left for the prompt" \
 	"does not change A:\> " \
 	"$(printf '%s\n' "$out" | grep -v '^ *$' | tail -2 | tr '\n' ' ')"
 mkdir -p $T/be $T/bd	# BENCH.DAT itself is for the tests below
@@ -1144,7 +1144,7 @@ check "and a \$ in the tag is shown as a space, the line whole" "=1=" "=$n="
 # faster than a sector a command at any interleave. Other disks read a
 # sector at a time, as fast as before. 1.44M as a PC lays it out, with
 # no skew, its 18 sectors read 17 and 1, the last a turn later, as the
-# track buffer holds 17 (I260). Records a second, at least:
+# track buffer holds 17. Records a second, at least:
 benchrate() {	# image, emulator options: BENCH's records a second
 	$EMU $2 -a $1 -T -M -L -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P' |
 		awk '/^xxxxxxxxxxxxxxxx / { r = int($3 / $4) } /^Lost Data: / { l = $3 } END { print r, l }'
@@ -1315,7 +1315,7 @@ check "and shows tabs and the end" "        x       0000" "$out"
 check "and ends at the end" "last A:\> " "$(last2 "$out")"
 out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'q' @20)
 check "and Q stops it" "line 23 A:\> " "$(last2 "$out")"
-# Lines that wrap where MORE did not count them (I302): LF alone keeps
+# Lines that wrap where MORE did not count them: LF alone keeps
 # the column, as the console does, a form feed shows as ^L, and wrong
 # keys at --More-- leave nothing on the screen. The first screen still
 # holds the first line at the first --More--
@@ -1323,7 +1323,7 @@ for i in $(seq 1 40); do printf 'L%02d %049d\n' $i 0; done >$T/MLF.TXT
 for i in $(seq 1 40); do printf '\014R%02d %075d\r\n' $i 0; done >$T/MFF.TXT
 mkdisk $T/more2.imd build/MORE.COM $T/MLF.TXT $T/MFF.TXT >/dev/null
 out=$(python3 tools/session.py "-a $T/more2.imd" 'more mlf.txt\r' @20)
-check "MORE counts the wraps of lines ended by LF alone (I302)" "L01 " "$out"
+check "MORE counts the wraps of lines ended by LF alone" "L01 " "$out"
 out=$(python3 tools/session.py "-a $T/more2.imd" 'more mff.txt\r' @20)
 check "and of lines with a form feed in them" "^LR01 " "$out"
 out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'abcdefg' @20 ' ' @20)
@@ -1519,10 +1519,10 @@ check "SAVE 2 left A.TXT as it was" "A.TXT        2" "$out"
 check "SAVE 200 saves 200 pages" "BIG.COM      51200" "$out"
 check "DIR of a folder shows the folders in it" "A: SUB\\" "$out"
 check "REN works on the old name's drive" "B: NEW      TXT" "$out"
-# REN with the folder in the new name too renames in that folder (I298)
+# REN with the folder in the new name too renames in that folder
 out=$($EMU -a $T/sh2.imd -T -t 60 -e 'A:\>' -k 'md x\rcopy old.txt x\rren x\\h.txt=x\\old.txt\rdir x\\\r')
-check "REN takes the folder in the new name (I298)" "A: H        TXT" "$out"
-# COPY and MV of more files than one pass holds, 64: all 70 go (I298)
+check "REN takes the folder in the new name" "A: H        TXT" "$out"
+# COPY and MV of more files than one pass holds, 64: all 70 go
 mkdir -p $T/n70
 for i in $(seq 10 79); do echo "file $i" >$T/n70/F$i.TXT; done
 mkdisk $T/n70a.imd >/dev/null
@@ -1531,7 +1531,7 @@ $EMU -a $T/n70a.imd -b $T/n70b.imd -T -t 300 -e 'A:\>|B:\>' \
 	-k 'b:\rmd x\rcopy *.txt x\rmd y\rmd z\rcopy *.txt z\rmv z\\*.txt y\r' \
 	-w b:$T/out/n70b.imd >/dev/null
 python3 ../tools/imd2raw.py $T/out/n70b.imd $T/out/n70b.img >/dev/null
-check "COPY of 70 files copies them all (I298)" "=70=" "=$(mdir -b -i $T/out/n70b.img ::/X | wc -l)="
+check "COPY of 70 files copies them all" "=70=" "=$(mdir -b -i $T/out/n70b.img ::/X | wc -l)="
 check "MV of 70 files moves them all" "=70 0=" "=$(mdir -b -i $T/out/n70b.img ::/Y | wc -l) $(mdir -b -i $T/out/n70b.img ::/Z 2>/dev/null | wc -l)="
 mcopy -o -i $T/out/n70b.img ::/Y/F79.TXT $T/out/F79.TXT
 same "and the last is whole" $T/n70/F79.TXT $T/out/F79.TXT
@@ -1629,7 +1629,7 @@ out=$($EMU -a $T/fr.imd -T -t 40 -w a:$T/out/fr.imd -e 'A:\>' \
 k1=$(printf '%s\n' "$out" | grep -a 'K free' | tail -1)
 out=$($EMU -a $T/out/fr.imd -T -t 20 -e 'A:\>' -k 'free\r')
 check "FREE's kept count is a fresh count's" "$k1" "$out"
-# I297: BDT.COM, the BDOS file calls a review found wrong. Each result
+# BDT.COM, the BDOS file calls a review found wrong. Each result
 # in hex, a directory code 0-3 shown as ok: make "A?.TXT" (FF, AB.TXT
 # not emptied), make BIG.DAT, 128 writes (EX 00, CR 80, as CP/M 2.2),
 # close, a reopen of that FCB (found), CR = RC and one write (an append,
@@ -1737,7 +1737,7 @@ EOW
 printf 'ab text\n' >$T/AB.TXT
 mkdisk $T/bdt.imd $T/BDT.COM $T/AB.TXT >/dev/null
 out=$($EMU -a $T/bdt.imd -T -t 40 -e 'A:\>' -k 'bdt\r' -w a:$T/out/bdt.imd)
-check "BDOS file calls as CP/M 2.2 (I297)" "FF ok ok 80 ok ok ok ok ok FF FF" "$out"
+check "BDOS file calls as CP/M 2.2" "FF ok ok 80 ok ok ok ok ok FF FF" "$out"
 python3 ../tools/imd2raw.py $T/out/bdt.imd $T/out/bdt.img >/dev/null
 mcopy -o -i $T/out/bdt.img ::AB.TXT ::BIG.DAT $T/out/ >/dev/null 2>&1
 same "make with a '?' leaves AB.TXT as it was" $T/AB.TXT $T/out/AB.TXT
@@ -1795,12 +1795,12 @@ EOW
 python3 -c "open('$T/BIG8.DAT', 'wb').write(bytes(65537 * 128))"
 python3 tools/mkdisk.py $SYS --hd 10 $T/e8.img $T/E8.COM $T/BIG8.DAT >/dev/null
 out=$($EMU -D 7 -h $T/e8.img -T -t 40 -e 'A:\>' -k 'e8\r')
-check "past record 65535 a read is the end of the file (I297)" "00 00 00 01" "$out"
+check "past record 65535 a read is the end of the file" "00 00 00 01" "$out"
 # COPY of a file over 8M copies the 8M BDOS reads, and its size is what
-# was written: it neither wraps to record 0 nor gets the source's size (I298)
+# was written: it neither wraps to record 0 nor gets the source's size
 python3 tools/mkdisk.py $SYS --hd 20 $T/c8.img $T/BIG8.DAT >/dev/null
 out=$($EMU -D 7 -h $T/c8.img -T -t 3000 -e 'A:\>' -k 'copy big8.dat big9.dat\rls big9.dat\r' -w h:$T/out/c8.img)
-check "COPY of a file over 8M ends at 8M (I298)" "BIG9.DAT     8388608" "$out"
+check "COPY of a file over 8M ends at 8M" "BIG9.DAT     8388608" "$out"
 fatok "and the volume is clean" $T/out/c8.img
 python3 ../tools/imd2raw.py $T/out/fr.imd $T/out/fr.img >/dev/null
 k2=$(mdir -i $T/out/fr.img :: | grep -a 'bytes free' | tr -d ' ' | sed 's/bytesfree//')
@@ -1932,7 +1932,7 @@ check "mtools reads the folders BDOS 118 made" "Directory for ::/TOOLS/SUB" "$ou
 check "and the file in them" "MADE     DAT" "$out"
 fatok "and the hard disk is clean" $T/out/fh.img
 
-# Function 10 (I283): a maximum of 255 takes 255 keys and gives them
+# Function 10: a maximum of 255 takes 255 keys and gives them
 # all back, a full line ends with no Enter, ^E then the back arrow
 # edits the line on its new row, and a warm boot after EQ.COM left
 # an ESC = half sent starts the prompt on a line of its own

@@ -259,7 +259,7 @@ writeit(char *fname, LPtr *start, LPtr *end)
      * name: the old file goes to foo.BAK with the 'backup' option, or
      * goes. Not foo.BAK first, so a failed write leaves the file as it
      * was, again and again, and foo.BAK edited is never its own backup
-     * (I286). IObuff holds the backup's name, tmp the new file's.
+     *. IObuff holds the backup's name, tmp the new file's.
      */
     strcpy(IObuff, fname);
     for (s = IObuff; *s && *s != '.'; s++);

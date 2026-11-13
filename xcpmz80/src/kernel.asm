@@ -302,7 +302,7 @@ kret:	ld	hl,0001h
 ; Both ways back: the TPA bank, the disks, the program's settings, the
 ; shell's drive
 kwcom:	xor	a			; the console as the shell wants it,
-	ld	(ESCST),a		; whatever the program left (I283)
+	ld	(ESCST),a		; whatever the program left
 	ld	(DIM),a
 	ld	(CURHID),a
 	call	ubtpa
@@ -467,7 +467,7 @@ rp_1:	xor	a
 	call	rdrec
 	jp	nz,sherr
 	or	a			; an empty file: nothing to run, and
-	jp	nz,shell		; CBUF is as it was, no header (I281)
+	jp	nz,shell		; CBUF is as it was, no header
 	ld	a,(CBUF)
 	cp	0C9h
 	jr	nz,rp_2
@@ -520,10 +520,10 @@ rsxload: ld	hl,(rsxtop)		; as it was, if one does not fit
 	call	rx_0
 	pop	hl
 	ret	nc
-	ld	(rsxtop),hl		; (I281)
+	ld	(rsxtop),hl		;
 	ret
 rx_0:	ld	a,(rsxhdr+0Fh)		; 7 at most: rsxhdr has the header's
-	cp	8			; first record only (I281)
+	cp	8			; first record only
 	ccf
 	ret	c
 	ld	(rsxn),a

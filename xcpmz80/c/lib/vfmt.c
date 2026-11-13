@@ -30,7 +30,7 @@ static int geti(void)
 static unsigned char lng;
 
 /* a long, or the low half of a long long, whose high half is passed
- * over: it took the next argument's place before (I290) */
+ * over: it took the next argument's place before */
 static long getl(void)
 {
 	long v = *(long *)vap;
@@ -126,7 +126,7 @@ int __vfmt(void (*out)(char, void *), void *arg, const char *fmt, va_list ap)
 		lng = 0;
 		while (*fmt == 'l' || *fmt == 'h' || *fmt == 'z' || *fmt == 't')
 			if (*fmt++ == 'l')
-				lng++;	/* 2: long long, 8 bytes (I290) */
+				lng++;	/* 2: long long, 8 bytes */
 		c = *fmt;
 		pre[0] = 0;
 		switch (c) {

@@ -58,7 +58,7 @@ static void merge(unsigned int b)
 }
 
 /* b in use cut to sz, the rest freed when there are 4 bytes or more
- * (I290), as in lib/malloc.c */
+ *, as in lib/malloc.c */
 static void trim(unsigned int b, unsigned int sz)
 {
 	unsigned int h = HDR(b) & ~USED, r;

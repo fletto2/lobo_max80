@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 fail=0
 
 check() {	# name, text to find, output
-	if [ -z "$2" ]; then	# a failed $(...): nothing to look for (I288)
+	if [ -z "$2" ]; then	# a failed $(...): nothing to look for
 		echo "FAIL $1: no text to look for"
 		fail=1
 		return
@@ -44,14 +44,14 @@ else
 	echo "FAIL iffget unit test:"; ./test_iff; fail=1
 fi
 
-# The clock across a HOLD pulse, the SIO taken out (I301)
+# The clock across a HOLD pulse, the SIO taken out
 if ./test_dev > /dev/null; then
 	echo "ok   the clock keeps its seconds across HOLD, -F u:0 takes no writes (test_dev)"
 else
 	echo "FAIL devices unit test:"; ./test_dev; fail=1
 fi
 
-# Options read as their help says (I301): -F d's second in decimal,
+# Options read as their help says: -F d's second in decimal,
 # -t 0 and an -i time that is not a number refused
 opts=""
 ./max80 -T -t 0.01 -F d:800:0 >/dev/null 2>&1 && opts="${opts}d800 "

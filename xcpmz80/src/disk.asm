@@ -1043,7 +1043,7 @@ gs4:	pop	bc
 	ifdef	RUNLOG			; a test build checks every run against
 TBMAX		equ	9		; the sectors read alone, one at a time
 	else				; into RLSCR, under a half-size buffer
-TBMAX		equ	17		; a 1.44M track is read 17 and 1 (I260)
+TBMAX		equ	17		; a 1.44M track is read 17 and 1
 	endif
 TBEND		equ	8000h
 RLSCR		equ	TBEND-TBMAX*512-512
@@ -1574,7 +1574,7 @@ bfl4:	pop	ix			; the disk is read again as it is
 
 ; Drop the buffers of drive A, written or not, and its mount (IX)
 bdrop:	ld	(ix+D_MNT),0
-	call	frlose			; and its fresh cluster (I299)
+	call	frlose			; and its fresh cluster
 	ld	c,a
 	call	tbzap			; and the track buffer
 	ld	hl,bufhdr

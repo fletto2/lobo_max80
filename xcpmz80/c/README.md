@@ -38,7 +38,7 @@ whose `_memcpy` takes registers, stays out of the link.
   stack, between the top of the heap and the program's stack. When
   that room is too small the call fails with errno ENOMEM: -1 or EOF
   for the functions marked `n` in `clib.lst`, 0 or NULL for the rest
-  (I290, I291). A string the library writes with no size given
+ . A string the library writes with no size given
   (sprintf, vsprintf, gets, scanf's %s with no width) gets a share of
   what room is left, and nothing stops it writing past that share:
   with the heap nearly full, use snprintf and a width.

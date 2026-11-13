@@ -55,7 +55,7 @@ int ffclose(void)
         }
         return(FIOSUC);
 #else
-	/* fclose writes the last record: a full disk shows here (I286) */
+	/* fclose writes the last record: a full disk shows here */
 	if (ffp && fclose(ffp) != 0) {
 		ffp = NULL;
 		mlwrite("Error closing file");
