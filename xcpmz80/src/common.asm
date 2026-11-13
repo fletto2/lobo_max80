@@ -1725,6 +1725,55 @@ keytab:	db	'@','a','b','c','d','e','f','g'
 	db	0,K_CAPS,0,0,0,1Bh,0,0		; SHIFT F1-F4 ESC - CTRL
 K_CAPS	equ	0FCh				; Lobo's code for it
 
+; SASI waits, here for the kernel's room. Each gives the command up,
+; sasto in the kernel, after 65536 looks, about 1.7 s, with no change.
+; sasreq waits for REQ: Z when the drive asks for data, NZ for a
+; control byte. sasack ACKs a byte by hand and waits for REQ to drop.
+sasreq:	ld	a,(USTAT)
+	rrca
+	call	nc,swreq
+	ld	a,(USTAT)
+	and	10h
+	ret
+sasack:	ld	a,1
+	ld	(UCTRL),a
+	call	swack
+	xor	a
+	ld	(UCTRL),a
+	ret
+swreq:	call	sasti
+swr_1:	ld	a,(USTAT)
+	rrca
+	ret	c
+	call	sastk
+	jr	swr_1
+swack:	call	sasti
+swa_1:	ld	a,(USTAT)
+	rrca
+	ret	nc
+	call	sastk
+	jr	swa_1
+swfree:	call	sasti			; BSY gone: the bus free
+swf_1:	ld	a,(USTAT)
+	and	04h
+	ret	z
+	call	sastk
+	jr	swf_1
+sasti:	push	hl
+	ld	hl,0
+	ld	(sastm),hl
+	pop	hl
+	ret
+sastk:	push	hl
+	ld	hl,(sastm)
+	dec	hl
+	ld	(sastm),hl
+	ld	a,h
+	or	l
+	pop	hl
+	ret	nz
+	jp	sasto
+
 COMMON_END:
 	ent
 COMMON_LEN	equ	COMMON_END-COMMON_ORG
@@ -1800,3 +1849,4 @@ siotab:	db	18h,18h,14h,48h,13h,0E1h,15h,0EAh,11h,0
 
 ; Lobo's CRTC table, 80 x 24
 crtctab: db	119,80,97,6,27,12,24,26,0,8,0,0,0,0,0,0
+

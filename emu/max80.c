@@ -49,7 +49,9 @@
  *       or main RAM (m, offsets 0-1FFFF over A1, A2, B1, B2), as v:123:4
  *       for offset 123h bit 4. c:3:2 makes chunk 3 (B2) decode as chunk
  *       2 (B1). d:2:0 holds FDC status bit 0, busy, at 1 from emulated
- *       second 2 on, after the boot. For the diagnostic
+ *       second 2 on, after the boot. For the diagnostic. s:3:0 hangs
+ *       the SASI drive on its 3rd command (hex): it keeps BSY and never
+ *       asks for a byte, until a bus reset
  *   -x  a card on the expansion bus at this port, in hex: it reads back
  *       the last byte written to it, 00h at the start. Every other port
  *       reads FFh. For the diagnostic
@@ -1013,7 +1015,8 @@ static uint8_t dipsw = 2;
  * request sense (4 bytes), 04h format, 08h read, 0Ah write, 0Ch drive
  * parameters (8 bytes, ignored). Anything else is check condition.
  */
-enum { S_FREE, S_CMD, S_DIN, S_DOUT, S_STATUS, S_MSG };
+enum { S_FREE, S_CMD, S_DIN, S_DOUT, S_STATUS, S_MSG, S_HUNG };
+static long sasi_hang, sasi_ncmd;	/* -F s: the command that hangs */
 static struct {
 	uint8_t *img;		/* NULL: nothing attached */
 	long nblk;
@@ -1040,6 +1043,10 @@ static void sasi_command(void)
 
 	sasi.lba = (long)(c[1] & 0x1f) << 16 | c[2] << 8 | c[3];
 	sasi.idx = 0;
+	if (sasi_hang && ++sasi_ncmd == sasi_hang) {
+		sasi.phase = S_HUNG;	/* BSY, and no REQ again */
+		return;
+	}
 	if (c[1] >> 5 && c[0] != 0x03) {	/* only LUN 0 */
 		sasi_status(0x02, 0x04);	/* drive not ready */
 		return;
@@ -1124,7 +1131,7 @@ static uint8_t sasi_ustat(void)
 {
 	static const uint8_t bits[] = {
 		[S_FREE] = 0, [S_CMD] = 0x10, [S_DIN] = 0x08, [S_DOUT] = 0,
-		[S_STATUS] = 0x18, [S_MSG] = 0x1a,
+		[S_STATUS] = 0x18, [S_MSG] = 0x1a, [S_HUNG] = 0,
 	};
 	if (sasi.phase == S_FREE)
 		return 0;
@@ -1148,7 +1155,7 @@ static void sasi_ctrl(uint8_t v)
 		sasi_byte();
 		sasi.req = 0;
 	}
-	if (!(v & 1) && sasi.ack && sasi.phase != S_FREE)
+	if (!(v & 1) && sasi.ack && sasi.phase != S_FREE && sasi.phase != S_HUNG)
 		sasi.req = 1;
 	sasi.ack = v & 1;
 }
@@ -1159,7 +1166,7 @@ static void sasi_auto(void)
 	if (!sasi.req)
 		return;
 	sasi_byte();
-	sasi.req = sasi.phase != S_FREE;
+	sasi.req = sasi.phase != S_FREE && sasi.phase != S_HUNG;
 }
 
 static int load_hd(const char *path)
@@ -3430,11 +3437,15 @@ int main(int argc, char **argv)
 			char kind;
 
 			if (sscanf(optarg, "%c:%x:%u", &kind, &addr, &bit) != 3 ||
-			    !strchr("vfmcd", kind) || bit > (kind == 'c' ? 3u : 7u) ||
+			    !strchr("vfmcds", kind) || bit > (kind == 'c' ? 3u : 7u) ||
 			    addr > (kind == 'm' ? 0x1ffffu : kind == 'c' ? 3u : 0x7ffu))
 				return fprintf(stderr, "-F takes v, f or m, an offset "
 				    "and a bit, such as v:123:4, c and two chunks, "
 				    "such as c:3:2, or d, a second and an FDC status bit\n"), 2;
+			if (kind == 's') {
+				sasi_hang = addr;
+				break;
+			}
 			if (kind == 'd') {
 				fdc_stuck |= 1 << bit;
 				fdc_stuck_at = (unsigned long long)addr * CPU_HZ;

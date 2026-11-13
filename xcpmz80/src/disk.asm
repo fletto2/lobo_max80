@@ -840,14 +840,18 @@ fw1:	djnz	fw1
 
 ; ------------------------------------------------------------------
 ; SASI: one 512-byte block a command, LBA in DE (blocks above 65535 are
-; not used). Three tries, as the controller retries itself.
+; not used). Three tries, as the controller retries itself, a quarter
+; second apart for a drive that says it is busy. Every wait for the
+; drive gives up after about 5 s (sasto): the bus is reset and the call
+; returns Disk I/O, not a hang. The waits are in common.asm.
 sasrw:	push	bc
 	push	de
 	push	hl
+	ld	(sassp),sp
 	ld	a,3
 	ld	(fdtries),a
 sr0:	call	sassel
-	jr	nz,srnr
+	jp	nz,srnr
 	ld	a,(rwflag)		; 08h read, 0Ah write
 	add	a,a
 	add	a,8
@@ -885,38 +889,63 @@ srw:	call	sasreq
 	djnz	srw
 	dec	c
 	jr	nz,srw
-srst0:	call	sasreq			; the status byte
+srst0:	call	sasreq			; the status byte, past any more data
+	jr	nz,srst			; than a block
+	ld	a,(UDATAHS)
+	jr	srst0
 srst:	ld	a,(UDATA)
 	ld	b,a
-	call	sasack
+srst1:	call	sasack
 	call	sasreq			; the message byte
 	ld	a,(UDATA)
 	call	sasack
-sr1:	ld	a,(USTAT)		; wait for the bus to go free
-	and	04h
-	jr	nz,sr1
+	call	swfree			; wait for the bus to go free
 	ld	a,b
 	or	a
 	jp	z,fdfail		; good, A = 0
 	ld	hl,fdtries
 	dec	(hl)
-	jr	nz,sr0
-	jp	rwerr			; Disk I/O
+	jp	z,rwerr			; Disk I/O
+	ld	a,250			; busy, or not ready yet: a pause
+	call	msdelay
+	jp	sr0
 srnr:	ld	a,E_BADDRV		; nothing answers the select
 	jp	fdfail
 
-; Select the controller, as Lobo's SETUP: reset it if busy, then put out
-; the ID bit and SEL and wait for BSY. NZ if it never answers.
-sassel:	ld	a,(USTAT)
-	and	04h
-	jr	z,sas_2
-	ld	a,04h			; reset
+; A wait for the drive ran out: the bus reset, Disk I/O
+sasto:	ld	sp,(sassp)
+	call	sasrst			; ACK and SEL off with it
+	jp	rwerr
+
+; The status phase came during the command: the command failed
+sasph:	ld	sp,(sassp)
+	ld	b,0FFh
+	jr	srst1
+
+; Reset the bus
+sasrst:	ld	a,04h
 	ld	(UCTRL),a
 	ld	a,10
 sas_1:	dec	a
 	jr	nz,sas_1
 	ld	(UCTRL),a
-	jr	sassel
+	ret
+
+; Select the controller, as Lobo's SETUP: reset it if busy, then put out
+; the ID bit and SEL and wait for BSY. NZ if it never answers, or stays
+; busy through three resets.
+sassel:	ld	c,4
+sas_0:	ld	a,(USTAT)
+	and	04h
+	jr	z,sas_2
+	dec	c
+	jr	z,sas_5
+	call	sasrst
+	ld	a,20
+	call	msdelay
+	jr	sas_0
+sas_5:	inc	c			; NZ
+	ret
 sas_2:	ld	bc,0
 	inc	a
 	ld	(UDATA),a		; ID 0
@@ -936,30 +965,19 @@ sas_4:	xor	a
 	ld	(UCTRL),a
 	ret
 
-; Wait for REQ. Z when it asks for data, NZ when for a control byte.
-sasreq:	ld	a,(USTAT)
-	rrca
-	jr	nc,sasreq
-	ld	a,(USTAT)
-	and	10h
-	ret
-
-; Send A in the command phase, by hand as Lobo's TWOWAY
+; Send A in the command phase, by hand as Lobo's TWOWAY. A byte asked
+; from the drive (I/O, bit 3: status or message) instead: the command is
+; over (sasph)
 sasout:	push	af
 	call	sasreq
+	ld	a,(USTAT)
+	and	08h
+	jr	nz,so_1
 	pop	af
 	ld	(UDATA),a
-	; fall into sasack
-
-; ACK, wait for REQ to drop, release ACK. A = 0.
-sasack:	ld	a,1
-	ld	(UCTRL),a
-sa1:	ld	a,(USTAT)
-	rrca
-	jr	c,sa1
-	xor	a
-	ld	(UCTRL),a
-	ret
+	jp	sasack
+so_1:	pop	af
+	jp	sasph
 
 ; ------------------------------------------------------------------
 ; HL = HL / C, A = remainder. C not 0.

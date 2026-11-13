@@ -20,6 +20,8 @@ fdlast		equ	fdtries+1
 fdload		equ	fdlast+1
 fdwdly		equ	fdload+1		; nonzero: a write waits for the head
 drvnum		equ	fdwdly+1
+sassp		equ	fdcyl			; SASI: the stack to give up to, in
+					; fdcyl and fdside, the floppy's
 ; FAT
 fodd		equ	drvnum+1
 fbyte		equ	fodd+1
@@ -200,7 +202,8 @@ tbstop		equ	tbmode+NDRV	; the run's end page
 tbsplit		equ	tbstop+1	; sectors in its second part, 0 none
 fdcmdb		equ	tbsplit+1	; the read command
 fdid		equ	fdcmdb+1	; an ID read by Read Address, 6 bytes
-namebuf		equ	fdid+6		; COPY's names, NAMEMAX * 11
+sastm		equ	fdid+6		; SASI: looks left in a wait
+namebuf		equ	sastm+2		; COPY's names, NAMEMAX * 11
 	ifdef	RUNLOG			; the test build's record of a run
 rlid1		equ	namebuf+NAMEMAX*11	; the last ID, rlid2 the one before
 rlid2		equ	rlid1+1
