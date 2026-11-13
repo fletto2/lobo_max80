@@ -397,9 +397,10 @@ trc:
 	add	a,a
 	jp	p,fdend
 	jr	trc
-trc_1:
-	ifdef	RUNLOG			; the sector register at each stop
-	call	rlstop
+trc_1:	call	fdwait			; it moved: the MB8866 reads wrong for a
+	ld	a,(FSECTOR)		; while after a change, so read it again
+	ifdef	RUNLOG			; once it has settled. The sector
+	call	rlstop			; register at each stop
 	endif
 	ld	b,a			; it must have gone on to the sector after
 	ld	a,c			; the last (true form, so one less), with
@@ -443,6 +444,7 @@ trnext:	ld	b,a			; B = the sectors in it
 	call	tbpg
 	ld	d,a
 	ld	e,0
+	call	fdwait			; the register settled before the command
 	ld	bc,FDATA
 	ld	a,(fdcmdb)
 	cpl
@@ -547,9 +549,10 @@ tp_4:
 	endif
 	add	a,(ix+D_SBASE)		; Read Address left the track number
 	cpl				; in the sector register: set it once that
-	call	fdwait			; is surely done, and read it back
-	ld	(FSECTOR),a
-	ld	e,a
+	call	fdwait			; is surely done, and read it back once
+	ld	(FSECTOR),a		; it has settled: the MB8866 reads wrong
+	ld	e,a			; for a while after a change
+	call	fdwait
 	ld	a,(FSECTOR)
 	cp	e
 	ld	a,E_READ

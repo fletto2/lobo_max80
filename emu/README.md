@@ -57,7 +57,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-i ch:file[@secs]` | Feed a file to a serial channel, from `secs` emulated seconds on. The sender waits while the SIO's FIFO is full. |
 | `-I ch:file[@secs]` | The same, but the sender never waits, so unread bytes are lost. |
 | `-S ch` | Nothing plugged into this channel: CTS and DCD read off. |
-| `-F v:off:bit` | Hold a bit of video RAM (`v`), font RAM (`f`) or main RAM (`m`, offsets 0-1FFFF) at 0 when read. `c:3:2` makes chunk 3 decode as chunk 2, `d:2:0` keeps the FDC busy from second 2 (decimal). For the diagnostic. `s:3:0` hangs the SASI drive on its 3rd command (hex), BSY kept and no REQ, until a bus reset. `t:0` and `t:1` read SYSFLG's tick bit as always 0 or always 1, `u:0` leaves the SIO out, its registers reading FFh. |
+| `-F v:off:bit` | Hold a bit of video RAM (`v`), font RAM (`f`) or main RAM (`m`, offsets 0-1FFFF) at 0 when read. `c:3:2` makes chunk 3 decode as chunk 2, `d:2:0` keeps the FDC busy from second 2 (decimal). For the diagnostic. `s:3:0` hangs the SASI drive on its 3rd command (hex), BSY kept and no REQ, until a bus reset. `t:0` and `t:1` read SYSFLG's tick bit as always 0 or always 1, `u:0` leaves the SIO out, its registers reading FFh. `r:20` makes the FDC's sector register read as one bit, 20h, 40h or 80h, for 20 us (decimal) after it is written or stepped, as the machine's was seen to. |
 | `-x port` | A card on the expansion bus at this port, in hex, that reads back the last byte written. |
 | `-m 128\|64\|64f` | The RAM fitted. 64 leaves out bank B, which reads FFh; 64f reads back the last byte written. |
 | `-C` | Hold the clock chip's TIME SET button down. |
@@ -70,6 +70,13 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-N name` | With `-g`, appends `_name` to each socket's name, `/tmp/max80_name.sock` and so on, so two emulators with `-g` can run at once. |
 
 The comment at the top of `max80.c` has each option in full.
+
+The FDC holds a write to its track or sector register for 4 of its
+clocks, 8 in FM, before it goes in, and a read before then gives the old
+value, as the MB8866 does in MAME's model: 2 us for an 8-inch drive in
+MFM, 4 us for a 5-inch one. A command takes the held values. The 12
+clocks a command waits before it starts are not modelled: BUSY is set at
+once, and no DRQ could come that soon.
 
 When `SOURCE_DATE_EPOCH` is set, the clock chip starts from that time,
 in UTC, and a saved `.imd` carries it in its header, in place of the

@@ -428,6 +428,40 @@ static struct {
 	unsigned long long fi_index;	/* the next index pulse */
 	uint8_t idbuf[6];
 } fdc = { .drive = -1, .dir = 1 };
+/* -F r:N: for N us after the sector register changes, written or stepped,
+   it reads as one bit, 20h, 40h or 80h, as the machine's MB8866 was seen
+   to */
+static unsigned sec_settle;		/* N, 0 off */
+static unsigned long long sec_changed;	/* the cycle it last changed */
+/* A write to the track or sector register is held and goes in 4 FDC
+   clocks later, 8 in FM, and a read before then gives the old value: the
+   MB8866 in MAME's wd_fdc.cpp (delay_register_commit), at 2 MHz for
+   8-inch drives, 1 MHz for 5-inch. A second track write while one
+   waits is lost; a second sector write replaces the value, at the first
+   one's time. */
+static int trk_pend = -1, sec_pend = -1;
+static unsigned long long trk_at, sec_at;
+
+static unsigned long long reg_commit_t(void)
+{
+	return (unsigned long long)(fdc.dd ? 4 : 8) * CPU_HZ /
+	    (fdc.eight ? 2000000 : 1000000);
+}
+
+/* The held register writes whose time has come, or all of them for a
+   command, which takes them 12 clocks after it is written */
+static void reg_commit(int all)
+{
+	if (trk_pend >= 0 && (all || cpu.cycles >= trk_at)) {
+		fdc.track = trk_pend;
+		trk_pend = -1;
+	}
+	if (sec_pend >= 0 && (all || cpu.cycles >= sec_at)) {
+		fdc.sector = sec_pend;
+		sec_pend = -1;
+		sec_changed = all ? cpu.cycles : sec_at;
+	}
+}
 
 static struct track *cur_track(void)
 {
@@ -701,6 +735,7 @@ static void fdc_start_sector(void)
 
 static void fdc_command(uint8_t cmd)
 {
+	reg_commit(1);		/* a command goes in after held registers */
 	if (fdlog)
 		fprintf(fdlog, "%.4f cmd %02x drive %d cyl %d side %d track %d sector %d\n",
 		    (double)cpu.cycles / CPU_HZ, cmd, fdc.drive,
@@ -847,6 +882,7 @@ static void fdc_command(uint8_t cmd)
 		fdc.drq_at = mech ? fdc.t0 : 0;
 		fdc.status = 0x03;
 		fdc.sector = t->cyl_id;
+		sec_changed = cpu.cycles;
 		break;
 	}
 	case 7:			/* read track (E0h), write track (F0h) */
@@ -903,6 +939,7 @@ static void fdc_byte_done(int lost)
 	}
 	if (fdc.multi && !(rtype & 0x08)) {	/* a CRC error ends it */
 		fdc.sector++;
+		sec_changed = cpu.cycles;
 		fdc_start_sector();
 		/* past the last sector: record not found, at once
 		   without -M, after 5 turns with it, as the FDC searches
@@ -924,6 +961,7 @@ static unsigned long fdc_lost;	/* commands with Lost Data, for -L */
 /* Pass over the bytes the CPU was too late for. */
 static void fdc_tick(void)
 {
+	reg_commit(0);
 	if ((fdc.fi & 0x04) && turning() && cpu.cycles >= fdc.fi_index) {
 		fdc.intrq = 1;
 		fdc.fi_index += (cpu.cycles - fdc.fi_index) / REV_T * REV_T + REV_T;
@@ -974,7 +1012,11 @@ static uint8_t fdc_read(int reg)
 		    (fdc.busy ? 1 : 0) |
 		    (fdc.drq ? 2 : 0) | STUCK;
 	case 1: return fdc.track;
-	case 2: return fdc.sector;
+	case 2:
+		if (sec_settle && cpu.cycles - sec_changed <
+		    (unsigned long long)sec_settle * CPU_HZ / 1000000)
+			return 0x20 << (cpu.cycles / 16 % 3);
+		return fdc.sector;
 	default:
 		if (fdc.drq && fdc.buf && !fdc.writing) {
 			fdc.data = fdc.buf[fdc.idx];
@@ -989,8 +1031,17 @@ static void fdc_write(int reg, uint8_t v)
 	fdc_tick();
 	switch (reg) {
 	case 0: fdc_command(v); break;
-	case 1: fdc.track = v; break;
-	case 2: fdc.sector = v; break;
+	case 1:
+		if (trk_pend < 0) {
+			trk_pend = v;
+			trk_at = cpu.cycles + reg_commit_t();
+		}
+		break;
+	case 2:
+		if (sec_pend < 0)
+			sec_at = cpu.cycles + reg_commit_t();
+		sec_pend = v;
+		break;
 	default:
 		fdc.data = v;
 		if (fdc.drq && fdc.buf && fdc.writing) {
@@ -3611,6 +3662,14 @@ int main(int argc, char **argv)
 			}
 			if (!strcmp(optarg, "u:0")) {
 				sio_gone = 1;
+				break;
+			}
+			if (optarg[0] == 'r' && optarg[1] == ':') {	/* us, decimal */
+				char *end;
+				unsigned long v = strtoul(optarg + 2, &end, 10);
+				if (!optarg[2] || *end || v < 1 || v > 10000)
+					return fprintf(stderr, "-F r: 1 to 10000 us\n"), 2;
+				sec_settle = v;
 				break;
 			}
 			/* d's second is decimal, read so before the range
