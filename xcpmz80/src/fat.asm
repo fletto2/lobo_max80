@@ -116,12 +116,12 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	(ix+D_TOTAL+1),h
 	or	a
 	sbc	hl,de
-	jp	c,mtbad
+	jr	c,mtbad
 	ld	b,(ix+D_SPCSH)		; clusters = data sectors >> SPCSH
 	call	shrb
 	ld	a,h			; 1 to FFF5h
 	or	l
-	jp	z,mtbad
+	jr	z,mtbad
 	ld	de,0FFF6h
 	sbc	hl,de			; carry clear: A, H or L is not 0
 	jr	nc,mtbad
@@ -170,14 +170,7 @@ mt4:	ex	de,hl
 	ld	(hl),0FFh
 	ld	hl,0			; and a folder's place on another disk
 	ld	(dscix),hl
-	ld	a,(frdrv)		; and the fresh cluster, if on this
-	dec	a			; drive: never zeroed on a disk it may
-	ld	hl,drvnum		; not be on. Another drive's stays
-	cp	(hl)
-	jr	nz,mt_fr
-	xor	a
-	ld	(frdrv),a
-mt_fr:	ld	(ix+D_HINT),2
+	ld	(ix+D_HINT),2
 	ld	(ix+D_HINT+1),0
 	ld	(ix+D_MNT),1
 	jp	cwdchk
@@ -191,7 +184,18 @@ umount:	push	af
 	ld	(ix+D_MNT),0
 	ld	(ix+D_RO),0		; and not write protected (28)
 	pop	af
+	call	frlose
 	jp	bforget
+
+; Drive A is unmounted: its fresh cluster is forgotten, never zeroed
+; on a disk that may have been changed since (I299). Keeps A.
+frlose:	ld	hl,frdrv
+	inc	a
+	cp	(hl)
+	jr	nz,frl_1
+	ld	(hl),0
+frl_1:	dec	a
+	ret
 
 ; ------------------------------------------------------------------
 ; FAT entries. IX = the mounted drive, drvnum = its number.

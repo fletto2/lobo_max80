@@ -852,7 +852,7 @@ sasrw:	push	bc
 	ld	a,3
 	ld	(fdtries),a
 sr0:	call	sassel
-	jp	nz,srnr
+	jr	nz,srnr
 	ld	a,(rwflag)		; 08h read, 0Ah write
 	add	a,a
 	add	a,8
@@ -1574,6 +1574,7 @@ bfl4:	pop	ix			; the disk is read again as it is
 
 ; Drop the buffers of drive A, written or not, and its mount (IX)
 bdrop:	ld	(ix+D_MNT),0
+	call	frlose			; and its fresh cluster (I299)
 	ld	c,a
 	call	tbzap			; and the track buffer
 	ld	hl,bufhdr

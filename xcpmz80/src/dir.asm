@@ -221,6 +221,9 @@ dn_0:	ld	(dpos),hl
 	jr	dn_0
 dn_1:	ld	hl,(dpos)
 	inc	hl
+	ld	a,h			; past entry FFFFh: a full folder
+	or	l			; whose chain goes round (I299)
+	jr	z,dn_full
 	jr	dn_0
 dn_2:	ld	a,(hl)
 	or	a

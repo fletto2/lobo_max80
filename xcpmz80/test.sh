@@ -324,6 +324,19 @@ printf '%s\n' "$out" | grep -q "CMD1?" &&
 	{ echo "FAIL the first lines should have scrolled off"; fail=1; }
 
 
+# A file saved on B: leaves the rest of its last cluster to be zeroed.
+# B:'s disk swapped and ^C, then a file saved on A:: the zeros are not
+# written to the new disk in B:, on its F.TXT (I299)
+python3 -c "open('$T/FZ.TXT', 'wb').write(b'x' * 1024)"
+mkdisk $T/fza.imd >/dev/null
+python3 tools/mkdisk.py $SYS --pc 720 $T/fz1.imd >/dev/null
+python3 tools/mkdisk.py $SYS --pc 720 $T/fz2.imd $T/FZ.TXT >/dev/null
+rm -f $T/out/fz.imd
+python3 tools/session.py "-a $T/fza.imd -b $T/fz1.imd -w b:$T/out/fz.imd" \
+	'save 1 b:x.com\r' '@?>' "@!disk b $T/fz2.imd" '\x03' @10 \
+	'save 1 y.com\r' '@?>' >/dev/null
+getfile $T/out/fz.imd FZ.TXT $T/out/FZ.TXT
+same "a fresh cluster on a disk swapped out is not zeroed on the new one (I299)" $T/FZ.TXT $T/out/FZ.TXT
 #PART
 
 
@@ -684,6 +697,19 @@ DMGEOF
 		check "a search in a folder that goes round ends" "No file" "$out"
 		check "and the disk is there after it" "C: DA       TXT : DB       TXT" "$out"
 		check "a folder whose first cluster is 1, on the root, is not entered" "No folder" "$out"
+		# A full folder whose one cluster points to itself: a new
+		# entry there, which went round for ever, fails (I299)
+		for i in $(seq 1 62); do echo $i >$T/H$i.TXT; done
+		python3 tools/mkdisk.py $SYS --hd 1 $T/dl.img \
+			--in H $(for i in $(seq 1 62); do echo $T/H$i.TXT; done) >/dev/null
+		python3 $T/dmg.py $T/dl.img loop H
+		# 65536 entries tried, some 300 seconds of the machine's time
+		rm -f $T/out/dl.img
+		out=$($EMU -a $T/wf.imd -h $T/dl.img -w h:$T/out/dl.img -T -t 1500 \
+			-e 'A:\>' -k 'save 1 c:\\h\\new.com\r' | tr -d '\r')
+		check "a new file in a full folder that goes round fails (I299)" "No file" "$out"
+		n=$(cmp $T/dl.img $T/out/dl.img && echo same)
+		check "and the disk is left as it was" "same" "$n"
 		# A BPB that does not add up is not mounted: 3 sectors a
 		# cluster, 500 root entries, 1 sector a FAT for 2000 clusters
 		for bpb in "0x0d 03" "0x11 f401" "0x16 0100"; do
