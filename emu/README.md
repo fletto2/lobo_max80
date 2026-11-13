@@ -67,6 +67,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-M` | Give the drives their mechanics: a turning track, the data rate, step, settle and spin-up times, with a summary at exit. |
 | `-G fdc.log` | Log each FDC command with its emulated time. |
 | `-g` | Debug sockets, Linux only, described at the top of `max80.c`. |
+| `-N name` | With `-g`, appends `_name` to each socket's name, `/tmp/max80_name.sock` and so on, so two emulators with `-g` can run at once. |
 
 The comment at the top of `max80.c` has each option in full.
 

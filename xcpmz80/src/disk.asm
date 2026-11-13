@@ -112,7 +112,8 @@ dt_flop: db	DT_FLOPPY,1, DT_FLOPPY,2, DT_SASI,0
 ; Z on success, else NZ and A = E_ code. Keep BC, DE, HL.
 rdsec:	xor	a
 	jr	rw0
-wrsec:	ld	a,1
+wrsec:	call	tbwr			; the track buffer must not keep it
+	ld	a,1
 rw0:	ld	(rwflag),a
 	ld	a,(ix+D_TYPE)
 	dec	a			; DT_FLOPPY
@@ -153,8 +154,12 @@ fd0:	ld	c,a
 	rla
 fd1:	ld	h,a
 	ld	(fdcyl),hl		; and fdside
-	ld	a,10			; tries
-	ld	(fdtries),a
+	ld	a,(fdrun)		; tries: a run is tried once, then
+	or	a			; read a sector at a time (tbread)
+	ld	a,10
+	jr	z,fd2
+	ld	a,1
+fd2:	ld	(fdtries),a
 fdretry: call	fdsel
 	jp	nz,fdfail
 	call	fdseek
@@ -174,8 +179,14 @@ fdw0:	ld	a,(fdside)		; side, then the sector
 	ld	(FTRACK),a
 	ld	a,(fdsec)
 	add	a,(ix+D_SBASE)
+	ld	b,a
 	cpl
 	ld	(FSECTOR),a
+	ld	a,(fdrun)		; a run: the last sector's number
+	add	a,b
+	dec	a
+	cpl
+	ld	(fdrend),a
 	ld	a,(rwflag)		; 82h read, A2h write; bit 3 the side
 	add	a,a			; to compare, as Lobo's
 	add	a,a
@@ -186,7 +197,13 @@ fdw0:	ld	a,(fdside)		; side, then the sector
 	add	a,a
 	add	a,a
 	or	82h
-	ld	hl,USTAT
+	ld	b,a
+	ld	a,(fdrun)		; a run: the m flag
+	or	a
+	ld	a,b
+	jr	z,fd3
+	or	10h
+fd3:	ld	hl,USTAT
 	pop	de			; the buffer
 	push	de
 	ld	bc,FDATA
@@ -200,6 +217,11 @@ fdw0:	ld	a,(fdside)		; side, then the sector
 	call	iffget			; as they were: the BDOS keeps them
 	ld	(fdiff),a		; off for some programs
 	pop	af
+	ld	(fdcmdb),a
+	ld	a,(fdrun)
+	or	a
+	jp	nz,trgo
+	ld	a,(fdcmdb)
 	cpl
 	ld	(FCTRL),a
 	bit	1,(ix+D_KIND)		; 5-inch: no READY, so count the wait
@@ -319,6 +341,266 @@ fdfail:	or	a
 	pop	de
 	pop	bc
 	ret
+
+; A run of fdrun sectors, read by one command into a buffer that ends at
+; TBEND (8000h, so the loop ends when D turns negative). The FDC goes on
+; to the next sector by itself, in whatever order they come round. After
+; the last byte it checks the CRC and moves on to the sector after: stop
+; it then. A CRC error stops it first, with INTRQ.
+trgo:	call	trplan			; where to start, or NZ: not at all
+	jp	nz,trno
+	ld	a,(fdcmdb)
+	cpl
+	ld	(FCTRL),a
+	bit	1,(ix+D_KIND)		; 5-inch: the first DRQ as f5rl
+	jr	z,trl
+t5l:	ld	a,(hl)
+	add	a,a
+	jr	nc,tr1
+	jp	p,fdend
+	exx
+	dec	bc
+	ld	a,b
+	or	c
+	exx
+	jr	nz,t5l
+	exx
+	dec	e
+	exx
+	jr	nz,t5l
+	jp	f5to
+trl:	ld	a,(hl)			; 50 T a byte: 8-inch MFM gives one
+	add	a,a			; each 81
+	jr	c,tr2
+tr1:	ld	a,(bc)
+	cpl
+	ld	(de),a
+	inc	e
+	jp	nz,trl
+	inc	d
+	ld	a,(tbstop)
+	cp	d
+	jp	nz,trl
+	ld	a,(fdrend)
+	ld	c,a
+trc:	ld	a,(FSECTOR)		; on to the next sector: the last one's
+	cp	c			; CRC was good, whether or not the FDC
+	jr	nz,trc_1		; has stopped, at the end of the track
+	ld	a,(hl)			; INTRQ: it stopped, the status says why
+	add	a,a
+	jp	p,fdend
+	jr	trc
+trc_1:
+	ld	a,0D0h xor 0FFh		; on to the next: stop it there
+	ld	(FCTRL),a
+	ld	a,(tbsplit)		; then the second part, from the first
+	or	a			; sector of the run
+	jr	nz,trnext
+	exx
+	pop	de
+	pop	bc
+	exx
+	ld	a,(fdiff)
+	or	a
+	jr	z,tr3
+	ei
+tr3:	xor	a
+	jp	fdfail
+tr2:	jp	m,trl
+	jp	fdend
+trnext:	ld	b,a			; B = the sectors in it
+	xor	a
+	ld	(tbsplit),a
+	ld	a,(fdrun)		; it ends where the first part began
+	sub	b
+	call	tbpg
+	ld	(tbstop),a
+	call	fdwait			; the FDC stopped
+	ld	a,(fdsec)
+	add	a,(ix+D_SBASE)
+	ld	c,a
+	cpl
+	ld	(FSECTOR),a
+	ld	a,c
+	add	a,b
+	dec	a
+	cpl
+	ld	(fdrend),a
+	ld	a,(fdrun)
+	call	tbpg
+	ld	d,a
+	ld	e,0
+	ld	bc,FDATA
+	ld	a,(fdcmdb)
+	cpl
+	ld	(FCTRL),a
+	jp	trl
+trno:	exx				; no run: tbread reads the sector alone
+	pop	de
+	pop	bc
+	exx
+	ld	c,a
+	ld	a,(fdiff)
+	or	a
+	jr	z,trn_1
+	ei
+trn_1:	ld	a,c
+	jp	fdfail
+
+; Before a run: read the next IDs to come round. The first time on a
+; drive, two of them show its interleave: not 1, and the drive reads a
+; sector at a time from now on (NZ, A = E_READ). At interleave 1 the run
+; starts with the next sector to come, and when that is inside the run
+; it is read in two parts, from there to its end, then from its start:
+; one turn in all. Z, with DE = the buffer, HL = USTAT, BC = FDATA and
+; the sector register set. NZ, A = E_NOTRDY when no ID comes.
+trplan:	call	tbmptr			; HL = the drive's tbmode
+	ld	a,(hl)			; known, and the track longer than the
+	or	a			; buffer: from the run's first sector
+	jr	z,tp_r
+	ld	a,(ix+D_SPT)
+	cp	TBMAX+1
+	ld	a,(fdsec)
+	ld	c,a
+	jr	nc,tp_one
+tp_r:	push	hl
+	call	fdrid
+	pop	hl
+	ret	nz
+	ld	c,a			; C = the ID just seen
+	ld	a,(hl)
+	or	a
+	jr	nz,tp_2			; 1: known
+	push	hl
+	push	bc
+	call	fdrid
+	pop	bc
+	pop	hl
+	ret	nz
+	ld	b,a			; B = the ID after it
+	ld	a,c			; C the last on the track? The first
+	sub	(ix+D_SBASE)		; follows it at any interleave: take
+	inc	a			; the next two
+	cp	(ix+D_SPT)
+	jr	nz,tp_0
+	ld	c,b
+	push	hl
+	push	bc
+	call	fdrid
+	pop	bc
+	pop	hl
+	ret	nz
+	ld	b,a
+tp_0:	ld	a,c
+	inc	a
+	cp	b
+	jr	nz,tp_no		; not the next number: not interleave 1
+	ld	(hl),1
+	ld	c,b
+tp_2:	ld	a,c			; k, the next to come, from 0
+	sub	(ix+D_SBASE)
+	inc	a
+	cp	(ix+D_SPT)
+	jr	c,tp_3
+	xor	a
+tp_3:	ld	b,a
+	ld	a,(fdsec)		; inside the run, past its first?
+	ld	c,a
+	ld	a,b
+	sub	c			; k - s
+	jr	c,tp_one
+	jr	z,tp_one
+	ld	e,a
+	ld	a,(fdrun)
+	cp	e
+	jr	c,tp_one
+	jr	z,tp_one
+	ld	a,e			; yes: from k to the end first
+	ld	(tbsplit),a
+	ld	a,(fdrun)
+	sub	e
+	call	tbpg
+	ld	d,a
+	ld	a,b
+	jr	tp_4
+tp_one:	xor	a			; no: the run as it is
+	ld	(tbsplit),a
+	ld	a,(fdrun)
+	call	tbpg
+	ld	d,a
+	ld	a,c
+tp_4:	add	a,(ix+D_SBASE)		; Read Address left the track number
+	cpl				; in the sector register
+	ld	(FSECTOR),a
+	ld	e,0
+	ld	a,high TBEND
+	ld	(tbstop),a
+	ld	hl,USTAT
+	ld	bc,FDATA
+	xor	a
+	ret
+tp_no:	ld	(hl),2
+	ld	a,E_READ
+	or	a
+	ret
+
+; Read Address: the next ID to come round into fdid. Z, A = its sector
+; number. NZ, A = E_READ on a CRC error, E_NOTRDY when none comes in
+; about 1.4 s (a 5-inch drive with no disk). Uses HL, DE.
+fdrid:	ld	a,0C0h xor 0FFh
+	ld	(FCTRL),a
+	ld	hl,USTAT
+	ld	de,fdid
+	ld	bc,FDATA
+	exx
+	push	bc
+	push	de
+	ld	bc,0
+	ld	e,2
+	exx
+	bit	1,(ix+D_KIND)		; the 8-inch connector has READY and
+	jr	z,fri_2			; 500 kbit/s: no count, in time for it
+fri_1:	ld	a,(hl)			; 5-inch: the first DRQ, counting the wait
+	add	a,a
+	jr	nc,fri_3
+	jp	p,fri_4			; INTRQ: done
+	exx
+	dec	bc
+	ld	a,b
+	or	c
+	exx
+	jr	nz,fri_1
+	exx
+	dec	e
+	exx
+	jr	nz,fri_1
+	ld	a,0D0h xor 0FFh		; nothing: stop the FDC
+	ld	(FCTRL),a
+	ld	(ix+D_TRK),0FFh
+	ld	a,E_NOTRDY
+	or	a
+	jr	fri_5
+fri_2:	ld	a,(hl)			; the rest as fdrl, in time for 8-inch
+	add	a,a
+	jr	c,fri_6
+fri_3:	ld	a,(bc)
+	cpl
+	ld	(de),a
+	inc	de
+	jp	fri_2
+fri_6:	jp	m,fri_2
+fri_4:	ld	a,(FSTAT)
+	cpl
+	and	9Ch			; not ready, RNF, CRC, lost data
+	ld	a,E_READ
+	jr	nz,fri_5
+	ld	a,(fdid+2)
+fri_5:	exx
+	pop	de
+	pop	bc
+	exx
+	ret
+	assert	(TBEND & 0FFFFh) == 8000h
 
 ; Select the drive and stop the FDC. 8-inch: wait up to half a second for
 ; READY, as Lobo's SELECT. 5-inch, with no READY: wait 0.75 s for the
@@ -676,7 +958,7 @@ gs0:	call	bfind
 	dec	c
 	jr	z,gs3			; newsec
 	call	bdata
-	call	rdsec
+	call	tbread
 	jr	z,gs3
 	ld	(iy+BH_DRV),0FFh
 	jr	gs4
@@ -684,6 +966,165 @@ gs3:	call	btouch
 	call	bdata
 	xor	a
 gs4:	pop	bc
+	ret
+
+; ------------------------------------------------------------------
+; The track buffer: up to TBMAX sectors of one track, read by one
+; command, below TBEND in A2. A cache miss is served from it, or reads
+; the sectors from the one wanted to the end of the track into it.
+TBMAX		equ	18
+TBEND		equ	8000h
+
+; Read sector DE of drive IX into HL, from the track buffer when it is
+; there. Z on success, else NZ and A = error. Keeps DE, IX, IY.
+tbread:	ld	a,(ix+D_TYPE)
+	cp	DT_FLOPPY
+	jp	nz,rdsec
+	call	tbfind
+	jr	nz,tbr_1
+	push	de			; there: copy it
+	ex	de,hl
+	ld	h,a
+	ld	l,0
+	ld	bc,512
+	ldir
+	pop	de
+	xor	a
+	ret
+tbr_1:	push	hl
+	call	tbmptr
+	ld	a,(hl)
+	pop	hl
+	cp	2
+	jp	z,rdsec			; not at interleave 1: alone
+	ld	a,(ix+D_SPT)
+	or	a
+	jp	z,rdsec			; not mounted: no tracks known
+	push	hl
+	push	de
+	ld	c,a
+	ex	de,hl
+	call	div16x8			; A = its place on the track
+	pop	de
+	ld	c,a
+	ld	a,(ix+D_SPT)
+	sub	c			; the sectors left on the track
+	cp	TBMAX+1
+	jr	c,tbr_2
+	ld	a,TBMAX
+tbr_2:	pop	hl
+	cp	2
+	jp	c,rdsec			; the last: read it alone
+	ld	(fdrun),a
+	push	hl
+	xor	a
+	ld	(tbcnt),a		; empty while it is filled
+	ld	h,high TBEND		; for rdsec, which keeps HL
+	ld	l,0
+	call	rdsec
+	ld	hl,fdrun
+	ld	c,(hl)
+	ld	(hl),0
+	pop	hl
+	jr	nz,tbr_f
+	ld	a,c			; tag it
+	ld	(tbcnt),a
+	ld	a,c
+	call	tbpg
+	push	af
+	ld	(tblba),de
+	push	ix
+	ex	(sp),hl
+	ld	a,l
+	pop	hl
+	ld	(tbix),a
+	pop	af			; its first sector is the one wanted
+	push	de
+	ex	de,hl
+	ld	h,a
+	ld	l,0
+	ld	bc,512
+	ldir
+	pop	de
+	xor	a
+	ret
+tbr_f:	cp	E_NOTRDY		; no disk: so again alone, slowly
+	jp	nz,rdsec		; else alone, with the retries
+	or	a
+	ret
+
+; A = the page of the first of A sectors that end at TBEND
+tbpg:	add	a,a
+	neg
+	add	a,high TBEND
+	ret
+
+; HL = drive drvnum's tbmode. Keeps the others.
+tbmptr:	push	af
+	ld	a,(drvnum)
+	ld	hl,tbmode
+	add	a,l
+	ld	l,a
+	jr	nc,tbm_1
+	inc	h
+tbm_1:	pop	af
+	ret
+
+; Forget drive A's interleave, and the track buffer: another disk
+tbzap:	push	hl
+	ld	hl,tbmode
+	add	a,l
+	ld	l,a
+	jr	nc,tbz_1
+	inc	h
+tbz_1:	ld	(hl),0
+	xor	a
+	ld	(tbcnt),a
+	pop	hl
+	ret
+
+; Z, A = the page of sector DE of drive IX, if the track buffer holds
+; it. Keeps BC, DE, HL.
+tbfind:	ld	a,(tbcnt)
+	or	a
+	jr	z,tbf_n
+	push	bc
+	push	hl
+	push	ix
+	pop	hl
+	ld	a,(tbix)
+	cp	l
+	jr	nz,tbf_x
+	push	de
+	ld	hl,(tblba)
+	ex	de,hl
+	or	a
+	sbc	hl,de			; HL = its place in the buffer
+	pop	de
+	jr	c,tbf_x
+	ld	a,h
+	or	a
+	jr	nz,tbf_x
+	ld	a,(tbcnt)
+	sub	l			; the sectors from it to the end
+	jr	c,tbf_x
+	jr	z,tbf_x
+	call	tbpg
+	pop	hl
+	pop	bc
+	cp	a			; Z
+	ret
+tbf_x:	pop	hl
+	pop	bc
+tbf_n:	or	1
+	ret
+
+; Empty the track buffer if it holds sector DE of drive IX: a write.
+; Keeps every register but AF.
+tbwr:	call	tbfind
+	ret	nz
+	xor	a
+	ld	(tbcnt),a
 	ret
 
 ; Mark the buffer at IY dirty
@@ -831,6 +1272,7 @@ bfl4:	pop	ix			; the disk is read again as it is
 ; Drop the buffers of drive A, written or not, and its mount (IX)
 bdrop:	ld	(ix+D_MNT),0
 	ld	c,a
+	call	tbzap			; and the track buffer
 	ld	hl,bufhdr
 	ld	b,NBUF
 bd_1:	ld	a,(hl)
@@ -859,7 +1301,14 @@ fa1:	call	bflush1			; keeps BC and DE
 	ret
 
 ; Every buffer empty, what they held forgotten
-bclear:	ld	hl,bufhdr
+bclear:	xor	a			; and the track buffer, every drive's
+	ld	(tbcnt),a		; interleave
+	ld	hl,tbmode
+	ld	b,NDRV
+bc0:	ld	(hl),a
+	inc	hl
+	djnz	bc0
+	ld	hl,bufhdr
 	ld	b,NBUF
 bc1:	ld	(hl),0FFh
 	ld	de,BHSZ
@@ -869,6 +1318,7 @@ bc1:	ld	(hl),0FFh
 
 ; Forget the buffers of drive A, after writing them out
 bforget: ld	c,a
+	call	tbzap			; and the track buffer
 	ld	iy,bufhdr
 	ld	b,NBUF
 bg1:	ld	a,(iy+BH_DRV)

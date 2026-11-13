@@ -1232,8 +1232,19 @@ ru_big:	call	crlf			; not cut short: none of it runs
 	call	pmsg
 	db	"Batch file too long",0
 	jp	shell
-ru_3:	ld	a,1Ah			; ends at ^Z
+ru_3:	ld	hl,subbuf+SUBMAX	; ends at ^Z: one after the text, when
+	or	a			; there is room, else the file's own
+	sbc	hl,de
+	jr	z,ru_3f
+	ld	a,1Ah
 	ld	(de),a
+	jr	ru_3g
+ru_3f:	ld	hl,subbuf
+	ld	bc,SUBMAX
+	ld	a,1Ah
+	cpir
+	jr	nz,ru_big
+ru_3g:
 	ld	hl,(cmdtail)		; the parameters: words of the tail
 	call	splitargs
 	ld	hl,subname		; make A:$$$.SUB

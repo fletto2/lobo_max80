@@ -11,6 +11,10 @@ T=build/test
 fail=0
 rm -rf $T
 mkdir -p $T/out
+# tools/session.py notes here each wait for the screen that ran out
+SESSION_LOG=$T/session.log
+export SESSION_LOG
+: >$SESSION_LOG
 
 check() {	# name, text to find, output
 	if printf '%s\n' "$3" | grep -qF -- "$2"; then
@@ -272,7 +276,7 @@ if [ "$(uname)" = Linux ]; then
 		out=$(python3 tools/session.py "-a $T/ct.imd" @10)
 		check "the kernel loads CLIB.SYS into B2" "C library loaded" "$out"
 		out=$(python3 tools/session.py "-a $T/ct.imd -w a:$T/out/ct.imd" \
-			'ctest\r' @60 'Walrus\r' @10)
+			'ctest\r' '@?name?' 'Walrus\r' '@?A:\>')
 		check "C: a line from the console, read by the library" "got Walrus" "$out"
 		getfile $T/out/ct.imd CTEST.LOG $T/out/CTEST.LOG
 		out=$(cat $T/out/CTEST.LOG)
@@ -533,7 +537,7 @@ open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
 		out=$(mdir -i $T/out/vib2.img :: 2>&1)
 		check "a change the window leaves goes to the work file" 'VIBIG    $$W' "$out"
 		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
-			'/Line 0900\r' @300 '\x07' @10)
+			'/Line 0900\r' '@/ine 0900 of the big' '\x07' @10)
 		check "a search finds text far below the window" '"VIBIG.TXT" line 901 of 1000' "$out"
 		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
 			':700\r' @200 '\x07' @10)
@@ -674,6 +678,166 @@ check "BENCH prints the tag, passes, records and seconds, 30 or more" "1" "$n"
 mkdisk $T/nb.imd build/BENCH.COM >/dev/null
 out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
 check "BENCH says No file" "No file" "$out"
+
+# A read on a disk at interleave 1 takes the whole track in one FDC
+# command, from the next sector to come round, into a track buffer:
+# faster than a sector a command at any interleave. Other disks read a
+# sector at a time, as fast as before. 1.44M as a PC lays it out, with
+# no skew. Records a second, at least:
+benchrate() {	# image, emulator options: BENCH's records a second
+	$EMU $2 -a $1 -T -M -L -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P' |
+		awk '/^xxxxxxxxxxxxxxxx / { r = int($3 / $4) } /^Lost Data: / { l = $3 } END { print r, l }'
+}
+for b in "720 1 70 --525 720" "720 2 55 --525 720" "8in 1 120" "8in 3 85" \
+	"1440 1 115 --pc 1440 --skew 0 --hskew 0"; do
+	set -- $b
+	name=$1 ilv=$2 floor=$3
+	shift 3
+	python3 tools/mkdisk.py $SYS "$@" --ilv $ilv $T/tb.imd build/BENCH.COM $T/BENCH.DAT >/dev/null
+	D=; [ $name = 720 ] && D="-D 1"
+	set -- $(benchrate $T/tb.imd "$D")
+	fast=no; [ "${1:-0}" -ge $floor ] && fast=yes
+	check "BENCH on $name at interleave $ilv reads $floor records a second or more" "yes" "$fast ($1)"
+	check "with no Lost Data" "0" "${2:-x}"
+done
+
+# The track buffer never gives what a write has replaced. TBW.COM reads
+# TBX.TXT's last record, for the FAT, and its first, which reads the
+# track into the buffer, writes its first sector, reads six more from
+# the buffer, so that the cache writes the first one out, then reads the
+# first again. TBX.TXT starts a track on this disk.
+cat >$T/tbw.asm <<'ASM'
+	org	100h
+	ld	c,15			; open
+	ld	de,fcb
+	call	5
+	inc	a
+	jp	z,fail
+	ld	hl,31			; the last record: the FAT into the cache
+	ld	(fcb+33),hl
+	ld	c,33
+	ld	de,fcb
+	call	5
+	ld	hl,0			; the first: the track into the buffer
+	ld	(fcb+33),hl
+	ld	c,33
+	ld	de,fcb
+	call	5
+	ld	hl,0
+wl:	ld	(fcb+33),hl		; 'b' over the first sector's records
+	push	hl
+	ld	hl,80h
+	ld	de,81h
+	ld	bc,127
+	ld	(hl),'b'
+	ldir
+	ld	c,34
+	ld	de,fcb
+	call	5
+	pop	hl
+	or	a
+	jp	nz,fail
+	inc	hl
+	ld	a,l
+	cp	4
+	jr	nz,wl
+rl:	ld	(fcb+33),hl		; six sectors more, for the cache
+	push	hl
+	ld	c,33
+	ld	de,fcb
+	call	5
+	pop	hl
+	or	a
+	jp	nz,fail
+	ld	de,4
+	add	hl,de
+	ld	a,l
+	cp	28
+	jr	nz,rl
+	ld	hl,0			; the first again
+	ld	(fcb+33),hl
+	ld	c,33
+	ld	de,fcb
+	call	5
+	or	a
+	jp	nz,fail
+	ld	de,80h
+	ld	b,128
+cl:	ld	a,(de)
+	cp	'b'
+	jr	nz,stale
+	inc	de
+	djnz	cl
+	ld	de,okm
+	jr	pr
+stale:	ld	de,stm
+	jr	pr
+fail:	ld	de,flm
+pr:	ld	c,9
+	call	5
+	ld	c,16
+	ld	de,fcb
+	call	5
+	rst	0
+okm:	db	"TB NEW",13,10,"$"
+stm:	db	"TB STALE",13,10,"$"
+flm:	db	"TB FAIL",13,10,"$"
+fcb:	db	0,"TBX     TXT"
+	ds	24,0
+ASM
+rm -f $T/TBW.COM
+(cd $T && sjasmplus --nologo --msg=war --raw=TBW.COM tbw.asm >/dev/null)
+head -c 4096 /dev/zero | tr '\000' 'a' >$T/TBX.TXT
+python3 tools/mkdisk.py $SYS --525 720 --ilv 1 $T/tb.imd $T/TBW.COM $T/TBX.TXT >/dev/null
+for m in -M ""; do	# with the drives' mechanics, and with none, where the
+	# emulator ends a run at the end of the track at once
+	out=$($EMU -D 1 -a $T/tb.imd -T $m -t 40 -e 'A:\>' -k 'tbw\r')
+	check "a sector written over is read back new, not from the track buffer ($m)" "TB NEW" "$out"
+done
+
+# A sector the FDC can not read later on the track does not fail a read
+# of a good one before it: the run fails, and the sector is read alone.
+# tbad.py marks the last sector of TBZ.TXT's track bad (IMD type 05h).
+printf 'the good sector\r\n\032' >$T/TBZ.TXT
+python3 tools/mkdisk.py $SYS --525 720 --ilv 1 $T/tb.imd --raw $T/tb.img $T/TBZ.TXT >/dev/null
+cat >$T/tbad.py <<'PY'
+import struct, sys
+imd, img, name = sys.argv[1:]
+r = open(img, 'rb').read()
+res, nf, rootn, _, _, spf, spt, heads = struct.unpack_from('<HBHHBHHH', r, 14)
+rootsec = res + nf * spf
+datasec = rootsec + (rootn * 32 + 511) // 512
+spc = r[13]
+for o in range(rootsec * 512, datasec * 512, 32):
+    if r[o:o + 11] == name.encode():
+        lba = datasec + (struct.unpack_from('<H', r, o + 26)[0] - 2) * spc
+        break
+trk, pos = divmod(lba, spt)
+assert pos < spt - 1, 'the file is the last on its track'
+b = bytearray(open(imd, 'rb').read())
+i = b.index(0x1A) + 1
+t = 0
+while i < len(b):
+    head, n, size = b[i + 2], b[i + 3], b[i + 4]
+    i += 5
+    ids = b[i:i + n]
+    i += n * (1 + (head >> 7 & 1) + (head >> 6 & 1))
+    for k in range(n):
+        ty = b[i]
+        if t == trk and ids[k] == max(ids):
+            b[i] = {1: 5, 2: 6}[ty]
+        i += 1 + ((128 << size) if ty in (1, 3, 5, 7) else 1 if ty else -1)
+    t += 1
+open(imd, 'wb').write(b)
+print(trk, pos)
+PY
+python3 $T/tbad.py $T/tb.imd $T/tb.img 'TBZ     TXT' >/dev/null
+for m in -M ""; do
+	out=$($EMU -D 1 -a $T/tb.imd -T $m -t 30 -e 'A:\>' -k 'type tbz.txt\r')
+	check "a bad sector later on the track does not fail a read before it ($m)" "the good sector" "$out"
+	n=$(printf '%s\n' "$out" | grep -aciE 'error|I/O')
+	check "and gives no error" "0" "$n"
+done
 
 # MORE: a screen of 23 lines, Space the next, Enter one more, Q
 # stops. A tab goes to the next 8 columns, a long line wraps.
@@ -863,6 +1027,19 @@ awk 'BEGIN { for (i = 0; i < 300; i++) print "rem line " i }' | sed 's/$/\r/' >$
 mkdisk $T/sh3.imd $T/LONG.SUB >/dev/null
 out=$($EMU -a $T/sh3.imd -T -t 30 -e 'A:\>' -k 'long\r')
 check "a batch file over 2K is refused whole" "Batch file too long" "$out"
+# A batch file of exactly 2K fills its buffer: it runs when it has a ^Z
+# of its own, and is too long without one
+python3 -c "
+import sys
+t = b'dir\r\n' * 4
+open(sys.argv[1], 'wb').write(t + b'\x1a' * (2048 - len(t)))
+t = b'dir\r\n' * 409 + b'rem'
+open(sys.argv[2], 'wb').write(t)" $T/FULL.SUB $T/NOEND.SUB
+mkdisk $T/sh4.imd $T/FULL.SUB $T/NOEND.SUB >/dev/null
+out=$($EMU -a $T/sh4.imd -T -t 30 -e 'A:\>' -k 'full\r')
+check "a batch file of 2K that ends in ^Z runs" "A: FULL     SUB : NOEND    SUB" "$out"
+out=$($EMU -a $T/sh4.imd -T -t 30 -e 'A:\>' -k 'noend\r')
+check "and one with no ^Z is too long" "Batch file too long" "$out"
 # The search tries each drive once: on A: the current drive and A: are
 # one. A .COM, a .SUB and a .BAT on A: run from A: and from B:, and a
 # name in none of them is asked about.
@@ -1070,4 +1247,6 @@ check "and the file in them" "MADE     DAT" "$out"
 fatok "and the hard disk is clean" $T/out/fh.img
 
 
+check "no session.py wait for the screen ran out" "=0=" "=$(wc -l <$SESSION_LOG | tr -d ' ')="
+[ -s $SESSION_LOG ] && cat $SESSION_LOG
 exit $fail

@@ -1,6 +1,12 @@
-; xcpmz80 kernel variables, in A2 over the font and common part
-; copies, which the boot sector has moved out by the time the kernel
-; runs. kmain zeroes them. Each is the one before plus its size.
+; xcpmz80 kernel variables. Each is the one before plus its size. They
+; are in three places, to leave 5C00h-7FFFh in A2 to the track buffer:
+; - BSS to BSSEND in A2, over the font and common part copies, which
+;   the boot sector has moved out by the time the kernel runs,
+; - CBSS to CBSSEND in common memory, from the end of the common part
+;   to the I/O block,
+; - the batch buffer and the cache in A2 at 0000h-0FFFh, free once the
+;   boot sector has run there.
+; kmain zeroes the first two.
 BSS		equ	FONT_LOAD
 drvtab		equ	BSS
 bufhdr		equ	drvtab+NDRV*DSZ
@@ -109,8 +115,10 @@ progdrv		equ	tailp+2
 prrecs		equ	progdrv+1
 prfrom		equ	prrecs+2
 prdest		equ	prfrom+2
+BSSEND		equ	prdest+2
 PZLEN		equ	0B0h
-pzbuf		equ	prdest+2
+CBSS		equ	COMMON_END
+pzbuf		equ	CBSS
 argfcb		equ	pzbuf+PZLEN
 argend		equ	argfcb+12
 ncount		equ	argend+2	; 16 bits for DIR and LS, 8 for COPY
@@ -129,15 +137,13 @@ cpptr		equ	cptop+2		; where the next record goes,
 cpn		equ	cpptr+2		; the records in it, and
 cpeof		equ	cpn+2		; 1 at the end of the source
 NAMEMAX		equ	64
-namebuf		equ	cpeof+1
-nameptr		equ	namebuf+NAMEMAX*11
+nameptr		equ	cpeof+1
 sublines		equ	nameptr+2
 argc		equ	sublines+2
 argbuf		equ	argc+1
 SUBMAX		equ	2048
-subbuf		equ	argbuf+130
 ; FORMAT and SYS
-fmtdrv		equ	subbuf+SUBMAX+1
+fmtdrv		equ	argbuf+130
 fmttrk		equ	fmtdrv+1
 fmtmb		equ	fmttrk+1
 fmtf16		equ	fmtmb+1
@@ -181,7 +187,23 @@ fdiff		equ	frnext+1	; the IFF before an FDC transfer
 wbdrv		equ	fdiff+1		; a failed write-back's drive + 1, 0 none
 fnpos		equ	wbdrv+1		; frename: the entry being renamed
 fnbuf		equ	fnpos+2		; and its new name, 11 bytes
-bufdat		equ	fnbuf+11
+fdrun		equ	fnbuf+11	; sectors in a run read, 0 a single one
+fdrend		equ	fdrun+1		; FSECTOR as read on its last sector
+tbix		equ	fdrend+1	; the track buffer: its drive's IX, low
+tblba		equ	tbix+1		; byte, its first sector, 2 bytes,
+tbcnt		equ	tblba+2		; and how many it holds, 0 empty
+tbmode		equ	tbcnt+1		; each drive: 0 interleave not known,
+					; 1 runs, 2 a sector at a time, NDRV
+tbstop		equ	tbmode+NDRV	; the run's end page
+tbsplit		equ	tbstop+1	; sectors in its second part, 0 none
+fdcmdb		equ	tbsplit+1	; the read command
+fdid		equ	fdcmdb+1	; an ID read by Read Address, 6 bytes
+namebuf		equ	fdid+6		; COPY's names, NAMEMAX * 11
+CBSSEND		equ	namebuf+NAMEMAX*11
+	assert	CBSSEND <= BLK
+; Below the kernel, in A2
+subbuf		equ	0000h		; a batch file, SUBMAX bytes, and its ^Z
+bufdat		equ	subbuf+SUBMAX	; when it is shorter
+	assert	bufdat+NBUF*512 <= 1000h
 fmtbuf		equ	FMTBUF			; a track, FMTSZ bytes
-BSSEND		equ	bufdat+NBUF*512
-	assert	BSSEND <= 8000h
+	assert	BSSEND <= TBEND-TBMAX*512	; the track buffer above

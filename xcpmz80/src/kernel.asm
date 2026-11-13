@@ -9,6 +9,11 @@ kmain:	ld	hl,BSS			; zero the variables
 	ld	bc,BSSEND-BSS-1
 	ld	(hl),0
 	ldir
+	ld	hl,CBSS			; and those in common memory
+	ld	de,CBSS+1
+	ld	bc,CBSSEND-CBSS-1
+	ld	(hl),0
+	ldir
 	call	ubtpa
 	call	scbinit
 	call	diskinit

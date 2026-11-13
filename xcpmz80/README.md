@@ -103,7 +103,9 @@ A floppy written by FORMAT reads the same way after
   included, for the tests.
 - `tools/session.py`: types keys into the emulator through its key
   socket (`-g`, Linux only), for programs that show no prompt between
-  keys.
+  keys. Its waits are the machine's time, and `@?TEXT` waits for a
+  prompt, `@/TEXT` for text anywhere on the screen, so a test costs
+  the host little.
 - `test.sh`: the tests.
 
 ## License

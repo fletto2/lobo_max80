@@ -9,7 +9,8 @@
  *              [-k keys] [-e text] [-K] [-s sound.wav]
  *              [-t seconds [-p frame.pgm]] [-l printer.txt]
  *              [-o|-i|-I ch:file] [-S ch] [-F spec] [-x port]
- *              [-m 128|64|64f] [-C] [-B] [-V T] [-L] [-M] [-G fdc.log] [-g]
+ *              [-m 128|64|64f] [-C] [-B] [-V T] [-L] [-M] [-G fdc.log]
+ *              [-g [-N name]]
  *
  *   -r  boot ROM, default ../reference/rom/max80.e12
  *   -a  drive A (and -b B, -c C, -d D), .imd files, never written to
@@ -73,8 +74,12 @@
  *   -g  debug sockets, Linux only: /tmp/max80.sock answers with
  *       the registers, /tmp/max80_mem.sock takes "ADDR LEN [chunk]" in
  *       hex, chunk A1, A2, B1, B2 or V for video RAM, and answers with
- *       a dump, /tmp/max80_kbd.sock types what is written to it. Try
+ *       a dump, or "screen" and answers with the screen as text,
+ *       /tmp/max80_kbd.sock types what is written to it. Try
  *       socat - /tmp/max80.sock
+ *   -N  with -g, an instance name appended to each socket's name,
+ *       -N 2 opens /tmp/max80_2.sock, /tmp/max80_mem_2.sock and
+ *       /tmp/max80_kbd_2.sock, so two emulators can run at once
  *
  * Interactive: Ctrl-] quits. Built without SDL2, the terminal is the
  * only display.
@@ -3137,9 +3142,9 @@ static const char *unescape(const char *s, int *n)
  * Debug sockets. Polled once a tick, so
  * a dump always sees the machine between two instructions.
  */
-#define DBG_REGS "/tmp/max80.sock"
-#define DBG_MEM "/tmp/max80_mem.sock"
-#define DBG_KBD "/tmp/max80_kbd.sock"
+static char DBG_REGS[64] = "/tmp/max80.sock";
+static char DBG_MEM[64] = "/tmp/max80_mem.sock";
+static char DBG_KBD[64] = "/tmp/max80_kbd.sock";
 static int dbg_regs = -1, dbg_mem = -1, dbg_kbd = -1, dbg_kbdcl = -1;
 static volatile sig_atomic_t dbg_stop;	/* SIGTERM: end the run as usual */
 
@@ -3175,6 +3180,14 @@ static void dbg_close(void)
 		unlink(DBG_MEM);
 	if (dbg_kbd >= 0)
 		unlink(DBG_KBD);
+}
+
+/* -N: the sockets' names with the instance name appended */
+static void dbg_name(const char *inst)
+{
+	snprintf(DBG_REGS, sizeof(DBG_REGS), "/tmp/max80_%s.sock", inst);
+	snprintf(DBG_MEM, sizeof(DBG_MEM), "/tmp/max80_mem_%s.sock", inst);
+	snprintf(DBG_KBD, sizeof(DBG_KBD), "/tmp/max80_kbd_%s.sock", inst);
 }
 
 static int dbg_open(void)
@@ -3237,7 +3250,8 @@ static void dbg_regdump(int cl)
 
 /* "ADDR LEN" in hex: as the CPU sees it now. "ADDR LEN chunk", chunk
    A1, A2, B1 or B2: that 32K chunk of RAM, ADDR from 0 to 7FFF. Chunk V:
-   video RAM, ADDR from 0 to 7FF */
+   video RAM, ADDR from 0 to 7FF. "screen": the screen as text, as -t
+   prints it */
 static void dbg_memdump(int cl)
 {
 	char req[64], name[8] = "", buf[20000];
@@ -3253,6 +3267,12 @@ static void dbg_memdump(int cl)
 	if (nr <= 0)
 		return;
 	req[nr] = 0;
+	if (!strncmp(req, "screen", 6)) {
+		static char text[16384];
+		screen_text(text, sizeof(text));
+		dbg_send(cl, text, strlen(text));
+		return;
+	}
 	if (sscanf(req, "%x %x %7s", &addr, &len, name) < 1) {
 		dbg_send(cl, "usage: ADDR LEN [A1|A2|B1|B2|V], in hex\n", 40);
 		return;
@@ -3310,7 +3330,7 @@ static void dbg_poll(void)
 int main(int argc, char **argv)
 {
 	const char *rompath = "../reference/rom/max80.e12";
-	const char *keys = NULL, *pgm = NULL, *wavpath = NULL;
+	const char *keys = NULL, *pgm = NULL, *wavpath = NULL, *inst = NULL;
 	double seconds = 0;
 	int fast = 0, opt, typed = 0, window = 0, debug = 0, show_lost = 0;
 	FILE *f;
@@ -3318,7 +3338,7 @@ int main(int argc, char **argv)
 #ifdef HAVE_SDL
 	window = 1;
 #endif
-	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:CBV:S:LKMG:")) != -1) {
+	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:CBV:S:LKMG:N:")) != -1) {
 		switch (opt) {
 		case 'r': rompath = optarg; break;
 		case 'a': case 'b': case 'c': case 'd':
@@ -3371,6 +3391,15 @@ int main(int argc, char **argv)
 		case 'p': pgm = optarg; break;
 		case 's': wavpath = optarg; break;
 		case 'g': debug = 1; break;
+		case 'N':
+			/* goes in a file name: letters, digits, '-', '_' and '.' */
+			if (!*optarg || strlen(optarg) > 32
+			    || strspn(optarg, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+				"abcdefghijklmnopqrstuvwxyz0123456789-_.") != strlen(optarg))
+				return fprintf(stderr, "-N takes a name of up to 32 letters, "
+					"digits, '-', '_' and '.'\n"), 2;
+			inst = optarg;
+			break;
 		case 'l':
 			if (!(prn = fopen(optarg, "wb")))
 				return perror(optarg), 1;
@@ -3477,7 +3506,7 @@ int main(int argc, char **argv)
 				"\t[-s sound.wav] [-t seconds [-p frame.pgm]] [-l printer.txt]\n"
 				"\t[-o|-i|-I ch:file[@secs]] [-S ch] [-F v|f|m:offset:bit]\n"
 				"\t[-F c:chunk:chunk] [-F d:secs:bit] [-x port] [-m 128|64|64f]\n"
-				"\t[-C] [-B] [-V T] [-L] [-M] [-G fdc.log] [-g]\n");
+				"\t[-C] [-B] [-V T] [-L] [-M] [-G fdc.log] [-g [-N name]]\n");
 			return 2;
 		}
 	}
@@ -3517,8 +3546,12 @@ int main(int argc, char **argv)
 	if (window && win_open())
 		return 1;
 #endif
+	if (inst && !debug)
+		return fprintf(stderr, "-N names the debug sockets, it needs -g\n"), 2;
 	if (debug) {
 #ifdef __linux__
+		if (inst)
+			dbg_name(inst);
 		if (dbg_open())
 			return 1;
 #else

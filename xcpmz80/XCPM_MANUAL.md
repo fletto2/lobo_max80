@@ -173,9 +173,18 @@ sector without waiting a whole turn for the next one:
 
     FORMAT B: 720 ILV 3
 
+On a disk at interleave 1, xcpmz80 reads the rest of a track with one
+command, from the next sector to come round, so 360K and 720K disks
+read about a quarter faster than at 2, 8-inch and 1.44M about a fifth
+faster than at 3 and 2. 1.44M disks a PC formatted are at interleave
+1. Each sector written at interleave 1 waits a turn, so
+writing is slower there. Disks at any other interleave are read a
+sector at a time.
+
 ### Batch files
 
-A `.SUB` file holds one command per line, 2K in all at most. `$1` to `$9` are replaced
+A `.SUB` file holds one command per line, 2K in all at most, and one
+of exactly 2K must end in ^Z, as text files usually do. `$1` to `$9` are replaced
 by the words after the name:
 
     A:\>SUBMIT BUILD HELLO
