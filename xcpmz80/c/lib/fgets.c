@@ -23,7 +23,7 @@ char *fgets(char *buf, int n, FILE *f) __LIB
 		}
 		/* A file: the rest of the record in its buffer at once, the
 		   record checked once, not for every byte, as fgetc reads */
-		if (__loadrec(f) == EOF)
+		if (__getrec(f) == EOF)
 			break;
 		k = (unsigned char)f->pos & 127;
 		do {

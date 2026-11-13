@@ -27,7 +27,7 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *f) __LIB
 			continue;
 		}
 		/* as fgetc has them: a text file ends at ^Z and has no CRs */
-		if (__loadrec(f) == EOF)
+		if (__getrec(f) == EOF)
 			break;
 		k = (unsigned char)f->pos & 127;
 		do {

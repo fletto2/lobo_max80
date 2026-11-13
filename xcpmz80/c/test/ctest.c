@@ -152,6 +152,46 @@ int main(void)
 	fclose(f);
 	say("missing %s\n", fopen("NOFILE.XYZ", "r") ? "found" : "null");
 
+	/* a binary read ends after the last record, "a" on a text file goes
+	 * on at its ^Z, SEEK_END counts a record still buffered, rename
+	 * will not take a name that is there */
+	{
+		char tb[16];
+		long nb, ne;
+		int eof, app, rn, ex;
+
+		f = fopen("CTEST.BIN", "rb");
+		for (nb = 0; nb < 3000 && fgetc(f) != EOF; nb++)
+			;
+		eof = feof(f) != 0;
+		fclose(f);
+		f = fopen("CTEST.APP", "w");
+		fputs("hi\n", f);
+		fclose(f);
+		f = fopen("CTEST.APP", "a");
+		fputs("more\n", f);
+		fclose(f);
+		f = fopen("CTEST.APP", "r");
+		tb[fread(tb, 1, sizeof tb - 1, f)] = 0;
+		fclose(f);
+		app = !strcmp(tb, "hi\nmore\n");
+		f = fopen("CTEST.SK", "w+b");
+		fwrite("0123456789", 1, 10, f);
+		fseek(f, 0, SEEK_END);
+		ne = ftell(f);
+		fclose(f);
+		f = fopen("CTEST.R1", "w");
+		fputc('a', f);
+		fclose(f);
+		errno = 0;
+		rn = rename("CTEST.R1", "CTEST.SK");
+		ex = errno == EEXIST;
+		say("ends %ld %d %d %ld %d %d\n", nb, eof, app, ne, rn, ex);
+		remove("CTEST.APP");
+		remove("CTEST.SK");
+		remove("CTEST.R1");
+	}
+
 	/* the library's string and ctype functions */
 	strcpy(buf, "abc");
 	strcat(buf, "def");

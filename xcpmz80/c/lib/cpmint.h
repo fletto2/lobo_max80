@@ -43,6 +43,7 @@ unsigned char getr(void) __LIB;
 int __mkfcb(unsigned char *fcb, const char *name);
 int __flushrec(FILE *f);
 int __loadrec(FILE *f);
+int __getrec(FILE *f);
 int __rawput(unsigned char c, FILE *f);
 FILE *__fopen(FILE *f, const char *name, const char *mode);
 void __closeall(void);

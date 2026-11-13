@@ -107,6 +107,20 @@ int __loadrec(FILE *f)
 	return 0;
 }
 
+/* __loadrec for a read: a binary file ends after its last record,
+ * which it forgets, so a read after a seek asks again */
+int __getrec(FILE *f)
+{
+	int r = __loadrec(f);
+
+	if (r == 1 && !(f->flags & F_TEXT)) {
+		f->rec = -1;
+		f->flags |= F_EOF;
+		return EOF;
+	}
+	return r;
+}
+
 static unsigned char isopen(unsigned char *fcb)
 {
 	return (unsigned char)bdos(15, (unsigned int)fcb) != 0xff;
@@ -137,6 +151,18 @@ FILE *__fopen(FILE *f, const char *name, const char *mode)
 		if (isopen(f->fcb)) {
 			f->flags |= F_USED | F_WRITE | (plus ? F_READ : 0);
 			fseek(f, 0, SEEK_END);
+			if ((f->flags & F_TEXT) && f->pos) {
+				/* a text file goes on at its ^Z */
+				unsigned char k = 0;
+
+				f->pos -= 128;
+				if (!__loadrec(f))
+					while (k < 128 && f->buf[k] != 0x1a)
+						k++;
+				else
+					k = 128;
+				f->pos += k;
+			}
 			return f;
 		}
 		/* no file: as "w" */

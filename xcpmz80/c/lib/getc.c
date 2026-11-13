@@ -50,7 +50,7 @@ int fgetc(FILE *f) __LIB
 	if (!(f->flags & F_READ) || (f->flags & F_EOF))
 		return EOF;
 	for (;;) {
-		if (__loadrec(f) == EOF)
+		if (__getrec(f) == EOF)
 			return EOF;
 		c = f->buf[(unsigned char)f->pos & 127];
 		if ((f->flags & F_TEXT) && c == 0x1a) {

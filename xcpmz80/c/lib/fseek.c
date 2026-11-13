@@ -12,6 +12,8 @@ int fseek(FILE *f, long off, int whence) __LIB
 	if (whence == SEEK_CUR)
 		off += f->pos;
 	else if (whence == SEEK_END) {
+		if (__flushrec(f))	/* the size with what is buffered */
+			return -1;
 		bdos(35, (unsigned int)f->fcb);	/* the size in records */
 		off += ((long)f->fcb[33] | (long)f->fcb[34] << 8
 			| (long)f->fcb[35] << 16) << 7;

@@ -314,6 +314,7 @@ if [ "$(uname)" = Linux ]; then
 		check "C: and by fread, 50 bytes at a time" "fread 2590 0" "$out"
 		check "C: fseek, a write in the middle, ftell, SEEK_END" "bin 188 85 301 1024" "$out"
 		check "C: a missing file" "missing null" "$out"
+		check "C: a binary read ends, append after ^Z, SEEK_END buffered, rename onto a name" "ends 1024 1 1 128 -1 1" "$out"
 		check "C: the string functions" "str 6 -1 0 def /c cdef 2" "$out"
 		check "C: ctype" "ctype 1011 Az" "$out"
 		check "C: memmove both ways, memset, memcmp" "mem aabcfghx -1" "$out"

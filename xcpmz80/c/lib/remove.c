@@ -26,7 +26,8 @@ int rename(const char *from, const char *to) __LIB
 {
 	unsigned char fcb[16 + 36];	/* the new name's FCB from fcb+16 */
 
-	if (__mkfcb(fcb + 16, to) || __mkfcb(fcb, from)) {
+	/* the old name first: __mkfcb clears 36 bytes */
+	if (__mkfcb(fcb, from) || __mkfcb(fcb + 16, to)) {
 		errno = EINVAL;
 		return -1;
 	}
