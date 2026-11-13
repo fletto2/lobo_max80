@@ -199,7 +199,26 @@ tbsplit		equ	tbstop+1	; sectors in its second part, 0 none
 fdcmdb		equ	tbsplit+1	; the read command
 fdid		equ	fdcmdb+1	; an ID read by Read Address, 6 bytes
 namebuf		equ	fdid+6		; COPY's names, NAMEMAX * 11
+	ifdef	RUNLOG			; the test build's record of a run
+rlid1		equ	namebuf+NAMEMAX*11	; the last ID, rlid2 the one before
+rlid2		equ	rlid1+1
+rlf1		equ	rlid2+1		; the sector register at the last stop,
+rlf2		equ	rlf1+1		; rlf2 at the one before
+rlk		equ	rlf2+1		; where the run started
+rlsp		equ	rlk+1		; and its second part
+rlpn		equ	rlsp+1		; looks at the sector register, counting,
+rlp1		equ	rlpn+1		; at the last stop,
+rlp2		equ	rlp1+1		; and the one before
+rlhd		equ	rlp2+1		; 1 once the line has started
+rls		equ	rlhd+1		; the run's first sector
+rln		equ	rls+1		; and length
+rlcyl		equ	rln+1		; its cylinder and side
+rlpg		equ	rlcyl+2		; its first page in the buffer
+rlst		equ	rlpg+1		; the last status, true form
+CBSSEND		equ	rlst+1
+	else
 CBSSEND		equ	namebuf+NAMEMAX*11
+	endif
 	assert	CBSSEND <= BLK
 ; Below the kernel, in A2
 subbuf		equ	0000h		; a batch file, SUBMAX bytes, and its ^Z
@@ -207,3 +226,6 @@ bufdat		equ	subbuf+SUBMAX	; when it is shorter
 	assert	bufdat+NBUF*512 <= 1000h
 fmtbuf		equ	FMTBUF			; a track, FMTSZ bytes
 	assert	BSSEND <= TBEND-TBMAX*512	; the track buffer above
+	ifdef	RUNLOG
+	assert	BSSEND <= RLSCR
+	endif

@@ -22,7 +22,8 @@ import sys
 import time
 
 PREBUILD = [['make', '-s', 'all', 'apps', '525', 'build/BOLD.FNT',
-             'build/noruns/xcpmz80.sys'],
+             'build/noruns/xcpmz80.sys',
+             'build/runlog/xcpmz80.sys'],
             ['make', '-s', '-C', 'c'], ['make', '-s', 'hitech'],
             ['make', '-s', 'bascom']]
 

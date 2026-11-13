@@ -21,6 +21,12 @@ build/noruns/xcpmz80.sys: $(SRC)
 	mkdir -p build/noruns
 	cd src && $(SJASM) --nologo --msg=war -DNORUNS --raw=../build/noruns/xcpmz80.sys xcpmz80.asm
 
+# The same system checking every run read against the sectors read
+# alone, and printing what differed, for a test on the machine
+build/runlog/xcpmz80.sys: $(SRC)
+	mkdir -p build/runlog
+	cd src && $(SJASM) --nologo --msg=war -DRUNLOG --raw=../build/runlog/xcpmz80.sys xcpmz80.asm
+
 # The boot disk also carries the programs in apps/, the system's font
 # as XCPM.FNT for LDFONT to load again, and both fonts as THIN.FNT and
 # INVERSE.FNT

@@ -261,6 +261,9 @@ fde_1:
 	ld	a,(FSTAT)
 	cpl
 	ld	c,a
+	ifdef	RUNLOG			; the status of the last command
+	ld	(rlst),a
+	endif
 	ld	a,(rwflag)
 	or	a
 	ld	a,9Ch			; read: not ready, RNF, CRC, lost data
@@ -383,7 +386,14 @@ tr1:	ld	a,(bc)
 	jp	nz,trl
 	ld	a,(fdrend)
 	ld	c,a
-trc:	ld	a,(FSECTOR)		; on to the next sector: the last one's
+trc:
+	ifdef	RUNLOG			; how many looks before it moved
+	push	hl
+	ld	hl,rlpn
+	inc	(hl)
+	pop	hl
+	endif
+	ld	a,(FSECTOR)		; on to the next sector: the last one's
 	cp	c			; CRC was good, whether or not the FDC
 	jr	nz,trc_1		; has stopped, at the end of the track
 	ld	a,(hl)			; INTRQ: it stopped, the status says why
@@ -391,6 +401,9 @@ trc:	ld	a,(FSECTOR)		; on to the next sector: the last one's
 	jp	p,fdend
 	jr	trc
 trc_1:
+	ifdef	RUNLOG			; the sector register at each stop
+	call	rlstop
+	endif
 	ld	a,0D0h xor 0FFh		; on to the next: stop it there
 	ld	(FCTRL),a
 	ld	a,(tbsplit)		; then the second part, from the first
@@ -529,7 +542,15 @@ tp_one:	xor	a			; no: the run as it is
 	call	tbpg
 	ld	d,a
 	ld	a,c
-tp_4:	add	a,(ix+D_SBASE)		; Read Address left the track number
+tp_4:
+	ifdef	RUNLOG			; where the run starts, and its split
+	ld	(rlk),a
+	push	af
+	ld	a,(tbsplit)
+	ld	(rlsp),a
+	pop	af
+	endif
+	add	a,(ix+D_SBASE)		; Read Address left the track number
 	cpl				; in the sector register
 	ld	(FSECTOR),a
 	ld	e,0
@@ -595,6 +616,15 @@ fri_4:	ld	a,(FSTAT)
 	ld	a,E_READ
 	jr	nz,fri_5
 	ld	a,(fdid+2)
+	ifdef	RUNLOG			; the last two IDs seen
+	push	hl
+	ld	hl,(rlid1)
+	ld	h,l
+	ld	l,a
+	ld	(rlid1),hl
+	pop	hl
+	cp	a
+	endif
 fri_5:	exx
 	pop	de
 	pop	bc
@@ -972,8 +1002,13 @@ gs4:	pop	bc
 ; The track buffer: up to TBMAX sectors of one track, read by one
 ; command, below TBEND in A2. A cache miss is served from it, or reads
 ; the sectors from the one wanted to the end of the track into it.
+	ifdef	RUNLOG			; a test build checks every run against
+TBMAX		equ	9		; the sectors read alone, one at a time
+	else				; into RLSCR, under a half-size buffer
 TBMAX		equ	18
+	endif
 TBEND		equ	8000h
+RLSCR		equ	TBEND-TBMAX*512-512
 
 ; Read sector DE of drive IX into HL, from the track buffer when it is
 ; there. Z on success, else NZ and A = error. Keeps DE, IX, IY.
@@ -1025,11 +1060,18 @@ tbr_2:	pop	hl
 	ld	(tbcnt),a		; empty while it is filled
 	ld	h,high TBEND		; for rdsec, which keeps HL
 	ld	l,0
+	ifdef	RUNLOG
+	call	rlnew
+	endif
 	call	rdsec
 	ld	hl,fdrun
 	ld	c,(hl)
 	ld	(hl),0
 	pop	hl
+	ifdef	RUNLOG
+	call	nz,rlerr
+	call	z,rlchk
+	endif
 	jr	nz,tbr_f
 	ld	a,c			; tag it
 	ld	(tbcnt),a
@@ -1056,6 +1098,225 @@ tbr_f:	cp	E_NOTRDY		; no disk: so again alone, slowly
 	jp	nz,rdsec		; else alone, with the retries
 	or	a
 	ret
+
+	ifdef	RUNLOG
+; The RUNLOG build: what a run saw, printed when it went wrong, for the
+; machine. A line starts RUN, then c cylinder, h side, s the
+; run's first sector and n its length (from 0, before SBASE), i the
+; last two IDs Read Address gave, k where the run started, p the
+; sectors in its second part, f the sector register at each stop,
+; looks the number of times trc read it there. RUN ERR adds the
+; error and the last status (true form). A bad sector shows as
+; place=where its data is in the run, - nowhere, E an error alone.
+rlnew:	push	hl
+	ld	hl,0FFFFh
+	ld	(rlid1),hl
+	ld	(rlf1),hl
+	ld	(rlk),hl		; and rlsp
+	ld	hl,0
+	ld	(rlpn),hl		; and rlp1
+	ld	(rlp2),hl		; and rlhd
+	pop	hl
+	ret
+rlstop:	push	af			; A = FSECTOR as read
+	push	hl
+	ld	hl,(rlf1)
+	ld	h,l
+	cpl
+	ld	l,a
+	ld	(rlf1),hl
+	ld	a,(rlp1)
+	ld	(rlp2),a
+	ld	a,(rlpn)
+	ld	(rlp1),a
+	xor	a
+	ld	(rlpn),a
+	pop	hl
+	pop	af
+	ret
+; The line's start, once a run
+rlhead:	ld	a,(rlhd)
+	or	a
+	ret	nz
+	inc	a
+	ld	(rlhd),a
+	call	pmsg
+	db	"RUN c",0
+	ld	a,(rlcyl)
+	call	rlnum
+	call	pmsg
+	db	" h",0
+	ld	a,(rlcyl+1)
+	call	rlnum
+	call	pmsg
+	db	" s",0
+	ld	a,(rls)
+	call	rlnum
+	call	pmsg
+	db	" n",0
+	ld	a,(rln)
+	call	rlnum
+	call	pmsg
+	db	" i",0
+	ld	a,(rlid2)
+	call	rlnum
+	ld	a,','
+	call	kputc
+	ld	a,(rlid1)
+	call	rlnum
+	call	pmsg
+	db	" k",0
+	ld	a,(rlk)
+	call	rlnum
+	call	pmsg
+	db	" p",0
+	ld	a,(rlsp)
+	call	rlnum
+	call	pmsg
+	db	" f",0
+	ld	a,(rlf2)
+	call	rlnum
+	ld	a,','
+	call	kputc
+	ld	a,(rlf1)
+	call	rlnum
+	call	pmsg
+	db	" looks ",0
+	ld	a,(rlp2)
+	call	rlnum
+	ld	a,','
+	call	kputc
+	ld	a,(rlp1)
+	; fall into rlnum
+rlnum:	push	bc
+	push	de
+	push	hl
+	call	pdeca
+	pop	hl
+	pop	de
+	pop	bc
+	ret
+rlsave:	ld	a,(fdsec)
+	ld	(rls),a
+	ld	a,c
+	ld	(rln),a
+	push	hl
+	ld	hl,(fdcyl)
+	ld	(rlcyl),hl
+	pop	hl
+	ret
+; The run failed, A its error (NZ): say so. Keeps every register.
+rlerr:	push	af
+	push	bc
+	call	rlsave
+	call	rlhead
+	call	pmsg
+	db	" ERR ",0
+	pop	bc
+	pop	af
+	push	af
+	call	rlnum
+	call	pmsg
+	db	" st ",0
+	ld	a,(rlst)
+	call	rlnum
+	call	crlf
+	pop	af
+	ret
+; The run read C sectors from DE on: read each alone into RLSCR and
+; compare, print what differs, and put the sector read alone in the
+; buffer. Z. Keeps BC, DE, HL.
+rlchk:	push	hl
+	push	de
+	push	bc
+	call	rlsave
+	ld	a,c
+	call	tbpg
+	ld	(rlpg),a
+	ld	b,0
+rlq_1:	ld	hl,RLSCR
+	call	rdsec			; this one alone
+	jr	z,rlq_2
+	call	rlhead
+	call	pmsg
+	db	" ",0
+	ld	a,b
+	call	rlnum
+	call	pmsg
+	db	"=E",0
+	jr	rlq_9
+rlq_2:	ld	a,b			; its place in the run
+	call	rlcmp
+	jr	z,rlq_9
+	call	rlhead			; not the same: where is it?
+	call	pmsg
+	db	" ",0
+	ld	a,b
+	call	rlnum
+	ld	a,'='
+	call	kputc
+	xor	a
+rlq_3:	push	af
+	call	rlcmp
+	jr	z,rlq_4
+	pop	af
+	inc	a
+	cp	c
+	jr	c,rlq_3
+	ld	a,'-'
+	call	kputc
+	jr	rlq_5
+rlq_4:	pop	af
+	call	rlnum
+rlq_5:	push	de			; the right bytes in its place
+	push	bc
+	ld	a,b
+	add	a,a
+	ld	hl,rlpg
+	add	a,(hl)
+	ld	d,a
+	ld	e,0
+	ld	hl,RLSCR
+	ld	bc,512
+	ldir
+	pop	bc
+	pop	de
+rlq_9:	inc	de
+	inc	b
+	ld	a,b
+	cp	c
+	jr	c,rlq_1
+	ld	a,(rlhd)
+	or	a
+	call	nz,crlf
+	pop	bc
+	pop	de
+	pop	hl
+	xor	a
+	ret
+; Z when RLSCR holds the same 512 bytes as place A of the run
+rlcmp:	push	bc
+	push	de
+	add	a,a
+	ld	hl,rlpg
+	add	a,(hl)
+	ld	h,a
+	ld	l,0
+	ld	de,RLSCR
+	ld	bc,512
+rlr_1:	ld	a,(de)
+	cp	(hl)
+	jr	nz,rlr_9
+	inc	de
+	inc	hl
+	dec	bc
+	ld	a,b
+	or	c
+	jr	nz,rlr_1
+rlr_9:	pop	de
+	pop	bc
+	ret
+	endif
 
 ; A = the page of the first of A sectors that end at TBEND
 tbpg:	add	a,a
