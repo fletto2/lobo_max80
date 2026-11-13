@@ -863,7 +863,7 @@ frename: call	fcbdrw
 	xor	a
 	ld	(fres),a
 	call	dsfirst
-	jp	nz,fn_e
+	jr	nz,fn_e
 fn_1:	call	isro
 	ld	a,E_ROFILE
 	jp	nz,fn_x
@@ -888,14 +888,14 @@ fn_4:	inc	hl
 	ld	hl,fnbuf		; free, of files and folders?
 	call	namepat
 	call	dsany
-	jp	z,fn_tk
+	jr	z,fn_tk
 	cp	R_NOFILE
-	jp	nz,fn_x
+	jr	nz,fn_x
 	ld	hl,CFCB+F_NAME		; the entry again, from its place
 	call	namepat
 	ld	hl,(fnpos)
 	call	ds_0
-	jp	nz,fn_x
+	jr	nz,fn_x
 	ex	de,hl
 	ld	hl,fnbuf
 	ld	bc,11
@@ -913,9 +913,9 @@ fn_tk:	ld	a,(fres)
 	ld	hl,(fnpos)
 	ld	(dpos),hl
 fn_6:	call	dsnext
-	jp	z,fn_1
+	jr	z,fn_1
 fn_e:	cp	R_NOFILE
-	jp	nz,fn_x
+	jr	nz,fn_x
 	call	flushall
 	ret	nz
 	ld	a,(fres)		; 1: all renamed
@@ -944,7 +944,7 @@ fmove:	call	fcbdrw
 	ld	hl,CFCB+17
 	call	namepat
 	call	dsany
-	jp	z,fn_no
+	jr	z,fn_no
 	cp	R_NOFILE
 	ret	nz
 	ld	hl,(mvsrc)
@@ -956,7 +956,7 @@ fmove:	call	fcbdrw
 	jr	z,fm_1
 	cp	R_NOFILE
 	ret	nz
-	jp	fn_no
+	jr	fn_no
 fm_1:	call	isro
 	ld	a,E_ROFILE
 	ret	nz
@@ -972,8 +972,8 @@ fm_1:	call	isro
 	call	dnew
 	jr	z,fm_2
 	cp	R_NOFILE		; no room there: as a name taken
-	jp	z,fn_no
-	jp	fn_x			; an error: said as one
+	jr	z,fn_no
+	jr	fn_x			; an error: said as one
 fm_2:	ld	de,11			; with the old one's attributes,
 	add	hl,de			; times, cluster and size
 	ex	de,hl

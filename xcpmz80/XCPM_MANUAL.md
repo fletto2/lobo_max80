@@ -183,8 +183,14 @@ the `.COM` of that name instead, so CP/M 3's own DIR, ERASE and so on
 still work if they are on the disk. A drive before the name, as `A:RD`,
 runs the program too, never the built-in.
 
-If the destination disk fills, COPY says Disk Full and erases the part
-it wrote, so no short copy is left.
+If the destination disk fills, or a read of the source fails, COPY
+says so and erases the part it wrote, so no short copy is left. A file
+over 8 MB, which CP/M programs cannot read past 8 MB, is copied up to
+8 MB, and TYPE stops there too.
+
+A wildcard COPY or MV takes any number of files. REN takes a folder in
+either name, `REN GAMES\NEW.COM=GAMES\OLD.COM`, and renames in the old
+name's folder.
 
 COPY reads as much as fits in memory before it writes, so copying
 from one floppy to another moves the heads as little as it can.
@@ -409,7 +415,7 @@ there, from` and the address, back at the prompt.
 - File names are kept in upper case. A file's R/O attribute is FAT's
   read-only flag, SYS is FAT's system flag.
 - A file holds up to 8 MB. A longer one, copied from a PC, reads as
-  ending at 8 MB.
+  ending at 8 MB, and COPY copies its first 8 MB.
 - A file cannot be made (BDOS 22) with `?` in its name, which FAT
   cannot hold: the call returns FFh, as for a full directory.
 - One disk parameter block serves every drive: the address BDOS 31

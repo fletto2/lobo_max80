@@ -452,7 +452,7 @@ sy_1:	call	sysget
 	ld	de,0
 	ld	hl,fmtbuf
 	call	rdsec
-	jp	nz,fmt_err
+	jr	nz,fmt_err
 	ld	hl,fmtbuf+0Bh		; keep its BPB through the copy
 	ld	de,fmtbuf+512
 	ld	bc,3Eh-0Bh

@@ -110,7 +110,7 @@ dc_2:	ld	hl,linebuf
 	jr	nz,dc_3
 	ld	a,(cmdfcb)
 	or	a
-	jp	z,dc_what
+	jr	z,dc_what
 	dec	a
 	ld	(fdrive),a
 	call	mount
@@ -262,18 +262,18 @@ cpwd:	call	crlf
 	jp	shell
 
 ; MKDIR path, MD: make a folder. RMDIR path, RD: remove an empty one.
-cmkdir:	call	skipsp
-	or	a
-	jp	z,dc_what
+cmkdir:	call	cmr_0
 	call	xmkdir
-	jp	nz,sherr
-	jp	shell
-crmdir:	call	skipsp
-	or	a
-	jp	z,dc_what
+	jr	cmr_1
+crmdir:	call	cmr_0
 	call	xrmdir
-	jp	nz,sherr
+cmr_1:	jp	nz,sherr
 	jp	shell
+cmr_0:	call	skipsp			; a name, or What?
+	or	a
+	ret	nz
+	pop	af
+	jp	dc_what
 
 ; ------------------------------------------------------------------
 ; argpat, then argfcb to DE. HL = argend.
@@ -287,7 +287,7 @@ argcp:	push	de
 	ret
 
 ; argpat, the count zeroed, and the first entry
-dirbeg:	ld	a,(dsdirs)		; a path's walk clears it
+dirbeg:	ld	a,A_DIR			; folders too: a path's walk clears it
 	push	af
 	call	argpat
 	pop	af
@@ -346,9 +346,7 @@ ap_2:	dec	a
 
 ; DIR [name]: four names a line, as CP/M's. System and hidden files
 ; are left out.
-cdir:	ld	a,A_DIR			; folders too
-	ld	(dsdirs),a
-	call	dirbeg
+cdir:	call	dirbeg			; folders too
 cd_1:	jr	nz,cd_9
 	ld	a,(hl)			; not . and ..
 	cp	'.'
@@ -434,9 +432,7 @@ kbreak:	call	xconst
 	ret
 
 ; LS [name]: every file, its size, then the count and the space left
-cls_:	ld	a,A_DIR			; folders too
-	ld	(dsdirs),a
-	call	dirbeg
+cls_:	call	dirbeg			; folders too
 ls_1:	jp	nz,ls_9
 	ld	a,(hl)			; not . and ..
 	cp	'.'
@@ -568,6 +564,8 @@ ce_3:	ld	hl,argfcb
 ; COPY's loop: see mvone.
 cren:	ld	de,renew
 	call	argcp
+	ld	a,0FFh			; the old name's folder, not the new one's
+	ld	(dirovd),a
 	call	skipsp
 	cp	'='
 	jp	nz,dc_what
@@ -600,10 +598,7 @@ rn_2:
 	jp	nz,sherr
 	or	a
 	jp	z,shell
-	call	crlf
-	call	pmsg
-	db	"No file, or the new name is taken",0
-	jp	shell
+	jp	mv_tk			; MV's message
 
 ; TYPE name: the text up to ^Z
 ctype:	call	arg1
@@ -631,6 +626,9 @@ ct_2:	ld	a,(hl)
 	pop	hl
 	call	kbreak
 	inc	hl
+	ld	a,h			; 8M: the end
+	or	l
+	jp	z,shell
 	jr	ct_1
 ct_9:	pop	hl
 	jp	shell
@@ -659,7 +657,6 @@ sv_0:	push	hl
 	sbc	hl,de
 	pop	hl
 	jr	z,sv_9
-	push	bc
 	push	hl
 	ld	hl,(prdest)
 	ld	de,CBUF
@@ -670,7 +667,6 @@ sv_0:	push	hl
 	push	hl
 	call	wrrec
 	pop	hl
-	pop	bc
 	jp	nz,sherr
 	inc	hl
 	jr	sv_0
@@ -754,6 +750,16 @@ cmv:	ld	a,1
 	inc	a
 	ld	(cpdst),a
 cp_1:	call	cpfold
+	ld	hl,cpsrc+1		; the pattern, kept for each batch
+	ld	de,cppat
+	ld	bc,11
+	ldir
+	xor	a
+	ld	(cpstate),a
+cp_g:	ld	hl,cppat
+	ld	de,cpsrc+1
+	ld	bc,11
+	ldir
 	call	cpsrcd
 	ld	hl,cpsrc		; the names first: copying moves the
 	call	cfcbset			; directory
@@ -764,7 +770,14 @@ cp_1:	call	cpfold
 	ld	(ncount),a
 	ld	de,namebuf
 	ld	(nameptr),de
-	call	dsfirst
+	ld	a,(cpstate)		; NAMEMAX at a time: the next batch
+	or	a			; from the last one's place. The
+	jr	z,cp_g1			; source's entries stay in their slots
+	ld	hl,(cppos)
+	ld	(dpos),hl
+	call	dsnext
+	jr	cp_2
+cp_g1:	call	dsfirst
 cp_2:	jr	nz,cp_3
 	ld	de,(nameptr)
 	ld	bc,11
@@ -774,14 +787,25 @@ cp_2:	jr	nz,cp_3
 	inc	(hl)
 	ld	a,(hl)
 	cp	NAMEMAX
-	jr	nc,cp_4
+	jr	nc,cp_4m
 	call	dsnext
 	jr	cp_2
-cp_3:	cp	R_NOFILE
+cp_4m:	ld	hl,(dpos)		; more may follow
+	ld	(cppos),hl
+	ld	a,1
+	ld	(cpstate),a
+	jr	cp_4
+cp_3:	cp	R_NOFILE		; the last batch
 	jp	nz,sherr
-cp_4:	ld	a,(ncount)
+	ld	hl,cpstate
+	ld	a,(ncount)
 	or	a
+	jr	nz,cp_3c
+	or	(hl)			; none in a later batch: done
 	jp	z,she_nf
+	jp	shell
+cp_3c:	ld	(hl),0
+cp_4:
 	cp	1			; several: "to" must be a drive
 	jr	z,cp_5
 	ld	a,(cpdst+1)
@@ -829,7 +853,10 @@ cp_8:	call	kbreak
 	ld	hl,ncount
 	dec	(hl)
 	jr	nz,cp_6
-	jp	shell
+	ld	a,(cpstate)
+	or	a
+	jp	z,shell
+	jp	cp_g
 
 ; If "to" is the name of a folder, with no \ after it, that folder
 ; becomes the destination and the name is left blank
@@ -922,6 +949,14 @@ mv_x:	ld	hl,CFCB+F_NAME		; another drive: the name must be free
 	call	fdelete
 	jp	fchk
 
+; CFCB to DE, or HL to CFCB: the 36 bytes of an FCB
+fromcfcb: ld	hl,CFCB
+	jr	fc_36
+tocfcb:	ld	de,CFCB
+fc_36:	ld	bc,36
+	ldir
+	ret
+
 ; Copy cpsrc to cpdst2, byte exact
 copy1:	call	cpsrcd
 	ld	hl,cpsrc		; open the source, keep its FCB
@@ -930,10 +965,8 @@ copy1:	call	cpsrcd
 	call	fchk
 	ld	hl,(dircl)
 	ld	(srcreal),hl
-	ld	hl,CFCB
 	ld	de,srcfcb
-	ld	bc,36
-	ldir
+	call	fromcfcb
 	call	cpdstd			; the same file? The same drive,
 	ld	hl,cpdst2		; folder and name
 	call	cfcbset
@@ -962,10 +995,8 @@ c1_0:	ld	hl,cpdst2		; make the destination
 	call	cfcbset
 	call	fmake
 	call	fchk
-	ld	hl,CFCB
 	ld	de,dstfcb
-	ld	bc,36
-	ldir
+	call	fromcfcb
 	ld	hl,0
 	ld	(cprec),hl
 	ld	hl,6			; the TPA, free while the shell runs, from
@@ -987,19 +1018,16 @@ c1_2:	ld	hl,(cpptr)		; the TPA full?
 	sbc	hl,de
 	jr	nc,c1_4
 	ld	hl,srcfcb		; a record from the source
-	ld	de,CFCB
-	ld	bc,36
-	ldir
+	call	tocfcb
 	ld	hl,(cprec)
 	ld	de,(cpn)
 	add	hl,de
+	jr	c,c1_8m			; 8M, as BDOS reads end there
 	call	rdrec
-	jp	nz,sherr
+	jr	nz,c1_rer
 	push	af
-	ld	hl,CFCB
 	ld	de,srcfcb
-	ld	bc,36
-	ldir
+	call	fromcfcb
 	pop	af
 	or	a
 	jr	nz,c1_3
@@ -1012,6 +1040,8 @@ c1_2:	ld	hl,(cpptr)		; the TPA full?
 	inc	hl
 	ld	(cpn),hl
 	jr	c1_2
+c1_8m:	ld	a,2			; cut at 8M: 2, and the ld bc
+	db	01h			; skips the ld a,1
 c1_3:	ld	a,1			; the end of the source
 	ld	(cpeof),a
 c1_4:	ld	hl,0100h		; then all of it to the destination
@@ -1026,16 +1056,12 @@ c1_5:	ld	hl,(cpn)
 	call	ucopy
 	ld	(cpptr),hl
 	ld	hl,dstfcb
-	ld	de,CFCB
-	ld	bc,36
-	ldir
+	call	tocfcb
 	ld	hl,(cprec)
 	call	wrrec
-	jp	nz,c1_err
-	ld	hl,CFCB
+	jr	nz,c1_err
 	ld	de,dstfcb
-	ld	bc,36
-	ldir
+	call	fromcfcb
 	ld	hl,(cprec)
 	inc	hl
 	ld	(cprec),hl
@@ -1043,10 +1069,13 @@ c1_5:	ld	hl,(cpn)
 	dec	hl
 	ld	(cpn),hl
 	jr	c1_5
-; A write failed, as on a full disk: close the part written, so its
-; clusters are in its entry, and erase it, then the error
+; A read or a write failed: close the part written, so its clusters
+; are in its entry, and erase it, then the error
+c1_rer:	push	af			; a read: the source's FCB in CFCB
+	ld	hl,dstfcb
+	call	tocfcb
+	pop	af
 c1_err:	push	af
-	ld	hl,CFCB
 	call	fclose
 	call	cpdstd
 	ld	hl,cpdst2
@@ -1058,9 +1087,9 @@ c1_6:	ld	a,(cpeof)
 	or	a
 	jp	z,c1_1
 c1_9:	ld	hl,dstfcb		; the exact size, then close
-	ld	de,CFCB
-	ld	bc,36
-	ldir
+	call	tocfcb			; A is cpeof, kept
+	dec	a			; cut at 8M: the size written
+	jr	nz,c1_cl
 	ld	hl,srcfcb+F_SIZE
 	ld	de,CFCB+F_SIZE
 	ld	bc,4
@@ -1068,7 +1097,7 @@ c1_9:	ld	hl,dstfcb		; the exact size, then close
 	ld	a,(CFCB+F_FLAG)
 	or	1
 	ld	(CFCB+F_FLAG),a
-	call	fclose
+c1_cl:	call	fclose
 	jp	nz,sherr
 	ret
 

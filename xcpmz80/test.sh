@@ -1442,6 +1442,23 @@ check "SAVE 2 left A.TXT as it was" "A.TXT        2" "$out"
 check "SAVE 200 saves 200 pages" "BIG.COM      51200" "$out"
 check "DIR of a folder shows the folders in it" "A: SUB\\" "$out"
 check "REN works on the old name's drive" "B: NEW      TXT" "$out"
+# REN with the folder in the new name too renames in that folder (I298)
+out=$($EMU -a $T/sh2.imd -T -t 60 -e 'A:\>' -k 'md x\rcopy old.txt x\rren x\\h.txt=x\\old.txt\rdir x\\\r')
+check "REN takes the folder in the new name (I298)" "A: H        TXT" "$out"
+# COPY and MV of more files than one pass holds, 64: all 70 go (I298)
+mkdir -p $T/n70
+for i in $(seq 10 79); do echo "file $i" >$T/n70/F$i.TXT; done
+mkdisk $T/n70a.imd >/dev/null
+python3 tools/mkdisk.py $SYS --pc 720 $T/n70b.imd $T/n70/*.TXT >/dev/null
+$EMU -a $T/n70a.imd -b $T/n70b.imd -T -t 300 -e 'A:\>|B:\>' \
+	-k 'b:\rmd x\rcopy *.txt x\rmd y\rmd z\rcopy *.txt z\rmv z\\*.txt y\r' \
+	-w b:$T/out/n70b.imd >/dev/null
+python3 ../tools/imd2raw.py $T/out/n70b.imd $T/out/n70b.img >/dev/null
+check "COPY of 70 files copies them all (I298)" "=70=" "=$(mdir -b -i $T/out/n70b.img ::/X | wc -l)="
+check "MV of 70 files moves them all" "=70 0=" "=$(mdir -b -i $T/out/n70b.img ::/Y | wc -l) $(mdir -b -i $T/out/n70b.img ::/Z 2>/dev/null | wc -l)="
+mcopy -o -i $T/out/n70b.img ::/Y/F79.TXT $T/out/F79.TXT
+same "and the last is whole" $T/n70/F79.TXT $T/out/F79.TXT
+fatok "and the volume is clean" $T/out/n70b.img
 awk 'BEGIN { for (i = 0; i < 300; i++) print "rem line " i }' | sed 's/$/\r/' >$T/LONG.SUB
 mkdisk $T/sh3.imd $T/LONG.SUB >/dev/null
 out=$($EMU -a $T/sh3.imd -T -t 30 -e 'A:\>' -k 'long\r')
@@ -1702,6 +1719,12 @@ python3 -c "open('$T/BIG8.DAT', 'wb').write(bytes(65537 * 128))"
 python3 tools/mkdisk.py $SYS --hd 10 $T/e8.img $T/E8.COM $T/BIG8.DAT >/dev/null
 out=$($EMU -D 7 -h $T/e8.img -T -t 40 -e 'A:\>' -k 'e8\r')
 check "past record 65535 a read is the end of the file (I297)" "00 00 00 01" "$out"
+# COPY of a file over 8M copies the 8M BDOS reads, and its size is what
+# was written: it neither wraps to record 0 nor gets the source's size (I298)
+python3 tools/mkdisk.py $SYS --hd 20 $T/c8.img $T/BIG8.DAT >/dev/null
+out=$($EMU -D 7 -h $T/c8.img -T -t 3000 -e 'A:\>' -k 'copy big8.dat big9.dat\rls big9.dat\r' -w h:$T/out/c8.img)
+check "COPY of a file over 8M ends at 8M (I298)" "BIG9.DAT     8388608" "$out"
+fatok "and the volume is clean" $T/out/c8.img
 python3 ../tools/imd2raw.py $T/out/fr.imd $T/out/fr.img >/dev/null
 k2=$(mdir -i $T/out/fr.img :: | grep -a 'bytes free' | tr -d ' ' | sed 's/bytesfree//')
 check "and mtools'" "A: $((k2 / 1024))K free" "$k1"

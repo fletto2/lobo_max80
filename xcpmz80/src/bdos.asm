@@ -319,7 +319,7 @@ rl1:	ld	hl,rl1
 	cp	12h			; ^R
 	jr	z,rlretype
 	cp	05h			; ^E: the line again from the start of
-	jp	z,rle			; the next row, so the back arrow knows
+	jr	z,rle			; the next row, so the back arrow knows
 	cp	10h			; ^P
 	jr	z,rlprn
 	cp	03h			; ^C
@@ -482,7 +482,7 @@ rlup:	ld	b,a
 	ld	de,linebuf
 	ldir
 	ld	a,(histlen)
-	jp	rlset
+	jr	rlset
 
 ; Echo A as the line editor shows it: control characters as ^X, tabs
 ; expanded. Note the furthest column reached in lnend. Keeps BC.

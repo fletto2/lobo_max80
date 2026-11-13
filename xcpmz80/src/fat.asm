@@ -124,7 +124,7 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	jp	z,mtbad
 	ld	de,0FFF6h
 	sbc	hl,de			; carry clear: A, H or L is not 0
-	jp	nc,mtbad
+	jr	nc,mtbad
 	add	hl,de
 	inc	hl			; highest cluster = clusters + 1
 	ld	(ix+D_MAXCL),l
@@ -159,7 +159,7 @@ mt4:	ex	de,hl
 	ld	h,(ix+D_SPF+1)
 	or	a
 	sbc	hl,de
-	jp	c,mtbad
+	jr	c,mtbad
 	ld	a,(iy+18h)		; floppy geometry
 	ld	(ix+D_SPT),a
 	ld	a,(iy+1Ah)

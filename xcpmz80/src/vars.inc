@@ -75,6 +75,11 @@ sexmode		equ	sdrive+1
 sspat		equ	sexmode+1
 sdpos		equ	sspat+11
 sext		equ	sdpos+2
+; COPY and MV in batches of NAMEMAX use 17 and 18's place: the shell
+; runs no program meanwhile
+cppat		equ	sspat		; the source pattern
+cppos		equ	sdpos		; the directory place a batch ended at
+cpstate		equ	sext		; bit 0 more to come, bit 1 a later batch
 dirblks		equ	sext+1
 blkk		equ	dirblks+1	; DPB block: 2K << blkk
 entk		equ	blkk+1		; an entry holds 16K << entk
