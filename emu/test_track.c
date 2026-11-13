@@ -490,6 +490,14 @@ int main(void)
 	pio_write(2, 0x53);
 	pio_write(2, 0x43);
 	expect(rtc_r(3) == 15, "  a write with PA3-0 inputs stores the pull-ups' 1111");
+	pio_mask[0] = 0;		/* LDOS SETTIME's order: WRITE, then HOLD */
+	pio_a = (pio_a & 0xf0) | 4;
+	pio_write(2, 0x13);
+	pio_write(2, 0x53);
+	pio_write(2, 0x13);
+	pio_write(2, 0);
+	pio_mask[0] = 0x0f;
+	expect(rtc_r(3) == 4, "  WRITE before HOLD stores too, as LDOS writes");
 	rtc_w(3, 6);
 	rtc_w(3, m10);
 	int s1 = rtc_r(0) + 10 * rtc_r(1);

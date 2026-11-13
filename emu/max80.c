@@ -1407,11 +1407,13 @@ static uint8_t rtc_read(void)
 	return a < 13 ? rtc_reg[a] : 0x0f;
 }
 
-/* Port B changed from old to pio_b: a WRITE strobe stores the digit */
+/* Port B changed from old to pio_b: WRITE and HOLD high together store
+   the digit, whichever came first. TIMESET raises HOLD then WRITE, LDOS
+   SETTIME WRITE then HOLD */
 static void rtc_port_b(uint8_t old)
 {
 	rtc_sync();
-	if (!(old & 0x10) && (pio_b & 0x10) && rtc_held()) {
+	if ((old & 0x50) != 0x50 && (pio_b & 0x50) == 0x50 && rtc_held()) {
 		int a = pio_b & 0x0f;
 		if (a == 0 || a == 1) {	/* either seconds digit clears both */
 			rtc_reg[0] = rtc_reg[1] = 0;
