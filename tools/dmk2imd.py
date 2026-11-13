@@ -7,14 +7,17 @@ DMK keeps each raw track behind a table of 64 ID address mark pointers.
 Bit 15 of a pointer is set for a double-density ID, the low 14 bits are
 the offset of the FEh byte from the track start, table included. Single
 density bytes are stored twice unless header byte 4 bit 6 says the disk
-is single density only. Each ID gives cylinder, head, sector and size
+is single density only, or bit 7 that densities are not told apart
+. Each ID gives cylinder, head, sector and size
 code, and its data field is the next F8h-FBh mark (F8h, F9h deleted)
 within 64 bytes. The CRCs are checked, and a bad one is reported and the
 sector kept with the IMD data-error mark.
 
 DMK has no data rate. The IMD modes are 5-inch (250 kbit/s) unless
---eight is given. A track whose sectors differ in size cannot be stored
-in IMD and stops the conversion.
+--eight is given. A track whose sectors differ in size or density
+cannot be stored in IMD and stops the conversion. A sector that runs
+past its track's end, or a pointer into the table, is reported as a
+problem and left out.
 """
 import sys
 import time
@@ -32,7 +35,7 @@ def read_dmk(path):
     d = open(path, 'rb').read()
     ntracks, tlen, flags = d[1], d[2] | d[3] << 8, d[4]
     sides = 1 if flags & 0x10 else 2
-    sd_once = bool(flags & 0x40)
+    sd_once = bool(flags & 0xc0)
     tracks, problems = [], []
     for t in range(ntracks * sides):
         base = 16 + t * tlen
@@ -49,31 +52,45 @@ def read_dmk(path):
             def at(k, off=off, step=step):
                 return trk[off + k * step]
 
+            if off < 128 or off >= len(trk):
+                problems.append('track %d entry %d: pointer %04x off the track' % (t, e, ptr))
+                continue
             if at(0) != 0xfe:
                 problems.append('track %d entry %d: no FEh at the pointer' % (t, e))
                 continue
-            idf = [at(k) for k in range(5)]
-            crc = at(5) << 8 | at(6)
-            pre = [0xa1] * 3 if dd else []
-            id_ok = crc16(pre + idf) == crc
-            c, h, r, n = idf[1:5]
-            size = 128 << (n & 3)
-            k = 7
-            while k < 7 + 64 and not 0xf8 <= at(k) <= 0xfb:
-                k += 1
-            if k >= 7 + 64:
-                problems.append('C%d H%d R%d: no data mark' % (c, h, r))
+            try:
+                sec = read_sector(at, dd, problems)
+            except IndexError:
+                problems.append('track %d entry %d: runs past the track end' % (t, e))
                 continue
-            mark = at(k)
-            data = bytes(at(k + 1 + i) for i in range(size))
-            dcrc = at(k + 1 + size) << 8 | at(k + 2 + size)
-            data_ok = crc16(pre + [mark] + list(data)) == dcrc
-            if not (id_ok and data_ok):
-                problems.append('C%d H%d R%d: bad %s CRC' % (c, h, r, 'ID' if not id_ok else 'data'))
-            secs.append(dict(c=c, h=h, r=r, size=size, dd=dd, data=data,
-                             deleted=mark in (0xf8, 0xf9), bad=not (id_ok and data_ok)))
+            if sec:
+                secs.append(sec)
         tracks.append((cyl, head, secs))
     return tracks, problems
+
+
+def read_sector(at, dd, problems):
+    """The sector whose ID is at at(0), or None, its problems noted"""
+    idf = [at(k) for k in range(5)]
+    crc = at(5) << 8 | at(6)
+    pre = [0xa1] * 3 if dd else []
+    id_ok = crc16(pre + idf) == crc
+    c, h, r, n = idf[1:5]
+    size = 128 << (n & 3)
+    k = 7
+    while k < 7 + 64 and not 0xf8 <= at(k) <= 0xfb:
+        k += 1
+    if k >= 7 + 64:
+        problems.append('C%d H%d R%d: no data mark' % (c, h, r))
+        return None
+    mark = at(k)
+    data = bytes(at(k + 1 + i) for i in range(size))
+    dcrc = at(k + 1 + size) << 8 | at(k + 2 + size)
+    data_ok = crc16(pre + [mark] + list(data)) == dcrc
+    if not (id_ok and data_ok):
+        problems.append('C%d H%d R%d: bad %s CRC' % (c, h, r, 'ID' if not id_ok else 'data'))
+    return dict(c=c, h=h, r=r, size=size, dd=dd, data=data,
+                deleted=mark in (0xf8, 0xf9), bad=not (id_ok and data_ok))
 
 
 def write_imd(tracks, path, eight, source, tool='tools/dmk2imd.py', stamp=None):
@@ -86,6 +103,8 @@ def write_imd(tracks, path, eight, source, tool='tools/dmk2imd.py', stamp=None):
         if len(sizes) > 1:
             raise SystemExit('cylinder %d head %d: mixed sector sizes' % (cyl, head))
         size = sizes.pop()
+        if len({s['dd'] for s in secs}) > 1:
+            raise SystemExit('cylinder %d head %d: FM and MFM sectors' % (cyl, head))
         mfm = secs[0]['dd']
         mode = (3 if mfm else 0) + (0 if eight else 2)
         cmap = any(s['c'] != cyl for s in secs)

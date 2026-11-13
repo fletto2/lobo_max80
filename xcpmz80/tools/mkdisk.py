@@ -47,6 +47,7 @@ returns to the root.
 The IMD is for the emulator, the raw image for mtools.
 """
 import os
+import re
 import struct
 import sys
 
@@ -361,6 +362,7 @@ def main():
         skew = 3 if eight else 0    # FORMAT's, 0 measured best on 5-inch
     if ilv is None:                 # FORMAT's: 3 on 8-inch, 17 a track,
         ilv = 3 if p['spt'] == 17 else 2    # where 2 loses a turn a sector
+    bench_tag(disk, ilv, skew, hskew)
     tracks = []
     base = 1 if pc else 0
     for t in range(p['total'] // p['spt']):
@@ -385,6 +387,22 @@ def main():
     write_imd(tracks, args[1], eight, os.path.basename(args[0]))
     if raw:
         open(raw, 'wb').write(disk)
+
+
+TAG = re.compile(rb'ILV\d+ SKEW\d+ HSK\d+ *$')
+
+
+def bench_tag(disk, ilv, skew, hskew):
+    """BENCH.DAT starts with the layout of the disk it is on, such as
+    ILV2 SKEW0 HSK0, which BENCH prints: any sector that starts with such
+    a tag gets this disk's"""
+    tag = ('ILV%d SKEW%d HSK%d' % (ilv, skew, hskew)).ljust(16).encode()
+    for off in range(0, len(disk), 512):
+        if TAG.match(bytes(disk[off:off + 16])):
+            if len(tag) > 16:       # spliced in, it would shift the disk
+                raise SystemExit('BENCH.DAT: the tag %r is over 16 bytes'
+                                 % tag.decode())
+            disk[off:off + 16] = tag
 
 
 if __name__ == '__main__':

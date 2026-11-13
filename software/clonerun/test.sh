@@ -25,7 +25,10 @@
 cd "$(dirname "$0")" || exit 1
 sh build.sh || exit 1
 R=../..
-EMU="$R/emu/max80 -r $R/reference/rom/max80.e12"
+# -A: each frame drawn whole when saved, so the frame and the screen as
+# text are of one moment: drawn as the beam passes, the emulator's
+# default now, the frame lags video RAM by up to a frame
+EMU="$R/emu/max80 -r $R/reference/rom/max80.e12 -A"
 [ -x $R/emu/max80 ] || { echo "build the emulator first: make in emu/"; exit 1; }
 [ -f $R/xcpmz80/build/xcpmz80.sys ] || { echo "build xcpmz80 first: make in xcpmz80/"; exit 1; }
 T=$(mktemp -d) || exit 1

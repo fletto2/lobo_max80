@@ -3,7 +3,28 @@
 # the last part, which skips with a message when they are missing.
 cd "$(dirname "$0")" || exit 1
 R=../../..
-EMU="${EMU:-$R/emu/max80} -r $R/reference/rom/max80.e12"
+RAW="${EMU:-$R/emu/max80} -r $R/reference/rom/max80.e12"
+# Loading ZX81.COM and its ROM ends at 4.6 s with the drives' mechanics,
+# the emulator's default now, where it did at 2.4 s: each key
+# script waits 3 s more after its Enter (\E\P\P\P) and each -t is 3 s
+# longer
+emu() {
+	n=$#
+	while [ $n -gt 0 ]; do
+		a=$1
+		shift
+		n=$((n - 1))
+		if [ "$a" = -t ] && [ $n -gt 0 ]; then
+			set -- "$@" -t $(($1 + 3))
+			shift
+			n=$((n - 1))
+		else
+			set -- "$@" "$a"
+		fi
+	done
+	$RAW "$@"
+}
+EMU=emu
 XC=$R/xcpmz80
 SJ=${SJASMPLUS:-sjasmplus}
 command -v $SJ >/dev/null || SJ=$HOME/.local/bin/sjasmplus
@@ -77,16 +98,16 @@ check "the game's return comes back to the shell" "ZX81     COM" "$out"
 
 # A display file code shows in both pages, from video RAM offset 8. A is
 # 26h, &, Z is 3Fh, ?, B ', C (
-out=$(run 7 'ZX81 EXP /Y\E\P\P')
+out=$(run 7 'ZX81 EXP /Y\E\P\P\P\P\P')
 check "expanded: the first line" "@@@@@@@@&&@" "$out"
 check "and the last" "@@@@@@@@??@" "$out"
-out=$(run 7 'ZX81 COL /Y\E\P\P')
+out=$(run 7 'ZX81 COL /Y\E\P\P\P\P\P')
 check "collapsed: a short line" "@@@@@@@@''@" "$out"
 check "and a later one" "@@@@@@@@((@" "$out"
 
 # Light on dark: the same screen, inverted
-run 7 'ZX81 EXP /Y\E\P\P' -p $T/w.pgm >/dev/null
-run 7 'ZX81 EXP /D /Y\E\P\P' -p $T/d.pgm >/dev/null
+run 7 'ZX81 EXP /Y\E\P\P\P\P\P' -p $T/w.pgm >/dev/null
+run 7 'ZX81 EXP /D /Y\E\P\P\P\P\P' -p $T/d.pgm >/dev/null
 out=$(python3 - $T/w.pgm $T/d.pgm <<'PY'
 import sys
 m = [sum(open(f, 'rb').read()[-200000:]) for f in sys.argv[1:]]
@@ -108,15 +129,15 @@ for l in sys.argv[1].split('\n'):
             sys.exit()
 PY
 }
-a=$(frames "$(run 6 'ZX81 WATCH /Y\E')")
-b=$(frames "$(run 16 'ZX81 WATCH /Y\E')")
+a=$(frames "$(run 6 'ZX81 WATCH /Y\E\P\P\P')")
+b=$(frames "$(run 16 'ZX81 WATCH /Y\E\P\P\P')")
 out=$(python3 -c "d=(${a:-0}-${b:-0})&0x7fff; print('near 500' if 490<=d<=510 else 'off %d'%d)")
 check "FRAMES: 10 seconds, 500 frames" "near 500" "$out"
 
 # LAST_K: K is F7BFh, with SHIFT F6BFh, in codes from 26h. No -K here,
 # so a small letter is the key alone
 hexz() { python3 -c "print(''.join(chr(0x26+int(c,16))+'@' for c in '$1'))"; }
-out=$($EMU -f -T -a $T/a.imd -e 'A:\>' -k 'ZX81 WATCH /Y\E\P\P\P\Pk' -t 9 2>&1 | tr -d '\000')
+out=$($EMU -f -T -a $T/a.imd -e 'A:\>' -k 'ZX81 WATCH /Y\E\P\P\P\P\P\P\Pk' -t 9 2>&1 | tr -d '\000')
 key=$(printf '%s\n' "$out" | python3 -c "
 import sys
 for l in sys.stdin:
@@ -126,7 +147,7 @@ for l in sys.stdin:
 check "LAST_K for a key" "K seen" "$key"
 
 # BREAK puts everything back: the same picture as CLS and DIR
-run 12 'ZX81 EXP /Y\E\P\P\P\P\B\P\P\PDIR\r' -p $T/x.pgm >/dev/null
+run 12 'ZX81 EXP /Y\E\P\P\P\P\P\P\P\B\P\P\PDIR\r' -p $T/x.pgm >/dev/null
 run 12 'CLS\rDIR\r' -p $T/y.pgm >/dev/null
 out=$(python3 - $T/x.pgm $T/y.pgm <<'PY'
 import sys
@@ -157,7 +178,7 @@ $P $T/TRAP.P $T/trap.bin
 (cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/b.imd \
 	apps/zx81/build/ZX81.COM apps/zx81/$T/ZX81.ROM apps/zx81/$T/RST.P \
 	apps/zx81/$T/TRAP.P)
-out=$($EMU -f -K -T -a $T/b.imd -e 'A:\>' -k 'ZX81 RST /F /Y\E' -t 7 2>&1)
+out=$($EMU -f -K -T -a $T/b.imd -e 'A:\>' -k 'ZX81 RST /F /Y\E\P\P\P' -t 7 2>&1)
 check "RST 10h: room made in a collapsed line" "@@@@@@@@$(zt ABC)" "$out"
 check "and NEWLINE goes to the next line" "@@@@@@@@$(zt XY)" "$out"
 check "and the variables moved: the line after" "@@@@@@@@$(zt OK)" "$out"
@@ -186,7 +207,7 @@ $SJ --nologo --msg=war --raw=$T/scan.bin tests/scan.asm || exit 1
 $P $T/SCAN.P $T/scan.bin
 (cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/d.imd \
 	apps/zx81/build/ZX81.COM apps/zx81/$T/ZX81.ROM apps/zx81/$T/SCAN.P)
-out=$($EMU -f -K -T -a $T/d.imd -e 'A:\>' -k 'ZX81 SCAN\E' -t 7 2>&1)
+out=$($EMU -f -K -T -a $T/d.imd -e 'A:\>' -k 'ZX81 SCAN\E\P\P\P' -t 7 2>&1)
 check "an unknown .P is warned of" "Not a game this knows" "$out"
 check "the scan sees an IN" "  IN at 4082" "$out"
 check "an OUT" "  OUT at 4084" "$out"
@@ -195,7 +216,7 @@ check "LD I,A" "  LD I,A at 4087" "$out"
 check "IN A,(C)" "  IN at 4089" "$out"
 check "a ROM call" "  ROM call at 408B" "$out"
 no "but not the kept decode" "at 408E" "$out"
-out=$($EMU -f -K -T -a $T/d.imd -e 'A:\>' -k 'ZX81 SCAN\E\Px\P\P' -t 8 2>&1)
+out=$($EMU -f -K -T -a $T/d.imd -e 'A:\>' -k 'ZX81 SCAN\E\P\P\P\Px\P\P' -t 8 2>&1)
 no "and a key goes on" "Any key goes on" "$out"
 
 # KEYBOARD at 02BBh and DECODE with SHIFT; CLS at 0A2Ah; RST 10h past
@@ -231,23 +252,23 @@ head -c 8192 /dev/zero > $T/bad/ZX81.ROM
 	apps/zx81/$T/TOO.P)
 (cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/badrom.imd \
 	apps/zx81/build/ZX81.COM apps/zx81/$T/bad/ZX81.ROM apps/zx81/$T/RET.P)
-out=$($EMU -f -T -a $T/e.imd -e 'A:\>' -k 'ZX81 KEYS /F /Y\E\P\P\Pk\P' -t 9 2>&1)
+out=$($EMU -f -T -a $T/e.imd -e 'A:\>' -k 'ZX81 KEYS /F /Y\E\P\P\P\P\P\Pk\P' -t 9 2>&1)
 check "KEYBOARD at 02BBh: K" "@@@@@@@@$(hexd f7bf)" "$out"
 check "DECODE of it: K" "@@@@@@@@$(zt K)@@" "$out"
 check "and its index" "@@@@@@@@$(hexd 20)@@" "$out"
-out=$($EMU -f -T -a $T/e.imd -e 'A:\>' -k 'ZX81 KEYS /F /Y\E\P\P\PK\P' -t 9 2>&1)
+out=$($EMU -f -T -a $T/e.imd -e 'A:\>' -k 'ZX81 KEYS /F /Y\E\P\P\P\P\P\P\PK\P\P' -t 11 2>&1)
 check "KEYBOARD: SHIFT K" "@@@@@@@@$(hexd f6bf)" "$out"
 check "DECODE takes the ROM's table with SHIFT" "@@@@@@@@$(zt F)@@" "$out"
 check "and its index" "@@@@@@@@$(hexd 47)@@" "$out"
 for f in CLS CLSE CLSC; do
-	out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k "ZX81 $f /F /Y\\E" -t 9 2>&1)
+	out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k "ZX81 $f /F /Y\\E\\P\\P\\P" -t 9 2>&1)
 	check "CLS ($f): printing starts at the top" "@@@@@@@@$(zt OK)@@" "$out"
 	check "and goes on below" "@@@@@@@@$(zt AB)@@" "$out"
 	no "and what was there is gone" "$(zt QQ)" "$out"
 	no "the file's own text too" "$(zt CC)" "$out"
 	no "and the variables are where they were" "ROM call not there" "$out"
 done
-out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 BOTTOM /F /Y\E' -t 8 2>&1)
+out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 BOTTOM /F /Y\E\P\P\P' -t 8 2>&1)
 check "RST 10h past the last line: kept on it" "@@@@@@@@$(zt XY)@@" "$out"
 no "and nothing written past the display file" "ROM call not there" "$out"
 out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 NX /Y\rDIR\r' -t 9 2>&1)
@@ -267,7 +288,7 @@ $P $T/SPEED.P $T/speed.bin
 (cd $XC && python3 tools/mkdisk.py build/xcpmz80.sys apps/zx81/$T/c.imd \
 	apps/zx81/build/ZX81.COM apps/zx81/$T/ZX81.ROM apps/zx81/$T/SPEED.P)
 cnt() {
-	$EMU -f -K -T -a $T/c.imd -e 'A:\>' -k "ZX81 SPEED$2 /Y\E" -t $1 2>&1 | python3 -c "
+	$EMU -f -K -T -a $T/c.imd -e 'A:\>' -k "ZX81 SPEED$2 /Y\E\P\P\P" -t $1 2>&1 | python3 -c "
 import sys
 for l in sys.stdin:
     for c in (l[8:16:2], l[9:17:2]):
@@ -296,17 +317,17 @@ if [ -f "$ROM" ]; then
 	}
 	# s at 6 s: around 4 s the title lets a key go by, and when that
 	# comes depends on how fast the system starts the game
-	out=$(game 18 'ZX81 TETRIS /F\E\P\P\P\P\P\Ps\P\P\Pk\Pk\P')
+	out=$(game 18 'ZX81 TETRIS /F\E\P\P\P\P\P\P\P\P\Ps\P\P\Pk\Pk\P')
 	check "Tetris: a key starts a game" "$(zt LINES)" "$out"
-	out=$(game 26 'ZX81 MINE81 /F\E\P\P\P\P\P\Ps\P\P\P\P\P1\P\P\P\P\P\P\P\P')
+	out=$(game 26 'ZX81 MINE81 /F\E\P\P\P\P\P\P\P\P\Ps\P\P\P\P\P1\P\P\P\P\P\P\P\P')
 	check "Mine81: a level starts a game" "$(zt MINES)" "$out"
 	w='\P\P\P\P\P\P\P\P\P\P\P'
-	out=$(game 26 "ZX81 PIPEPANI /F\\E$w\\Pk\\P\\P\\P\\P\\P\\Pa\\Pa\\P\\P")
+	out=$(game 26 "ZX81 PIPEPANI /F\\E\\P\\P\\P$w\\Pk\\P\\P\\P\\P\\P\\Pa\\Pa\\P\\P")
 	check "Pipepanic: the menu, through the patched IN" "$(zt CONTROLS)" "$out"
-	out=$(game 34 "ZX81 PIPEPANI /F\\E$w\\Pk\\P\\P\\P\\P\\P\\Pk\\P\\P\\P\\P\\P\\P\\P\\P")
+	out=$(game 34 "ZX81 PIPEPANI /F\\E\\P\\P\\P$w\\Pk\\P\\P\\P\\P\\P\\Pk\\P\\P\\P\\P\\P\\P\\P\\P")
 	no "and Play leaves it" "$(zt CONTROLS)" "$out"
-	$EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\Pm\P\P\P' -t 13 -p $T/k1.pgm >/dev/null 2>&1
-	$EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\P' -t 13 -p $T/k0.pgm >/dev/null 2>&1
+	$EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\Pm\P\P\P' -t 13 -p $T/k1.pgm >/dev/null 2>&1
+	$EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\P\P\P\P' -t 13 -p $T/k0.pgm >/dev/null 2>&1
 	out=$(cmp -s $T/k0.pgm $T/k1.pgm && echo same || echo differ)
 	check "Tetris1k: a key through 07BDh starts a game" "differ" "$out"
 else

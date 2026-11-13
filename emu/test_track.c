@@ -179,6 +179,10 @@ static long code_t(const uint8_t *code, int n)
 
 int main(void)
 {
+	/* The FDC's logic, on the idealised timing of -q: the drives'
+	   mechanics, the default now, are tested in test.sh */
+	mech = 0;
+	quick = 1;
 	expect(crc16(0xffff, (const uint8_t *)"123456789", 9) == 0x29b1,
 	    "CRC-CCITT check value 29B1h");
 	round_trip(1, 1, 30, 1, "8-inch MFM, 30 x 256, as CP/M 2.2 and LDOS");
@@ -639,6 +643,26 @@ int main(void)
 	expect(instr_t(0x3a, 0x8000) == 13, "  LD A,(8000h) still 13");
 	vstretch = 0;
 
+	/* the measured wait states are the default: video and
+	   font RAM 1.02 T an access, SLORAM 2.00 T, plain RAM none */
+	quick = 0;
+	long vt = 0;
+	for (int i = 0; i < 500; i++)
+		vt += instr_t(0x3a, 0xfc00);
+	expect(vt == 500 * 13 + 510, "500 LD A,(FC00h) take 1.02 T more each");
+	vt = 0;
+	vlatch = 0xf5;	/* the font RAM window */
+	for (int i = 0; i < 500; i++)
+		vt += instr_t(0x32, 0xf100);
+	expect(vt == 500 * 13 + 510, "  and LD (F100h),A in the font window too");
+	vlatch = 0xf0;
+	expect(instr_t(0x3a, 0xf700) == 15 && instr_t(0x32, 0xf7cf) == 15,
+	    "  SLORAM, F700h-F7CFh, 2 T more an access");
+	expect(instr_t(0x3a, 0xf6ff) == 13 && instr_t(0x3a, 0x8000) == 13,
+	    "  F6FFh and plain RAM none");
+	expect(instr_t(0x3a, 0xf7e1) == 15, "  a device still two waits");
+	quick = 1;
+
 	/* a write track whose drive is deselected on the way keeps
 	   no track, on no drive: it crashed, writing disks[-1] */
 	fdc.dd = 1;
@@ -677,6 +701,7 @@ int main(void)
 	    !memcmp(&was1, &disks[1].trk[0][0], sizeof was1),
 	    "  another drive picked on the way gets no track either");
 
+
 	/* a force interrupt during a read clears BUSY and leaves
 	   Lost Data; one when idle gives type I status */
 	mlatch_write(0x41);
@@ -710,5 +735,90 @@ int main(void)
 	expect(fdc_read(0) & 0x10, "  and to an unformatted cylinder");
 	fdc_command(0x04);
 	expect(!(fdc_read(0) & 0x10), "  a restore with verify to cylinder 0's IDs: none");
+	/* read address puts the ID's track number in the sector
+	   register when it ends, not when it starts (WD179x sheet) */
+	mlatch_write(0x41);
+	fdc_command(0xd0);
+	fdc.sector = 0x55;
+	fdc_command(0xc0);
+	expect(fdc.busy && fdc_read(2) == 0x55,
+	    "read address leaves the sector register while it runs");
+	for (int i = 0; i < 6 && fdc.busy; i++) {
+		cpu.cycles += BYTE_T;
+		fdc_tick();
+		fdc_read(3);
+	}
+	expect(!fdc.busy && fdc_read(2) == cur_track()->cyl_id,
+	    "  and gives it the ID's track number at the end");
+	/* with the mechanics, a multi-sector read steps the sector
+	   register once the CRC has passed, not at the last data byte */
+	mech = 1;
+	fdc_command(0xd0);
+	cpu.cycles = (cpu.cycles / REV_T + 10) * REV_T;
+	motor_until = cpu.cycles + 10ULL * CPU_HZ;	/* turning, the head */
+	motor_up = head_ok = 0;		/* loaded, from earlier tests */
+	{
+		struct track *t = cur_track();
+		uint8_t first = t->sec[0].id;
+		unsigned long long stepped = 0, lastbyte = 0;
+		fdc.sector = first;
+		fdc_command(0x90);
+		for (int n = 0; n < 40 * TRACK_MAX && fdc.busy && !stepped; n++) {
+			cpu.cycles += BYTE_T / 4;
+			fdc_tick();
+			if (fdc.drq && fdc.buf) {
+				fdc_read(3);
+				if (!fdc.buf && !lastbyte) {
+					lastbyte = cpu.cycles;
+					expect(fdc.sector == first,
+					    "-M multi read: no step at the last data byte");
+				}
+			}
+			if (lastbyte && !stepped && fdc.sector != first)
+				stepped = cpu.cycles;
+		}
+		/* the last byte comes in at t0 + (len - 1) byte times and
+		   is read within a quarter byte, the CRC ends at t0 + len + 2 */
+		expect(stepped && stepped - lastbyte >= 2 * BYTE_T &&
+		    stepped - lastbyte <= (unsigned long long)(3 * BYTE_T + BYTE_T / 2),
+		    "  it steps after the two CRC bytes");
+		fdc_command(0xd0);
+	}
+	mech = 0;
+
+	/* with the mechanics, write track asks for its first byte at
+	   once and waits for it until the index pulse; none by then is
+	   Lost Data and the end of the command (WD179x sheet) */
+	mech = 1;
+	mlatch_write(0x41);
+	fdc_command(0xd0);
+	cpu.cycles = (cpu.cycles / REV_T + 1) * REV_T + 100;
+	fdc_command(0xf0);
+	expect(fdc.busy && fdc.drq, "-M write track: DRQ at once");
+	cpu.cycles += REV_T / 2;	/* half a turn, still before the index */
+	fdc_tick();
+	fdc_write(3, 0x4e);
+	fdc_tick();
+	expect(fdc.busy && !(fdc.status & 0x04),
+	    "  a first byte half a turn later is in time");
+	fed = 0;
+	while (fdc.busy && fed < 2 * TRACK_MAX) {
+		cpu.cycles += BYTE_T / 2;
+		fdc_tick();
+		if (fdc.drq)
+			fdc_write(3, 0x4e);
+		fed++;
+	}
+	expect(!fdc.busy && !(fdc.status & 0x04),
+	    "  and the track is written with no Lost Data");
+	fdc_command(0xd0);
+	cpu.cycles = (cpu.cycles / REV_T + 1) * REV_T + 100;
+	fdc_command(0xf0);
+	cpu.cycles += REV_T;	/* past the index with nothing */
+	fdc_tick();
+	expect(!fdc.busy && (fdc.status & 0x04),
+	    "  no first byte by the index: Lost Data, and it ends");
+	fdc_command(0xd0);
+	mech = 0;
 	return fails != 0;
 }

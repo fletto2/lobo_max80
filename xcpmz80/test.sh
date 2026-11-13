@@ -346,7 +346,8 @@ same "a fresh cluster on a disk swapped out is not zeroed on the new one" $T/FZ.
 # low 16 bits are 0, and the rest was dropped as if it were the last
 { printf 'dir aa.aa\n'; for i in $(seq 1 512); do printf 'cd\n'; done; printf 'dir zz.zz\n'; } >$T/LONG.SUB
 mkdisk $T/long.imd $T/LONG.SUB >/dev/null
-out=$($EMU -a $T/long.imd -T -t 120 -e 'A:\>' -k 'submit long\r' | tr -d '\r' | grep -v '^$' | tail -3 | tr '\n' '|')
+# about 163 s with the drives' mechanics, the default now
+out=$($EMU -a $T/long.imd -T -t 200 -e 'A:\>' -k 'submit long\r' | tr -d '\r' | grep -v '^$' | tail -3 | tr '\n' '|')
 check "a batch of 514 lines runs to its last" "A:\\>DIR ZZ.ZZ|No file|A:\\>|" "$out"
 # A $$$.SUB left on a write-protected A: cannot be cut: its line runs
 # once and the batch stops, where it ran for ever
@@ -802,13 +803,13 @@ EOF
 		awk 'BEGIN { for (i = 0; i < 1000; i++)
 			printf "Line %04d of the big file, some words to fill it out.\r\n", i }' >$T/EMBIG.TXT
 		mkdisk $T/emb.imd $C/CLIB.SYS $C/EMACS.COM $T/EMBIG.TXT >/dev/null
-		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80)
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' '@/the rest paged from disk')
 		check "EMACS pages a big file" "lines, the rest paged from disk]" "$out"
-		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' '@/the rest paged from disk' \
 			'\x1b>' @200)
 		check "and goes to its end" "Line 0999 of the big file" "$out"
 		out=$(python3 tools/session.py "-a $T/emb.imd -w a:$T/out/emb1.imd" \
-			'emacs embig.txt\r' @80 '\x1b>' @200 '\x1b<' @200)
+			'emacs embig.txt\r' '@/the rest paged from disk' '\x1b>' @200 '\x1b<' @200)
 		check "and back" "Line 0001 of the big file" "$out"
 		python3 ../tools/imd2raw.py $T/out/emb1.imd $T/out/emb1.img >/dev/null
 		out=$(mdir -i $T/out/emb1.img :: 2>&1)
@@ -818,22 +819,22 @@ EOF
 		*) echo "ok   and makes no work file" ;;
 		esac
 		out=$(python3 tools/session.py "-a $T/emb.imd -w a:$T/out/emb3.imd" \
-			'emacs embig.txt\r' @80 '\x0e\x05 X' '\x1b>' @200)
+			'emacs embig.txt\r' '@/the rest paged from disk' '\x0e\x05 X' '\x1b>' @200)
 		python3 ../tools/imd2raw.py $T/out/emb3.imd $T/out/emb3.img >/dev/null
 		out=$(mdir -i $T/out/emb3.img :: 2>&1)
 		check "a change the window leaves goes to the work file" 'EMBIG    $$W' "$out"
-		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
-			'\x13Line 0900\x1b' @300)
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' '@/the rest paged from disk' \
+			'\x13Line 0900\x1b' '@/Line 0901 of the big file')
 		check "a search finds text far below the window" "Line 0901 of the big file" "$out"
-		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' '@/the rest paged from disk' \
 			'\x15700\x1bg' @300)
 		check "M-G goes to a line far below" "ine 0699 of the big file" "$out"
-		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/emb.imd" 'emacs embig.txt\r' '@/the rest paged from disk' \
 			'\x1b ' '\x1b>' @300)
 		check "the mark is dropped when the window moves" "[Mark dropped, the window moved]" "$out"
 		out=$(python3 tools/session.py "-a $T/emb.imd -w a:$T/out/emb2.imd" \
-			'emacs embig.txt\r' @80 '\x0e\x0e\x05 TOP' '\x15500\x1bg' @300 \
-			'\x05 MID' '\x1b>' @300 '\x10\x05 END' '\x18\x13' @300)
+			'emacs embig.txt\r' '@/the rest paged from disk' '\x0e\x0e\x05 TOP' '\x15500\x1bg' @300 \
+			'\x05 MID' '\x1b>' @300 '\x10\x05 END' '\x18\x13' '@/[Wrote 1000 lines]')
 		check "edits at the top, middle and end are saved" "[Wrote 1000 lines]" "$out"
 		getfile $T/out/emb2.imd EMBIG.TXT $T/out/EMBIG.TXT
 		awk 'BEGIN { for (i = 0; i < 1000; i++) {
@@ -881,7 +882,7 @@ EOF
 		# typed as a person types them, with no -K. x deletes the first
 		# letter where X did nothing, :wq saves where :WQ was refused
 		out=$(../emu/max80 -a $T/vi.imd -w a:$T/out/vi3.imd -T -t 60 -e 'A:\>' \
-			-k 'vi vi.txt\E\P\P\Px\P:wq\rdir vi.txt\r' | tr -d '\r')
+			-k 'vi vi.txt\E\P\P\P\P\P\Px\P:wq\rdir vi.txt\r' | tr -d '\r')
 		check "VI takes its commands with Caps Lock on at the prompt" "A:\\>DIR VI.TXT" "$out"
 		getfile $T/out/vi3.imd VI.TXT $T/out/VI3.TXT
 		check "and x and :wq in lower case" "=ne two three" "=$(head -1 $T/out/VI3.TXT)"
@@ -928,12 +929,12 @@ EOF
 		awk 'BEGIN { for (i = 0; i < 1000; i++)
 			printf "Line %04d of the big file, some words to fill it out.\r\n", i }' >$T/VIBIG.TXT
 		mkdisk $T/vib.imd $C/CLIB.SYS $C/VI.COM $T/VIBIG.TXT >/dev/null
-		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 'G' @200 \
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' '@/the rest paged from disk' 'G' @200 \
 			'\x07' @10)
 		check "VI pages a big file, and goes to its end" "ine 0999 of the big file" "$out"
 		check "and counts its lines" '"VIBIG.TXT" line 1000 of 1000 -- 100 % --' "$out"
 		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib1.imd" \
-			'vi vibig.txt\r' @80 'G' @200 '1G' @200 '\x07' @10)
+			'vi vibig.txt\r' '@/the rest paged from disk' 'G' @200 '1G' @200 '\x07' @10)
 		check "and back" '"VIBIG.TXT" line 1 of 1000 -- 0 % --' "$out"
 		python3 ../tools/imd2raw.py $T/out/vib1.imd $T/out/vib1.img >/dev/null
 		out=$(mdir -i $T/out/vib1.img :: 2>&1)
@@ -943,18 +944,18 @@ EOF
 		*) echo "ok   and makes no work file" ;;
 		esac
 		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib2.imd" \
-			'vi vibig.txt\r' @80 'jA X\x1b' 'G' @200)
+			'vi vibig.txt\r' '@/the rest paged from disk' 'jA X\x1b' 'G' @200)
 		python3 ../tools/imd2raw.py $T/out/vib2.imd $T/out/vib2.img >/dev/null
 		out=$(mdir -i $T/out/vib2.img :: 2>&1)
 		check "a change the window leaves goes to the work file" 'VIBIG    $$W' "$out"
-		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			'/Line 0900\r' '@/ine 0900 of the big' '\x07' @10)
 		check "a search finds text far below the window" '"VIBIG.TXT" line 901 of 1000' "$out"
-		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			':700\r' @200 '\x07' @10)
 		check ":N goes to a line far below" '"VIBIG.TXT" line 700 of 1000' "$out"
 		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib3.imd" \
-			'vi vibig.txt\r' @80 '3G' 'dd' 'G' @200 'u' @200 ':w\r' @300)
+			'vi vibig.txt\r' '@/the rest paged from disk' '3G' 'dd' 'G' @200 'u' @200 ':w\r' '@/"VIBIG.TXT" 1000 lines')
 		check "undo works after the window moved" '"VIBIG.TXT" 1000 lines' "$out"
 		getfile $T/out/vib3.imd VIBIG.TXT $T/out/VIBIG3.TXT
 		cp $T/VIBIG.TXT $T/VIBIG3.OK
@@ -973,27 +974,27 @@ EOF
 		mkdisk $T/vie.imd $C/CLIB.SYS $C/VI.COM $T/VIBIG.TXT $T/VIMED.TXT \
 			$T/VIOTH.TXT $T/VISML.TXT >/dev/null
 		out=$(python3 tools/session.py "-a $T/vie.imd -w a:$T/out/vie1.imd" \
-			'vi vibig.txt\r' @80 '500G' @100 ':r vimed.txt\r' @150 ':w\r' @300)
+			'vi vibig.txt\r' '@/the rest paged from disk' '500G' @300 ':r vimed.txt\r' @400 ':w\r' '@/"VIBIG.TXT" 1030 lines')
 		check ":r reads a file into a paged one" '"VIBIG.TXT" 1030 lines' "$out"
 		getfile $T/out/vie1.imd VIBIG.TXT $T/out/VIBIGR.TXT
 		{ head -n 500 $T/VIBIG.TXT; cat $T/VIMED.TXT; tail -n 500 $T/VIBIG.TXT; } >$T/VIBIGR.OK
 		n=$(wc -c <$T/VIBIGR.OK)
 		printf '%0*d' $(( (128 - n % 128) % 128 )) 0 | tr 0 '\032' >>$T/VIBIGR.OK
 		same "and saves it in its place" $T/VIBIGR.OK $T/out/VIBIGR.TXT
-		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			'3G' ':r vioth.txt\r' @300)
 		check ":r of a big file into a paged one is refused" '"vioth.txt" Out of memory, not read' "$out"
-		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			'3G' ':r vioth.txt\r' @300 '\x07' @10)
 		check "and leaves the text unchanged" '"VIBIG.TXT" line 3 of 1000 -- 0 % --' "$out"
-		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' @40 \
-			':r vibig.txt\r' @200)
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' '@/small three' \
+			':r vibig.txt\r' '@/Out of memory, not read')
 		check ":r of a big file into a small one is refused" '"vibig.txt" Out of memory, not read' "$out"
-		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' @40 \
-			':r vibig.txt\r' @200 '\x07' @10)
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' '@/small three' \
+			':r vibig.txt\r' '@/Out of memory, not read' '\x07' @10)
 		check "and leaves it unchanged" '"VISML.TXT" line 1 of 3 -- 33 % --' "$out"
 		out=$(python3 tools/session.py "-a $T/vie.imd -w a:$T/out/vie2.imd" \
-			'vi vibig.txt\r' @80 'jA X\x1b' 'G' @200 ':e! visml.txt\r' @100 '\x07' @10)
+			'vi vibig.txt\r' '@/the rest paged from disk' 'jA X\x1b' 'G' @200 ':e! visml.txt\r' @100 '\x07' @10)
 		check ":e! leaves a changed paged file for a small one" '"visml.txt" line 1 of 3' "$out"
 		python3 ../tools/imd2raw.py $T/out/vie2.imd $T/out/vie2.img >/dev/null
 		out=$(mdir -i $T/out/vie2.img :: 2>&1)
@@ -1002,21 +1003,21 @@ EOF
 		*'$$W'*) echo "FAIL and its work file goes:"; printf '%s\n' "$out"; fail=1 ;;
 		*) echo "ok   and its work file goes" ;;
 		esac
-		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			':e vioth.txt\r' @100 'G' @200 '\x07' @10)
 		check ":e goes from a paged file to another" '"vioth.txt" line 800 of 800' "$out"
-		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' @40 \
-			':e vibig.txt\r' @100 'G' @200 '\x07' @10)
+		out=$(python3 tools/session.py "-a $T/vie.imd" 'vi visml.txt\r' '@/small three' \
+			':e vibig.txt\r' '@/the rest paged from disk' 'G' '@/ine 0999 of the big' '\x07' @10)
 		check ":e goes from a small file to a paged one" '"vibig.txt" line 1000 of 1000' "$out"
-		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			':1,$d\r' @100)
 		check "a range bigger than the window is refused" "Range bigger than the window" "$out"
-		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' @80 \
+		out=$(python3 tools/session.py "-a $T/vib.imd" 'vi vibig.txt\r' '@/the rest paged from disk' \
 			'dG' @100)
 		check "and so is a motion past it" "Range bigger than the window" "$out"
 		out=$(python3 tools/session.py "-a $T/vib.imd -w a:$T/out/vib4.imd" \
-			'vi vibig.txt\r' @80 'jj' 'A TOP\x1b' ':5,6s/Line/Row/\r' @50 \
-			':500\r' @200 'A MID\x1b' 'G' @200 'A END\x1b' @50 ':set bk\r' @20 ':w\r' @600)
+			'vi vibig.txt\r' '@/the rest paged from disk' 'jj' 'A TOP\x1b' ':5,6s/Line/Row/\r' @50 \
+			':500\r' @200 'A MID\x1b' 'G' @200 'A END\x1b' @50 ':set bk\r' @20 ':w\r' '@/"VIBIG.TXT" 1000 lines')
 		check "edits at the top, middle and end are saved" '"VIBIG.TXT" 1000 lines' "$out"
 		getfile $T/out/vib4.imd VIBIG.TXT $T/out/VIBIG.TXT
 		awk 'BEGIN { for (i = 0; i < 1000; i++) {
@@ -1049,7 +1050,7 @@ EOF
 		out=$(python3 tools/session.py "-D 1 -a build/apps_525.imd" @10 'clock\r' @20)
 		check "the 5.25-inch apps disk loads CLIB.SYS" "C library loaded" "$out"
 		check "and runs CLOCK" "$(date +%m/%d/%y) " "$out"
-		out=$(python3 tools/session.py "-D 1 -a build/apps_525.imd" @10 'vi x.txt\r' @40)
+		out=$(python3 tools/session.py "-D 1 -a build/apps_525.imd" '@?A:\>' 'vi x.txt\r' '@/[New File]')
 		check "and VI" '"X.TXT" [New File]' "$out"
 	else
 		echo "skip the C programs: no SDCC in ${SDCC_BIN:-/opt/cross/sdcc-4.6.0/bin}"
@@ -1140,6 +1141,21 @@ mkdisk $T/db.imd build/BENCH.COM $T/bd/BENCH.DAT >/dev/null
 out=$($EMU -a $T/db.imd -T -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
 n=$(printf '%s\n' "$out" | grep -aEc '^ab cdefghijklmno [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
 check "and a \$ in the tag is shown as a space, the line whole" "=1=" "=$n="
+# BENCH.DAT's tag is the layout of the disk it is on, set by mkdisk and
+# by reilv for an interleave 1 copy
+mkdir -p $T/bt
+python3 tools/benchdat.py $T/bt/BENCH.DAT 4
+python3 tools/mkdisk.py $SYS --525 720 $T/bt.imd build/BENCH.COM $T/bt/BENCH.DAT >/dev/null
+check "mkdisk tags BENCH.DAT with the disk's layout" "=1=" "=$(grep -ac 'ILV2 SKEW0 HSK0 ' $T/bt.imd)="
+# a tag over 16 bytes would be spliced in and shift the disk: refused,
+# and with no BENCH.DAT the same layout is made
+python3 tools/mkdisk.py $SYS --525 720 $T/bt2.imd --ilv 10 --skew 10 build/BENCH.COM $T/bt/BENCH.DAT >$T/bt2.txt 2>&1
+check "mkdisk refuses a BENCH.DAT tag over 16 bytes" "1 over 16" "$? $(grep -o 'over 16' $T/bt2.txt)"
+python3 tools/mkdisk.py $SYS --525 720 $T/bt3.imd --ilv 10 --skew 10 build/BENCH.COM >/dev/null 2>&1
+check "and makes that layout with no BENCH.DAT" "=0=" "=$?="
+out=$($EMU -a $T/bt.imd -D 1 -T -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
+n=$(printf '%s\n' "$out" | grep -aEc '^ILV2 SKEW0 HSK0  [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
+check "and BENCH prints it" "=1=" "=$n="
 
 # A read on a disk at interleave 1 takes the whole track in one FDC
 # command, from the next sector to come round, into a track buffer:
@@ -1453,7 +1469,8 @@ same "and the file there as it was" build/XCPM.FNT $T/out/MVX.FNT
 # AUTOEXEC.BAT runs at a cold boot, and NAME.BAT by its name
 printf 'dir *.fnt\r\nver\r\n' >$T/AUTOEXEC.BAT
 mkdisk $T/ae.imd build/XCPM.FNT $T/AUTOEXEC.BAT >/dev/null
-out=$($EMU -a $T/ae.imd -T -t 20 -e 'A:\>' -k 'autoexec\r')
+# the key after the batch has run: typed during it, it is type-ahead
+out=$($EMU -a $T/ae.imd -T -t 30 -e 'A:\>' -k '\P\P\P\Pautoexec\r')
 check "AUTOEXEC.BAT runs at boot" "A:\>DIR *.FNT" "$out"
 check "and by its name" "A:\>autoexec" "$out"
 check "twice in all" "=2=" "=$(printf '%s\n' "$out" | grep -c 'A: XCPM     FNT')="
@@ -1471,7 +1488,7 @@ check "AUTOEXEC.BAT on a write-protected A: runs every line, in order" \
 head -c 500000 /dev/zero | tr '\000' 'q' >$T/HALF.DAT
 mkdisk $T/ha.imd $T/HALF.DAT >/dev/null
 mkdisk $T/hb.imd >/dev/null
-out=$($EMU -a $T/ha.imd -b $T/hb.imd -T -t 120 -e 'A:\>' -w b:$T/out/hb.imd \
+out=$($EMU -a $T/ha.imd -b $T/hb.imd -T -t 200 -e 'A:\>' -w b:$T/out/hb.imd \
 	-k 'copy half.dat b:\rcopy half.dat b:c.dat\rdir b:\r')
 check "COPY onto a full disk says so" "Disk Full" "$out"
 if printf '%s\n' "$out" | grep -q 'C        DAT'; then
@@ -1489,7 +1506,7 @@ fatok "and the disk's FAT is clean" $T/out/hb.img
 echo x >$T/X.DAT
 echo y >$T/Y.DAT
 mkdisk $T/hw.imd $T/X.DAT $T/Y.DAT >/dev/null
-out=$($EMU -a $T/ha.imd -b $T/hw.imd -T -t 120 -e 'A:\>' \
+out=$($EMU -a $T/ha.imd -b $T/hw.imd -T -t 200 -e 'A:\>' \
 	-k 'copy half.dat b:*.dat\rcopy half.dat b:c*.dat\rdir b:\r')
 check "COPY to B:*.DAT keeps the source's name" "B: X        DAT : Y        DAT : HALF     DAT" "$out"
 check "and one to B:C*.DAT that fills the disk says so" "Disk Full" "$out"
@@ -1529,7 +1546,8 @@ mkdir -p $T/n70
 for i in $(seq 10 79); do echo "file $i" >$T/n70/F$i.TXT; done
 mkdisk $T/n70a.imd >/dev/null
 python3 tools/mkdisk.py $SYS --pc 720 $T/n70b.imd $T/n70/*.TXT >/dev/null
-$EMU -a $T/n70a.imd -b $T/n70b.imd -T -t 300 -e 'A:\>|B:\>' \
+# about 513 s with the drives' mechanics, the default now
+$EMU -a $T/n70a.imd -b $T/n70b.imd -T -t 600 -e 'A:\>|B:\>' \
 	-k 'b:\rmd x\rcopy *.txt x\rmd y\rmd z\rcopy *.txt z\rmv z\\*.txt y\r' \
 	-w b:$T/out/n70b.imd >/dev/null
 python3 ../tools/imd2raw.py $T/out/n70b.imd $T/out/n70b.img >/dev/null
@@ -1562,7 +1580,9 @@ printf 'type a:read_me.txt\r\n' >$T/HI.SUB
 printf 'ver\r\n' >$T/BYE.BAT
 mkdisk $T/pa.imd $T/HI.SUB $T/BYE.BAT $T/READ_ME.TXT build/MORE.COM >/dev/null
 mkdisk $T/pb.imd $T/OLD.TXT >/dev/null
-out=$($EMU -a $T/pa.imd -b $T/pb.imd -T -t 60 -e 'A:\>|B:\>' -k 'hi\rnosuch\rb:\rhi\rbye\rmore a:read_me.txt\r')
+# a pause after each batch, which deletes its $$$.SUB after the prompt:
+# a key typed then is type-ahead, and the next command is garbled
+out=$($EMU -a $T/pa.imd -b $T/pb.imd -T -t 60 -e 'A:\>|B:\>' -k 'hi\r\P\Pnosuch\rb:\rhi\r\P\Pbye\r\P\Pmore a:read_me.txt\r')
 n=$(printf '%s\n' "$out" | grep -c '^hello')
 check "a .SUB on A: runs from A: and B:, and a .COM" "=3=" "=$n="
 check "a .BAT on A: from B:" "=1=" "=$(printf '%s\n' "$out" | grep -c 'MAX-80, 128K$')="

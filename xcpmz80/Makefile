@@ -102,7 +102,18 @@ CPROGS = $(C)/CLIB.SYS $(C)/VI.COM $(C)/EMACS.COM $(C)/ADVENT.COM \
 ZX81_ROM ?= zx81.rom
 ZX81 = build/ZX81.COM $(wildcard apps/zx81/games/*.P) \
 	$(if $(wildcard $(ZX81_ROM)),build/ZX81.ROM)
-APPDISK ?= $(APPS) $(CPROGS) $(FONTS) $(ZX81) $(XFONTS)
+APPDISK ?= $(APPS) $(CPROGS) $(FONTS) $(ZX81) $(XFONTS) build/BENCH.DAT
+# BENCH's file, 64K, and 32K where room is short, the 360K disk and the
+# everything disk; its tag is set to each disk's layout
+APPDISK32 = $(filter-out build/BENCH.DAT,$(APPDISK)) build/b32/BENCH.DAT
+
+build/BENCH.DAT: tools/benchdat.py
+	mkdir -p build
+	python3 tools/benchdat.py $@
+
+build/b32/BENCH.DAT: tools/benchdat.py
+	mkdir -p build/b32
+	python3 tools/benchdat.py $@ 32
 apps: build/apps.imd build/apps_525.imd build/apps_720.imd
 
 $(CPROGS): cprogs
@@ -116,8 +127,8 @@ cprogs:
 build/apps.imd: build/xcpmz80.sys tools/mkdisk.py $(APPDISK)
 	python3 tools/mkdisk.py build/xcpmz80.sys $@ --raw build/apps.img $(APPDISK)
 
-build/apps_525.imd: build/xcpmz80.sys tools/mkdisk.py $(APPDISK)
-	python3 tools/mkdisk.py build/xcpmz80.sys --525 360 $@ $(APPDISK)
+build/apps_525.imd: build/xcpmz80.sys tools/mkdisk.py $(APPDISK32)
+	python3 tools/mkdisk.py build/xcpmz80.sys --525 360 $@ $(APPDISK32)
 
 # For a 3.5-inch drive on the 5-inch connector
 build/apps_720.imd: build/xcpmz80.sys tools/mkdisk.py $(APPDISK)

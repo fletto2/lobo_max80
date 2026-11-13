@@ -23,7 +23,9 @@ make -C "$R/emu" >/dev/null || exit 1
 make -C "$R/xcpmz80" all cprogs build/ZX81.COM >/dev/null || exit 1
 
 cd "$R/emu" || exit 1
-EMU=./max80
+# -q: the timing the shots' times were set for, before the drives'
+# mechanics and the beam became the emulator's default
+EMU='./max80 -q'
 shot() {	# NAME, then the emulator's options: a frame after the run
 	n=$1
 	shift

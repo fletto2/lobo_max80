@@ -9,7 +9,7 @@
  *              [-k keys] [-e text] [-K] [-s sound.wav]
  *              [-t seconds [-p frame.pgm]] [-l printer.txt]
  *              [-o|-i|-I ch:file] [-S ch] [-F spec] [-x port]
- *              [-m 128|64|64f] [-C] [-B] [-V T] [-L] [-M] [-G fdc.log]
+ *              [-m 128|64|64f] [-C] [-A|-B] [-q] [-V T] [-L] [-M] [-G fdc.log]
  *              [-g [-N name]]
  *
  *   -r  boot ROM, default ../reference/rom/max80.e12
@@ -66,14 +66,21 @@
  *       so programs can set the clock
  *   -B  run the CRTC's counters a character at a time and draw each
  *       character as the beam passes it, so what changes while the beam
- *       is in the picture shows. Not measured against a machine
- *   -V  each CPU access to video or font RAM stretches the clock by 0
- *       to this many T-states, picked at random, a stand-in for the
- *       stretch the TRM calls unpredictable (TS-3)
+ *       is in the picture shows. The default, kept for -q
+ *   -A  draw each frame whole from video and font RAM when it is shown
+ *       or saved, not as the beam passes, for a check that compares a
+ *       saved frame with the screen as text at the same moment. Only
+ *       the drawing changes, the timing is the default's
+ *   -q  the idealised timing of before, for speed: no drive
+ *       mechanics, no beam, and video RAM, font RAM and SLORAM as fast
+ *       as plain RAM. -M and -B still turn theirs on
+ *   -V  each CPU access to video or font RAM stretches the clock by a
+ *       further 0 to this many T-states, picked at random, on top of
+ *       the 1.02 T measured
  *   -L  at exit, print how many FDC commands had Lost Data
- *   -M  give the drives their mechanics: sectors on a turning track,
- *       bytes at the data rate, step times, head settle and motor
- *       spin-up, with a summary at exit
+ *   -M  at exit, a summary of the drives' work. The drives' mechanics,
+ *       sectors on a turning track, bytes at the data rate, step times,
+ *       head settle and motor spin-up, are the default
  *   -G  log each FDC command, with its emulated time, to this file
  *   -g  debug sockets, Linux only: /tmp/max80.sock answers with
  *       the registers, /tmp/max80_mem.sock takes "ADDR LEN [chunk]" in
@@ -429,7 +436,8 @@ static unsigned long long motor_until;	/* 5-inch motors turn until then */
 #define SETTLE_T (CPU_HZ / 1000 * 15)
 #define SPIN_T (CPU_HZ / 1000 * 500)
 #define IDGAP 48	/* bytes from an ID's start to its first data byte */
-static int mech;
+static int mech = 1;	/* the drives' mechanics, off with -q */
+static int mech_report;	/* -M: the summary at exit */
 static unsigned long long head_ok;	/* no ID can be read before this */
 static unsigned long long motor_up;	/* nor on a 5-inch disk before this */
 static FILE *fdlog;			/* -G, a line for each command */
@@ -454,6 +462,11 @@ static struct {
 	unsigned long long first_dl;	/* -M: the first byte's deadline, if not 0 */
 	unsigned long long done_at;	/* -M: T-state the command ends */
 	unsigned long long step_at;	/* -M: T-state a type I command ends */
+	unsigned long long next_at;	/* -M: a multi-sector read or write
+					   steps the sector register then,
+					   past the CRC */
+	int ra_pend;		/* read address: the ID's track goes into */
+	uint8_t ra_val;		/* the sector register at the end */
 	uint8_t done_status;
 	int fi;			/* Force Interrupt's I3-I0 still waiting */
 	int d8;			/* INTRQ held by D8 until a D0 (WD179x) */
@@ -638,6 +651,11 @@ static int stream_from_track(const struct track *t, uint8_t *b, int max)
 
 static void fdc_done(uint8_t status)
 {
+	if (fdc.ra_pend) {	/* read address: the ID's track number */
+		fdc.ra_pend = 0;
+		fdc.sector = fdc.ra_val;
+		sec_changed = cpu.cycles;
+	}
 	fdc.busy = 0;
 	fdc.drq = 0;
 	fdc.drq_at = 0;
@@ -786,6 +804,8 @@ static void fdc_command(uint8_t cmd)
 	fdc.drq_at = 0;
 	fdc.done_at = 0;
 	fdc.step_at = 0;
+	fdc.next_at = 0;
+	fdc.ra_pend = 0;
 	fdc.first_dl = 0;
 	fdc.fi = 0;
 	fdc.cur = NULL;
@@ -934,8 +954,10 @@ static void fdc_command(uint8_t cmd)
 		fdc.deadline = cpu.cycles + FIRST_T;
 		fdc.drq_at = mech ? fdc.t0 : 0;
 		fdc.status = 0x03;
-		fdc.sector = t->cyl_id;
-		sec_changed = cpu.cycles;
+		/* the ID's track number goes into the sector register when
+		   the command ends, past the ID's CRC (WD179x sheet) */
+		fdc.ra_pend = 1;
+		fdc.ra_val = t->cyl_id;
 		break;
 	}
 	case 7:			/* read track (E0h), write track (F0h) */
@@ -956,6 +978,14 @@ static void fdc_command(uint8_t cmd)
 		if (mech) {	/* from the next index pulse */
 			fdc.t0 = (cpu.cycles / REV_T + 1) * REV_T;
 			fdc.drq_at = fdc.t0;
+			/* write track asks for its first byte at once, and
+			   has it lost only when the index pulse comes first,
+			   which ends the command (WD179x sheet) */
+			if (fdc.writing) {
+				fdc.drq = 1;
+				fdc.drq_at = 0;
+				fdc.deadline = fdc.t0;
+			}
 		}
 		fdc.status = 0x03;
 		break;
@@ -992,6 +1022,13 @@ static void fdc_byte_done(int lost)
 			track_from_stream(&disks[fdc.drive].trk[fdc.pos[fdc.drive]][fdc.side],
 			    trackbuf, fdc.len);
 		fdc_done(0);
+		return;
+	}
+	if (fdc.multi && !(rtype & 0x08) && mech) {
+		/* the sector register steps once the CRC has passed */
+		fdc.drq = 0;
+		fdc.buf = NULL;
+		fdc.next_at = fdc.t0 + (fdc.len + 2) * BYTE_T;
 		return;
 	}
 	if (fdc.multi && !(rtype & 0x08)) {	/* a CRC error ends it */
@@ -1032,6 +1069,12 @@ static void fdc_tick(void)
 		fdc.done_at = 0;
 		fdc_done(fdc.done_status);
 	}
+	if (fdc.next_at && cpu.cycles >= fdc.next_at) {
+		sec_changed = fdc.next_at;
+		fdc.next_at = 0;
+		fdc.sector++;
+		fdc_start_sector();
+	}
 	if (fdc.drq_at && cpu.cycles >= fdc.drq_at) {
 		fdc.drq = 1;
 		fdc.deadline = fdc.first_dl ? fdc.first_dl : fdc.drq_at + BYTE_T;
@@ -1043,6 +1086,11 @@ static void fdc_tick(void)
 			fdc_lost++;
 		fdc.lost = 1;
 		fdc.status |= 0x04;
+		if (fdc.wtrack && fdc.idx == 0) {	/* nothing written */
+			fdc.wtrack = 0;
+			fdc_done(0);
+			break;
+		}
 		if (fdc.writing)
 			fdc.buf[fdc.idx] = 0;
 		fdc_byte_done(1);
@@ -1902,7 +1950,8 @@ static void prn_write(uint8_t v)
  * A character clock is 8 dots of 15.2 MHz, 8/3 CPU T-states. Interlace
  * is not modeled, every field is taken as a frame.
  */
-static int raster;		/* -B, the beam-raced CRTC */
+static int raster = 1;		/* the beam-raced CRTC, off with -q */
+static int quick;		/* -q: idealised timing, for speed */
 static int vstretch;		/* -V, the most T a video access stretches */
 static int raster_dsptmg(void);
 static void raster_run(void);
@@ -2015,21 +2064,39 @@ static uint8_t *window(int off)
 
 /*
  * TRM TS-3: every device register access adds two wait states, except
- * USTAT. Taken as the latches and devices at 7D0h-7FFh. The video RAM
- * stretch and SLORAM's slowness are not measured and left out.
- * Only the CPU's own accesses count, it passes a ctx.
+ * USTAT. Taken as the latches and devices at 7D0h-7FFh. SLORAM,
+ * 700h-7CFh, costs 2.00 T an access more than plain RAM, measured on
+ * the machine with diag item J. Only the CPU's own accesses
+ * count, it passes a ctx.
  */
 static void dev_wait(void *ctx, int off)
 {
-	if (ctx && off >= 0x7d0 && off < 0x800 && (off & ~3) != 0x7f4)
+	if (!ctx)
+		return;
+	if (off >= 0x7d0 && off < 0x800 && (off & ~3) != 0x7f4)
+		cpu.cycles += 2;
+	else if (off >= 0x700 && off < 0x7d0 && !quick)
 		cpu.cycles += 2;
 }
 
-/* -V: a video or font RAM access by the CPU waits 0 to vstretch T */
+/*
+ * A video or font RAM access by the CPU costs 1.02 T more than plain
+ * RAM, measured on the machine with diag item J, the same in three runs
+ *: one T, and one more every 50th access. -V adds 0 to vstretch
+ * T on top, at random.
+ */
 static void video_wait(void *ctx)
 {
 	static uint32_t seed = 1;
+	static int n;
 
+	if (ctx && !quick) {
+		cpu.cycles++;
+		if (++n == 50) {
+			n = 0;
+			cpu.cycles++;
+		}
+	}
 	if (ctx && vstretch) {
 		seed = seed * 1103515245 + 12345;
 		cpu.cycles += (seed >> 16) % (vstretch + 1);
@@ -3650,7 +3717,7 @@ int main(int argc, char **argv)
 #ifdef HAVE_SDL
 	window = 1;
 #endif
-	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:CBV:S:LKMG:N:")) != -1) {
+	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:ACBqV:S:LKMG:N:")) != -1) {
 		switch (opt) {
 		case 'r': rompath = optarg; break;
 		case 'a': case 'b': case 'c': case 'd':
@@ -3847,14 +3914,20 @@ int main(int argc, char **argv)
 		case 'C':
 			time_set = 1;
 			break;
-		case 'B':
-			raster = 1;
+		case 'B':	/* the default, kept, and kept with -q */
+			raster = 2;
+			break;
+		case 'q':
+			quick = 1;
+			break;
+		case 'A':	/* whole frames: no beam, timing as it is */
+			raster = 3;
 			break;
 		case 'L':
 			show_lost = 1;
 			break;
-		case 'M':
-			mech = 1;
+		case 'M':	/* the mechanics are the default */
+			mech_report = 1;
 			break;
 		case 'G':
 			fdlog_path = optarg;	/* opened once checked */
@@ -3887,10 +3960,21 @@ int main(int argc, char **argv)
 				"\t[-s sound.wav] [-t seconds [-p frame.pgm]] [-l printer.txt]\n"
 				"\t[-o|-i|-I ch:file[@secs]] [-S ch] [-F v|f|m:offset:bit]\n"
 				"\t[-F c:chunk:chunk] [-F d:secs:bit] [-x port] [-m 128|64|64f]\n"
-				"\t[-C] [-B] [-V T] [-L] [-M] [-G fdc.log] [-g [-N name]]\n");
+				"\t[-C] [-A|-B] [-q] [-V T] [-L] [-M] [-G fdc.log] [-g [-N name]]\n");
 			return 2;
 		}
 	}
+	/* -q: the idealised timing of before, for speed: no wait states
+	   on video, font RAM and SLORAM, no drive mechanics, no beam. -M and
+	   -B still turn theirs on */
+	if (quick) {
+		if (!mech_report)
+			mech = 0;
+		if (raster != 2)
+			raster = 0;
+	}
+	if (raster == 3)
+		raster = 0;
 	for (int i = 0; i < 4; i++) {
 		if (!disks[i].save)
 			continue;
@@ -4086,7 +4170,7 @@ int main(int argc, char **argv)
 		bad = 1;	/* and the disks are still saved */
 	if (show_lost)
 		printf("Lost Data: %lu\n", fdc_lost);
-	if (mech)
+	if (mech && mech_report)
 		printf("Drives: %lu sectors, %lu steps, %.2f s waiting for sectors, "
 		    "first command to last %.2f s\n", mech_secs, mech_steps,
 		    (double)mech_wait / CPU_HZ,

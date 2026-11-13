@@ -62,10 +62,11 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-x port` | A card on the expansion bus at this port, in hex, that reads back the last byte written. |
 | `-m 128\|64\|64f` | The RAM fitted. 64 leaves out bank B, which reads FFh; 64f reads back the last byte written. |
 | `-C` | Hold the clock chip's TIME SET button down. |
-| `-B` | Draw each character as the beam passes it. |
-| `-V T` | Stretch each video and font RAM access by 0 to T T-states, at random. |
+| `-B` | Draw each character as the beam passes it: the default, kept so that `-q` can have it. |
+| `-q` | The idealised timing of before, for speed: no drive mechanics, no beam, no wait states on video RAM, font RAM and SLORAM. `-M` and `-B` turn theirs back on. |
+| `-V T` | Stretch each video and font RAM access by a further 0 to T T-states, at random. |
 | `-L` | At exit, print how many FDC commands had Lost Data. |
-| `-M` | Give the drives their mechanics: a turning track, the data rate, step, settle and spin-up times, with a summary at exit. |
+| `-M` | Print a summary of the drives' work at exit. The mechanics are the default. |
 | `-G fdc.log` | Log each FDC command with its emulated time. |
 | `-g` | Debug sockets, Linux only, described at the top of `max80.c`. |
 | `-N name` | With `-g`, appends `_name` to each socket's name, `/tmp/max80_name.sock` and so on, so two emulators with `-g` can run at once. |
@@ -77,12 +78,28 @@ opened.
 
 The comment at the top of `max80.c` has each option in full.
 
+By default the emulator runs as the machine does, as far as it is
+measured or known: the drives turn, with a track passing under
+the head at the data rate, step, settle and spin-up times, and Record
+Not Found after 5 turns; video and font RAM cost 1.02 T an access more
+than plain RAM and SLORAM (block+700h-7CFh) 2.00 T, as diag item J
+measured on the machine; the screen is drawn as the beam passes.
+`-q` turns all three off, for tests that only need the logic.
+
 The FDC holds a write to its track or sector register for 4 of its
 clocks, 8 in FM, before it goes in, and a read before then gives the old
 value, as the MB8866 does in MAME's model: 2 us for an 8-inch drive in
 MFM, 4 us for a 5-inch one. A command takes the held values. The 12
 clocks a command waits before it starts are not modelled: BUSY is set at
 once, and no DRQ could come that soon.
+
+With the drives' mechanics, a multi-sector read or write steps the
+sector register once the sector's two CRC bytes have passed, not at
+its last data byte, and Read Address puts the ID's track number in the
+sector register when it ends, past the ID's CRC, not when it is
+written (WD179x sheet). Write Track asks for its first byte as
+soon as it is written and waits for it until the index pulse; none by
+then is Lost Data and the end of the command.
 
 A Force Interrupt during a command clears BUSY and leaves the other
 status bits as they were, Lost Data and DRQ too; only one when the FDC
