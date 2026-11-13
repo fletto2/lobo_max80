@@ -437,6 +437,71 @@ open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
 		n="=$(echo "$out" | grep -c '^A:\\>\.\?$')="
 		# only the last prompt is a bare one
 		check "and leaves no '.' or empty line to the shell" "=1=" "$n"
+		# A damaged hard disk: a file whose first cluster is 1, which
+		# would put its record 0 on the root directory's last sector,
+		# and a folder whose one cluster points to itself with no end
+		# entry, which a search that finds nothing went round for ever
+		cat >$T/dmg.py <<'DMGEOF'
+# Damage a FAT image for the tests: dmg.py IMG root FILE.EXT CLUS sets a
+# root entry's first cluster; dmg.py IMG loop FOLDER makes a folder's
+# one cluster point to itself, its free entries deleted ones, no end
+import sys, struct
+img, what = sys.argv[1], sys.argv[2]
+b = bytearray(open(img, 'rb').read())
+bps, spc, rsv, nf, rent, tot, spf = (struct.unpack_from('<H', b, 11)[0], b[13],
+    struct.unpack_from('<H', b, 14)[0], b[16], struct.unpack_from('<H', b, 17)[0],
+    struct.unpack_from('<H', b, 19)[0], struct.unpack_from('<H', b, 22)[0])
+root = (rsv + nf * spf) * bps
+data = root + rent * 32
+ncl = (tot * bps - data) // (spc * bps)
+f16 = ncl >= 4085
+def ent(name):
+    n = name.split('.')
+    key = (n[0].ljust(8) + (n[1] if len(n) > 1 else '').ljust(3)).encode()
+    for i in range(rent):
+        if b[root + i * 32:root + i * 32 + 11] == key:
+            return root + i * 32
+    raise SystemExit('no ' + name)
+def setfat(c, v):
+    for k in range(nf):
+        f = (rsv + k * spf) * bps
+        if f16:
+            struct.pack_into('<H', b, f + c * 2, v)
+        else:
+            o = f + c * 3 // 2
+            w = struct.unpack_from('<H', b, o)[0]
+            w = (w & 0x000F) | (v << 4) if c & 1 else (w & 0xF000) | v
+            struct.pack_into('<H', b, o, w)
+if what == 'root':
+    struct.pack_into('<H', b, ent(sys.argv[3]) + 26, int(sys.argv[4]))
+else:
+    c = struct.unpack_from('<H', b, ent(sys.argv[3]) + 26)[0]
+    setfat(c, c)
+    d = data + (c - 2) * spc * bps
+    for i in range(spc * bps // 32):
+        if b[d + i * 32] == 0:
+            b[d + i * 32] = 0xE5
+open(img, 'wb').write(b)
+DMGEOF
+		printf 'aaa\r\n' >$T/DA.TXT
+		printf 'bbb\r\n' >$T/DB.TXT
+		printf 'fff\r\n' >$T/FF.TXT
+		# W.COM: open the FCB at 5Ch, write record 0 at random, close
+		printf '\021\134\000\016\017\315\005\000\041\000\000\042\175\000\257\062\177\000\021\134\000\016\042\315\005\000\021\134\000\016\020\315\005\000\311' >$T/W.COM
+		python3 tools/mkdisk.py $SYS --hd 1 $T/dm.img $T/DA.TXT $T/DB.TXT \
+			--in F $T/FF.TXT >/dev/null
+		python3 $T/dmg.py $T/dm.img root DB.TXT 1
+		python3 $T/dmg.py $T/dm.img loop F
+		cp $T/dm.img $T/dm0.img
+		mkdisk $T/wf.imd $T/W.COM >/dev/null
+		rm -f $T/out/dm.img
+		out=$($EMU -a $T/wf.imd -h $T/dm.img -w h:$T/out/dm.img -T -t 120 \
+			-e 'A:\>' -k 'w c:db.txt\rdir c:\\f\\zz.*\rdir c:\r' | tr -d '\r')
+		check "a write to a first cluster out of range fails" "Function 34" "$out"
+		n=$(cmp $T/dm0.img $T/out/dm.img && echo same)
+		check "and the disk is left as it was" "same" "$n"
+		check "a search in a folder that goes round ends" "No file" "$out"
+		check "and the disk is there after it" "C: DA       TXT : DB       TXT" "$out"
 		# The page module on the host, page.c and page.s on the
 		# Z80 core: down and up, jumps, 3000 random edits and saves
 		# checked against a model, and a file of LF lines saved as it was

@@ -71,6 +71,9 @@ dsfirst: ld	hl,0
 	jr	ds_0
 dsnext:	ld	hl,(dpos)
 	inc	hl
+	ld	a,h			; past entry FFFFh: a folder whose
+	or	l			; chain goes round, on a damaged disk
+	jr	z,ds_end
 ds_0:	ld	(dpos),hl
 	call	dirent
 	ret	nz
@@ -523,6 +526,8 @@ rl_9:	ld	(CFCB+F_CCL),hl	; F_CCL and F_CORD move together, so
 	ld	(CFCB+F_CORD),hl
 	jr	rl_8
 rl_10:	ld	hl,(CFCB+F_CCL)
+	call	fateoc			; a first cluster out of range, on a
+	jr	c,rl_eof		; damaged disk: the end, not the root
 	call	clsec
 	ld	a,(fsin)
 	add	a,e

@@ -441,7 +441,7 @@ rp_1:	xor	a
 	inc	a
 	ld	(progdrv),a
 	call	nrecs			; does it fit?
-	jp	c,rp_big
+	jr	c,rp_big
 	ld	(prrecs),hl
 	push	hl			; records under what 0006h gives: the
 	ld	hl,0007h		; BDOS, the lowest RSX, or XSUB
@@ -455,7 +455,7 @@ rp_1:	xor	a
 	ex	de,hl
 	or	a
 	sbc	hl,de
-	jp	c,rp_big
+	jr	c,rp_big
 	ld	hl,0			; a CP/M 3 file with an RSX header
 	ld	(prfrom),hl		; starts with RET: skip the header page
 	ld	(rsxhdr),hl
@@ -478,7 +478,7 @@ rp_2:	ld	hl,0100h
 	cp	0C9h
 	jr	nz,rp_5
 	call	rsxload
-	jp	c,rp_big
+	jr	c,rp_big
 	call	pzero			; 0006h to the lowest RSX
 	ld	hl,(rsxhdr+1)		; RSXs only: back to the shell
 	ld	a,h
@@ -722,7 +722,7 @@ st_4:	ld	a,b			; the 0 after the tail: pzbuf is zeroed
 	ld	hl,pzbuf		; to 0050h, through CBUF
 	ld	de,0050h
 	ld	bc,PZLEN
-	jp	ustore
+	jr	ustore
 
 ; Skip a ";password" after a name
 skippw:	ld	a,(hl)
@@ -789,10 +789,10 @@ sherr:	push	af
 	ld	l,a
 	call	pstr
 	call	crlf
-	jp	shell
+	jr	shell
 she_nf:	call	pmsg
 	db	"No file",0Dh,0Ah,0
-	jp	shell
+	jr	shell
 
 	include	"ccp.asm"
 	include	"bdos.asm"
