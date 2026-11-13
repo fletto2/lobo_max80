@@ -1113,8 +1113,23 @@ ch_1:	call	pmsg
 ; Batch files
 
 ; Take the last line of A:$$$.SUB into linebuf, NUL ended, and cut it
-; off. NZ when there is none left (and subact is cleared).
-subline: ld	hl,subname
+; off, or with subact 2 the next line of subbuf. NZ when there is none
+; left (and subact is cleared).
+subline: ld	a,(subact)
+	cp	2
+	jr	nz,sl_file
+	ld	bc,(subnext)
+	ld	hl,(subtot)
+	or	a
+	sbc	hl,bc
+	jr	z,sl_none
+	inc	bc
+	ld	(subnext),bc
+	dec	bc
+	call	subnth
+	call	subexp
+	jr	sl_cpy
+sl_file: ld	hl,subname
 	call	cfcbset
 	call	fopenq
 	jr	nz,sl_none
@@ -1129,20 +1144,8 @@ subline: ld	hl,subname
 	jr	nz,sl_none
 	or	a
 	jr	nz,sl_none
-	push	hl			; the line: count, then text
-	ld	a,(CBUF)
-	cp	127
-	jr	c,sl_1
-	ld	a,127
-sl_1:	ld	c,a
-	ld	b,0
-	ld	hl,CBUF+1
-	ld	de,linebuf
-	or	a
-	jr	z,sl_2
-	ldir
-sl_2:	xor	a
-	ld	(de),a
+	push	hl
+	call	sl_cpy
 	pop	hl			; cut the record off
 	ld	a,h
 	ld	h,l
@@ -1174,6 +1177,21 @@ sl_none: xor	a
 sl_kill: ld	hl,subname
 	call	cfcbset
 	jp	fdelete
+; The line in CBUF, count then text, into linebuf. Z.
+sl_cpy:	ld	a,(CBUF)
+	cp	127
+	jr	c,sl_1
+	ld	a,127
+sl_1:	ld	c,a
+	ld	b,0
+	ld	hl,CBUF+1
+	ld	de,linebuf
+	or	a
+	jr	z,sl_2
+	ldir
+sl_2:	xor	a
+	ld	(de),a
+	ret
 
 ; At a cold boot with no batch waiting: A:AUTOEXEC.BAT, if there is
 ; one, as a batch with no parameters. Carry if there is none.
@@ -1253,10 +1271,6 @@ ru_3f:	ld	hl,subbuf
 ru_3g:
 	ld	hl,(cmdtail)		; the parameters: words of the tail
 	call	splitargs
-	ld	hl,subname		; make A:$$$.SUB
-	call	cfcbset
-	call	fmake
-	call	fchk
 	ld	hl,subbuf		; count the lines
 	ld	bc,0
 ru_4:	ld	a,(hl)
@@ -1273,6 +1287,13 @@ ru_5:	ld	a,(hl)
 ru_5e:	dec	hl
 	jr	ru_4
 ru_6:	ld	(sublines),bc
+	ld	(subtot),bc
+	ld	hl,subname		; make A:$$$.SUB, or, when A: is
+	call	cfcbset			; write protected or full, run
+	call	fmake			; the lines from subbuf
+	jr	nz,ru_mem
+	or	a
+	jr	nz,ru_mem
 	ld	hl,0			; record number
 	ld	(cprec),hl
 ru_7:	ld	bc,(sublines)		; the lines, last first
@@ -1287,13 +1308,20 @@ ru_7:	ld	bc,(sublines)		; the lines, last first
 	push	hl
 	call	wrrec
 	pop	hl
-	jp	nz,sherr
+	jr	nz,ru_bad
 	inc	hl
 	ld	(cprec),hl
 	jr	ru_7
 ru_9:	call	fclose
-	jp	nz,sherr
+	jr	nz,ru_bad
 	ld	a,1
+	ld	(subact),a
+	or	a
+	ret
+ru_bad:	call	sl_kill			; a part written: none of it
+ru_mem:	ld	hl,0			; from memory, first line first
+	ld	(subnext),hl
+	ld	a,2
 	ld	(subact),a
 	or	a
 	ret

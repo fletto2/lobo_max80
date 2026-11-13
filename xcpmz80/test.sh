@@ -1008,6 +1008,15 @@ check "AUTOEXEC.BAT runs at boot" "A:\>DIR *.FNT" "$out"
 check "and by its name" "A:\>autoexec" "$out"
 check "twice in all" "2" "$(printf '%s\n' "$out" | grep -c 'A: XCPM     FNT')"
 
+# On a write-protected A: there is no A:$$$.SUB: AUTOEXEC.BAT runs from
+# memory, first line first, through the warm boot of a program
+printf 'dir *.fnt\r\nclock\r\nver\r\n' >$T/AUTOEXEC.BAT
+mkdisk $T/aw.imd build/XCPM.FNT build/CLOCK.COM $T/AUTOEXEC.BAT >/dev/null
+out=$($EMU -a $T/aw.imd -R a -T -t 20 -e 'A:\>' -k 'dir\r' | tr -d '\r')
+check "AUTOEXEC.BAT on a write-protected A: runs every line, in order" \
+	"=DIR *.FNT CLOCK VER=" \
+	"=$(printf '%s\n' "$out" | sed -n 's/^A:\\>\([A-Z].*\)/\1/p' | tr '\n' ' ' | sed 's/ $//')="
+
 # A COPY that fills the disk erases the part it wrote
 head -c 500000 /dev/zero | tr '\000' 'q' >$T/HALF.DAT
 mkdisk $T/ha.imd $T/HALF.DAT >/dev/null

@@ -198,6 +198,10 @@ the sign-on, with no parameters: commands to set things up, a font to
 load or a program to start. A batch left unfinished by a reset goes on
 instead. To start without it, boot another disk.
 
+A batch is kept as `A:$$$.SUB` while it runs. When A: is write
+protected or full, it runs from memory instead, the same way, but a
+reset ends it.
+
 ## Programs on the boot disk
 
 ### LDFONT

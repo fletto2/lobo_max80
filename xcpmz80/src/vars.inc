@@ -142,8 +142,10 @@ sublines		equ	nameptr+2
 argc		equ	sublines+2
 argbuf		equ	argc+1
 SUBMAX		equ	2048
+subtot		equ	argbuf+130	; a batch run from subbuf: its lines,
+subnext		equ	subtot+2	; and the next one
 ; FORMAT and SYS
-fmtdrv		equ	argbuf+130
+fmtdrv		equ	subnext+2
 fmttrk		equ	fmtdrv+1
 fmtmb		equ	fmttrk+1
 fmtf16		equ	fmtmb+1

@@ -34,6 +34,8 @@ kmain:	ld	hl,BSS			; zero the variables
 	ld	(shdrv),a
 	call	clrtpa
 	call	clibload
+	xor	a			; no batch from memory yet
+	ld	(subact),a
 	call	subchk			; a batch left waiting goes on, or
 	ld	a,(subact)		; else AUTOEXEC.BAT
 	or	a
@@ -321,8 +323,12 @@ ccpent:	ld	hl,0007h
 	ld	bc,6
 	jp	ucopy
 
-; Is there an A:$$$.SUB? Set subact if so. Errors say no.
-subchk:	xor	a
+; Is there an A:$$$.SUB? Set subact if so. Errors say no. A batch
+; run from memory (subact 2) goes on.
+subchk:	ld	a,(subact)
+	cp	2
+	ret	z
+	xor	a
 	ld	(subact),a
 	ld	hl,subname
 	call	cfcbset
