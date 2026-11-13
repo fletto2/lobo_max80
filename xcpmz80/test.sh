@@ -322,6 +322,7 @@ if [ "$(uname)" = Linux ]; then
 		check "C: setjmp and longjmp" "longjmp 42" "$out"
 		check "C: malloc reuses a freed block, realloc" "heap dup reused grown" "$out"
 		check "C: malloc past a small hole, and a block freed after" "hole refit above" "$out"
+		check "C: malloc after realloc grew a block, in place and at the top" "regrow apart apart" "$out"
 		check "C: mktime and strftime" "time 1793536496 2026-11-01 12:34:56 Sun 305" "$out"
 		check "C: gmtime and asctime" "asctime Sun Nov  1 12:34:56 2026" "$out"
 		check "C: strerror" "errno No such file" "$out"
@@ -990,6 +991,14 @@ python3 ../tools/imd2raw.py $T/out/mv.imd $T/out/mv.img >/dev/null
 fatok "the moves leave a clean FAT volume" $T/out/mv.img
 mcopy -o -i $T/out/mv.img ::GAMES/MORE.COM $T/out/MV.COM
 same "and the moved file is byte exact" build/MORE.COM $T/out/MV.COM
+# MV to another drive refuses a name taken there, as on one drive
+out=$($EMU -a $T/out/mv.imd -b $T/out/mvb.imd -T -t 30 -e 'A:\>' \
+	-k 'mv thin.fnt b:x.fnt\rdir thin.fnt\r')
+check "MV to another drive refuses a name taken there" "No file, or the new name is taken" "$out"
+check "and leaves the source" "A: THIN     FNT" "$out"
+python3 ../tools/imd2raw.py $T/out/mvb.imd $T/out/mvb.img >/dev/null
+mcopy -o -i $T/out/mvb.img ::X.FNT $T/out/MVX.FNT
+same "and the file there as it was" build/XCPM.FNT $T/out/MVX.FNT
 
 # AUTOEXEC.BAT runs at a cold boot, and NAME.BAT by its name
 printf 'dir *.fnt\r\nver\r\n' >$T/AUTOEXEC.BAT

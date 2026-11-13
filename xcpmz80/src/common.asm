@@ -441,7 +441,8 @@ wb_1:	di
 	ld	(LIBIFF),a
 	ld	(BDIFF),a
 	ld	a,IVPAGE		; the system's tick again, whatever
-	ld	i,a			; table a program left
+	ld	i,a			; table or mode a program left
+	im	2
 	ei
 	jp	(hl)
 
@@ -1457,6 +1458,7 @@ kbdin:	push	bc
 ci1:	call	kbdst
 	jr	nz,ci2
 	call	blink
+	call	kpoll
 	jr	ci1
 ci2:	call	blinkon			; shown again for the program
 	ld	a,(KTAKE)
@@ -1467,6 +1469,28 @@ ci2:	call	blinkon			; shown again for the program
 	ld	(KTAKE),a
 	ld	a,(hl)
 	pop	hl
+	pop	bc
+	ret
+
+; With the interrupts off, as the BDOS keeps them for a program whose
+; vector table or handler it maps out, no tick comes: do its work when
+; the tick flag is up, or a wait for a key never ends. Not with them on,
+; when the tick does it. Keeps every register but AF
+kpoll:	ld	a,i			; on (an NMOS Z80 can read off once,
+	ret	pe			; never twice)
+	ld	a,i
+	ret	pe
+	ld	a,(SYSFLG)		; bit 7, the tick
+	rla
+	ret	nc
+	push	bc
+	push	de
+	push	hl
+	push	ix
+	call	tkwork
+	pop	ix
+	pop	hl
+	pop	de
 	pop	bc
 	ret
 
@@ -1526,9 +1550,20 @@ tick:	ld	(ISRSP),sp
 	push	de
 	push	hl
 	push	ix
-	ld	hl,TICKS
+	call	tkwork
+	pop	ix
+	pop	hl
+	pop	de
+	pop	bc
+	pop	af
+	ld	sp,(ISRSP)
+	ei
+	reti
+; The tick's work: the count, the tick cleared, the keys. Also from
+; kpoll, with the interrupts off. Uses AF, BC, DE, HL, IX
+tkwork:	ld	hl,TICKS
 	inc	(hl)
-	ld	a,(SYSCLR)		; and on into kscan, which returns
+	ld	a,(SYSCLR)		; and on into kscan
 
 ; Key scan, as Lobo's: each row is compared with the two scans before it
 ; (T1, T2). A key is new when down now but in neither, and up when it was
@@ -1575,14 +1610,7 @@ ks3:	inc	ix
 	add	hl,bc
 	rlc	e
 	jr	nc,ks1
-	pop	ix
-	pop	hl
-	pop	de
-	pop	bc
-	pop	af
-	ld	sp,(ISRSP)
-	ei
-	reti
+	ret
 
 ; A = keys newly down in this row, HL = the row in keytab
 kpress:	push	hl

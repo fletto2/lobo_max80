@@ -566,18 +566,53 @@ cfresh:	push	hl
 ; The fresh cluster's sectors not yet zeroed, zeroed, when it is on
 ; this drive
 frdone:	ld	a,(frdrv)
+	or	a
+	ret	z			; none
 	dec	a
 	ld	b,a
 	ld	a,(CFCB+F_DRIVE)
 	cp	b
-	ret	nz
-	ld	a,(ix+D_SPC)
+	jr	z,frd_1
+	ld	a,(drvnum)		; another drive's: zeroed there, as
+	push	af			; that drive, or it never is
+	push	ix
+	ld	a,b
+	ld	(drvnum),a
+	call	drvix
+	call	frd_1
+	pop	ix
+	pop	af
+	ld	(drvnum),a
+	ret
+frd_1:	ld	a,(ix+D_SPC)
 	dec	a
 	ld	b,a
 	ld	a,(frnext)
 	cp	(ix+D_SPC)
 	ret	nc
 	jr	frzero
+
+; Cluster HL of drive drvnum is being freed: if it is the fresh one,
+; forget it. Keeps BC, DE, HL.
+frgone:	ld	a,(frdrv)
+	or	a
+	ret	z
+	dec	a
+	push	hl
+	ld	hl,drvnum
+	cp	(hl)
+	pop	hl
+	ret	nz
+	push	de
+	ld	de,(frcl)
+	or	a
+	sbc	hl,de
+	add	hl,de
+	pop	de
+	ret	nz
+	xor	a
+	ld	(frdrv),a
+	ret
 
 ; HL = the buffer of the record's sector (fsect, fsin, F_CCL), read in,
 ; or zeroed with any sectors before it in a fresh cluster. NZ: error
@@ -898,8 +933,11 @@ fm_1:	call	isro
 	ld	hl,CFCB+17
 	call	namepat
 	call	dnew
-	jp	nz,fn_no
-	ld	de,11			; with the old one's attributes,
+	jr	z,fm_2
+	cp	R_NOFILE		; no room there: as a name taken
+	jp	z,fn_no
+	jp	fn_x			; an error: said as one
+fm_2:	ld	de,11			; with the old one's attributes,
 	add	hl,de			; times, cluster and size
 	ex	de,hl
 	ld	hl,mvbuf+11

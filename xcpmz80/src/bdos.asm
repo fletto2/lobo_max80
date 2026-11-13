@@ -383,12 +383,9 @@ rlbs:	ld	a,(lnlen)
 	jr	c,rlbs_2
 	cp	7Fh
 	jr	nc,rlbs_2
-	ld	a,(scb+SCB_COL)
-	or	a
-	jr	z,rlbs_2
-rlbs_1:	sub	COLS
+	ld	a,(CURCOL)		; the screen's column, not SCB_COL, which
+	or	a			; output by function 6 leaves behind
 	jr	z,rlbs_up
-	jr	nc,rlbs_1
 	ld	a,b
 	ld	(lnlen),a
 	ld	a,08h
@@ -418,12 +415,9 @@ rlrw_1:	call	conout
 	ret
 ; Back one column, up to the end of the row above from the start of a
 ; wrapped row, where a BS would stop. Keeps BC and HL.
-rlback:	ld	a,(scb+SCB_COL)
+rlback:	ld	a,(CURCOL)		; the screen's column, as rlbs
 	or	a
-	ret	z
-rlbk_1:	sub	COLS
 	jr	z,rlbk_up
-	jr	nc,rlbk_1
 	ld	a,08h
 	jp	kputc
 rlbk_up: call	rlrow
@@ -1666,7 +1660,16 @@ f99:	call	ranset
 	sbc	hl,de
 	sbc	a,c
 	jr	c,f99_x
-	ex	de,hl
+	ld	hl,(CFCB+F_SIZE)	; R the last record: the size as it is,
+	ld	a,(CFCB+F_SIZE+2)	; not that record made whole
+	or	a
+	sbc	hl,de
+	sbc	a,c
+	jr	nc,f99_1
+	ld	de,(CFCB+F_SIZE)
+	ld	a,(CFCB+F_SIZE+2)
+	ld	c,a
+f99_1:	ex	de,hl
 	ld	a,c
 	ld	(CFCB+F_SIZE),hl
 	ld	(CFCB+F_SIZE+2),a

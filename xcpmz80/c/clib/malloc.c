@@ -145,6 +145,11 @@ void *realloc(void *p, size_t n) __LIB
 	have = (HDR(b) & ~USED) - 2;
 	if (n <= have)
 		return p;
+	/* free for a moment, and the free blocks after it merged in: low,
+	 * which may be one of them, comes down to it, or malloc would find
+	 * a free block inside the one grown here */
+	if (b < low)
+		low = b;
 	SETHDR(b, HDR(b) & ~USED);
 	merge(b);
 	if (b == top) {

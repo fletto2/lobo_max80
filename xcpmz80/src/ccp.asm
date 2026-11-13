@@ -905,11 +905,17 @@ mv_3:	call	fmove
 mv_4:	jp	nz,sherr
 	or	a
 	ret	z
-	call	crlf
+mv_tk:	call	crlf
 	call	pmsg
 	db	"No file, or the new name is taken",0
 	jp	shell
-mv_x:	call	copy1			; another drive
+mv_x:	ld	hl,CFCB+F_NAME		; another drive: the name must be free
+	call	fcbpat			; there too, file or folder, or the copy
+	call	dsany			; would replace it
+	jr	z,mv_tk
+	cp	R_NOFILE
+	jp	nz,sherr
+	call	copy1
 	call	cpsrcd
 	ld	hl,cpsrc
 	call	cfcbset

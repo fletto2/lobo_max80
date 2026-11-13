@@ -67,9 +67,32 @@ int main(void)
 	char buf[80];
 	int i, n, c;
 	long l;
+	const char *ra, *rb;
 
+	{
+		/* realloc grows a block over the lowest free one, or at the
+		 * top: a malloc after it must not land inside it. First, with
+		 * no hole below, as the heap is now */
+		char *p2, *p3, *p5, *t1, *t2, *p6;
+
+		malloc(10);
+		p2 = malloc(10);
+		p3 = malloc(10);
+		malloc(10);
+		free(p3);
+		p2 = realloc(p2, 20);
+		p5 = malloc(10);
+		ra = p5 >= p2 + 20 || p5 + 10 <= p2 ? "apart" : "inside";
+		t1 = malloc(10);
+		t2 = malloc(10);
+		free(t2);
+		t1 = realloc(t1, 30);
+		p6 = malloc(10);
+		rb = p6 >= t1 + 30 || p6 + 10 <= t1 ? "apart" : "inside";
+	}
 	logf = fopen("CTEST.LOG", "w");
 	say("init %d zero %d\n", initd, zero);
+	say("regrow %s %s\n", ra, rb);
 	say("fmt [%5d] [%-4d] [%04x] [%ld] [%s] [%.3s] [%c] [%u]\n",
 		-42, 7, 0xbe, 123456789L, "str", "abcdef", 'Z', 65535u);
 	sprintf(buf, "%d-%s", 99, "ok");

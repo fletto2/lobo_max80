@@ -124,9 +124,14 @@ mt3:	add	hl,bc			; root = reserved + FATs * SPF
 	ld	(hl),0FFh
 	ld	hl,0			; and a folder's place on another disk
 	ld	(dscix),hl
-	ld	(frdrv),hl		; and the fresh cluster, never zeroed
-					; on a disk it may not be on (frcl too)
-	ld	(ix+D_HINT),2
+	ld	a,(frdrv)		; and the fresh cluster, if on this
+	dec	a			; drive: never zeroed on a disk it may
+	ld	hl,drvnum		; not be on. Another drive's stays
+	cp	(hl)
+	jr	nz,mt_fr
+	xor	a
+	ld	(frdrv),a
+mt_fr:	ld	(ix+D_HINT),2
 	ld	(ix+D_HINT+1),0
 	ld	(ix+D_MNT),1
 	jp	cwdchk
@@ -339,10 +344,10 @@ fa_3:	ld	(ix+D_HINT),l
 fatfree: push	hl
 	ld	hl,0
 	ld	(dscix),hl
-	ld	(frdrv),hl		; nor the fresh cluster, which may go
 	pop	hl
 ffr_1:	call	fateoc
 	jr	c,ff9
+	call	frgone			; the fresh cluster, if it goes
 	push	hl
 	call	fatget
 	pop	de
@@ -397,16 +402,20 @@ fatcount:
 fcn_0:	push	hl			; no: count them, and keep it
 	call	fcn_s
 	pop	hl
+	jr	nz,fcn_9		; a FAT not read: not kept
 	ld	(hl),d
 	dec	hl
 	ld	(hl),e
-	ex	de,hl
+fcn_9:	ex	de,hl
 	ret
+; DE = the free clusters. NZ if a FAT sector could not be read, DE
+; those counted before it
 fcn_s:	ld	de,0
 	ld	hl,2
 fcn_1:	push	de
 	push	hl
 	call	fatget
+	jr	nz,fcn_e
 	ld	a,h
 	or	l
 	pop	hl
@@ -416,6 +425,10 @@ fcn_1:	push	de
 fcn_2:	inc	hl
 	call	fateoc			; keeps DE
 	jr	nc,fcn_1
+	xor	a
+	ret
+fcn_e:	pop	hl
+	pop	de
 	ret
 
 ; HL = drive IX's free count in dfree. Keeps BC and DE.
