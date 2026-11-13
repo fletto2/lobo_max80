@@ -170,9 +170,15 @@ static int sgetl(void)
 			break;
 		}
 		if (c != '\r') {
-			pg_line[i++] = c;
-			if (i == PG_LINE)
+			if (i == PG_LINE) {
+				/* too long: split before c, which is put back,
+				   so a CR LF right after it still ends it */
+				s_p--;
+				s_n++;
+				s_raw--;
 				break;
+			}
+			pg_line[i++] = c;
 		}
 	}
 	pg_line[i] = 0;
@@ -302,6 +308,7 @@ static u8 wdone(void)
 	wend();
 	if (w_bad) {
 		pg_err = "Work file write error";
+		w_fcb = 0;	/* wbuf holds the failed bytes: read again */
 		return 0;
 	}
 	wk_rec = w_rec;
@@ -757,7 +764,7 @@ void pg_close(void)
 long pg_save(const char *name, unsigned char bak)
 {
 	char tmp[16];
-	PIECE *p, ab;
+	PIECE *p, ab, no[PG_NPART];
 	void *l;
 	long total;
 
@@ -795,8 +802,7 @@ long pg_save(const char *name, unsigned char bak)
 		while (l && ed_tag(l) == tg)
 			l = ed_step(l, 1);
 		wend();
-		pt->o = pc;
-		pt->dirty = 0;
+		no[pt - pg_part] = pc;	/* the parts' own, once it is saved */
 		total += pc.nl;
 	}
 	wstart();
@@ -817,6 +823,10 @@ long pg_save(const char *name, unsigned char bak)
 		if (!pg_err)
 			pg_err = "Write error";
 		return -1;
+	}
+	for (pt = pg_part; pt < pg_part + pg_np; pt++) {
+		pt->o = no[pt - pg_part];
+		pt->dirty = 0;
 	}
 	/* the new file takes the name */
 	pg_bdos(FN_CLOSE, ofcb, 0, 0);

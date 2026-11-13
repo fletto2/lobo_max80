@@ -107,6 +107,8 @@ sl:	.ds	2
 spn:	.ds	1
 stotal:	.ds	2
 ab:	.ds	PSZ
+snew:	.ds	NPART*PSZ	; pg_save: the parts' new pieces
+snp:	.ds	2
 sname:	.ds	2
 sbak:	.ds	1
 tmp:	.ds	16
@@ -413,12 +415,23 @@ sgetl:	ld	hl,#0
 	jr	z,6$
 	cp	#13
 	jr	z,1$
+	ld	l,a
+	ld	a,b
+	or	c
+	jr	z,5$
+	ld	a,l
 	ld	(de),a
 	inc	de
 	dec	bc
-	ld	a,b
-	or	c
-	jr	nz,1$
+	jr	1$
+5$:	ld	hl,(s_p)	; too long: split before it, put back, so
+	dec	hl		; a CR LF right after still ends the line
+	ld	(s_p),hl
+	ld	hl,#s_n
+	inc	(hl)
+	ld	hl,(s_raw)
+	dec	hl
+	ld	(s_raw),hl
 	jr	7$
 6$:	ld	a,#1
 	ld	(s_lf),a
@@ -659,6 +672,8 @@ wdone:	call	wend
 	jr	z,1$
 	ld	hl,#e_wwrite
 	ld	(_pg_err),hl
+	ld	hl,#0		; wbuf holds the failed bytes: read again
+	ld	(w_fcb),hl
 	jp	false
 1$:	ld	hl,(w_rec)
 	ld	(wk_rec),hl
@@ -1803,6 +1818,8 @@ _pg_save:
 	ld	(spn),a
 	ld	hl,#_pg_part
 	ld	(pt),hl
+	ld	hl,#snew
+	ld	(snp),hl
 3$:	ld	a,(spn)
 	or	a
 	jr	z,6$
@@ -1815,7 +1832,6 @@ _pg_save:
 	ld	(tg),a
 	inc	hl
 	ld	a,(hl)
-	ld	(hl),#0
 	push	af
 	call	wstart
 	pop	af
@@ -1836,10 +1852,11 @@ _pg_save:
 	ld	(sl),hl
 	jr	42$
 43$:	call	wend
-	ld	de,(pt)
+	ld	de,(snp)	; the parts' own once it is saved
 	ld	hl,#pc
 	ld	bc,#PSZ
 	ldir
+	ld	(snp),de
 	ld	hl,(pc+P_NL)
 	call	addtot
 	ld	hl,(pt)
@@ -1887,8 +1904,30 @@ _pg_save:
 	jp	nz,90$
 	ld	hl,#e_write
 	ld	(_pg_err),hl
-	jr	90$
-8$:	ld	de,#ofcb	; the new file takes the name
+	jp	90$
+8$:	ld	a,(_pg_np)	; saved: the parts' pieces are the new ones
+	or	a
+	jr	z,87$
+	ld	b,a
+	ld	hl,#snew
+	ld	de,#_pg_part
+85$:	push	bc
+	ld	bc,#PSZ
+	ldir
+	ex	de,hl
+	ld	bc,#TSZ-PSZ
+	add	hl,bc		; HL = the next part
+	ex	de,hl
+	pop	bc
+	djnz	85$
+	ld	hl,#_pg_part+T_DIRTY	; none changed now
+	ld	de,#TSZ
+	ld	a,(_pg_np)
+	ld	b,a
+86$:	ld	(hl),#0
+	add	hl,de
+	djnz	86$
+87$:	ld	de,#ofcb	; the new file takes the name
 	call	close
 	ld	a,(sbak)
 	or	a

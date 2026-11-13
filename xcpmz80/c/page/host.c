@@ -14,6 +14,7 @@
 #include "page.h"
 
 static int fails;
+static int wfail;		/* writes to NAME.$$S fail, as on a full disk */
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL %s:%d: ", __FILE__, __LINE__); \
 	printf(__VA_ARGS__); printf("\n"); fails++; return; } } while (0)
 
@@ -110,6 +111,8 @@ unsigned char pg_bdos(unsigned char fn, unsigned char *fcb, unsigned int rec,
 	case 34:
 		if (!(f = slot(fcb, 0)))
 			return 9;
+		if (wfail && strstr(name, ".$$S"))
+			return 2;
 		fseek(*f, (long)rec * 128, SEEK_SET);
 		fwrite(buf, 1, 128, *f);
 		fflush(*f);
@@ -556,6 +559,61 @@ static void verbatim(void)
 	printf("ok   LF lines, a long line, no LF at the end: saved as they were\n");
 }
 
+/* A save that fails keeps the window's edits, so the next save writes
+   them, and a line of exactly 256 characters stays one line */
+static void failsave(void)
+{
+	FILE *f;
+	int i, k;
+	long len;
+	char *want, *got;
+
+	want = malloc(40000);
+	got = malloc(40000);
+	for (k = 0; k < 2; k++) {
+		len = 0;
+		for (i = 0; i < 300; i++) {
+			if (i == 5) {
+				memset(want + len, 'A', 256);
+				len += 256;
+				len += sprintf(want + len, "\r\n");
+			}
+			len += sprintf(want + len, i == 1 && k ? "Line %d, changed\r\n" :
+				"Line %d of the file\r\n", i);
+		}
+		memset(want + len, 0x1A, (128 - len % 128) % 128);
+		len += (128 - len % 128) % 128;
+		if (!k) {
+			f = fopen("F.TXT", "wb");
+			fwrite(want, 1, len, f);
+			fclose(f);
+		}
+	}
+	while (head.next != &head)
+		unlink_free(head.next);
+	CHECK(pg_open("F.TXT", 3000), "open F.TXT");
+	dot = pg_goto(1);
+	CHECK(dot && !strcmp(dot->s, "Line 1 of the file"), "F.TXT line 1");
+	mem += 2;
+	free(dot->s);
+	dot->s = strdup("Line 1, changed");
+	pg_touch(dot->tag);
+	wfail = 1;
+	CHECK(pg_save("F.TXT", 0) < 0, "a save to a full disk fails");
+	wfail = 0;
+	CHECK(!exists("F.$$S"), "and leaves no F.$$S");
+	CHECK(pg_save("F.TXT", 0) == 301, "the next save, 301 lines");
+	f = fopen("F.TXT", "rb");
+	i = fread(got, 1, 40000, f);
+	fclose(f);
+	CHECK(i == len && !memcmp(want, got, len),
+		"F.TXT has the edit and the 256 line as one, %d bytes for %ld", i, len);
+	pg_close();
+	free(want);
+	free(got);
+	printf("ok   a failed save keeps the edits, a 256-character line stays one\n");
+}
+
 int main(int argc, char **argv)
 {
 	int lines = argc > 2 ? atoi(argv[2]) : 600;
@@ -571,6 +629,8 @@ int main(int argc, char **argv)
 	run(lines, seed);
 	if (!fails)
 		verbatim();
+	if (!fails)
+		failsave();
 	if (fails)
 		return 1;
 	return 0;
