@@ -414,6 +414,29 @@ open('$T/R2K.BIN', 'wb').write(bytes(r.randrange(256) for _ in range(2000)))"
 		getfile $T/out/b64.imd U.BIN $T/out/U.BIN
 		n=$(cmp $T/out/U.BIN $T/T.PAD && echo same)
 		check "BASE64 -D decodes the host's text" "same" "$n"
+		# The host side: the echoed command and the prompt around the
+		# text are passed over, a text cut short is an error with no
+		# file. BASE64 -D refuses to read the file it would make, and
+		# keyed in, takes the '.' line and its Enter after padding
+		{ echo 'A:\>BASE64 T.BIN'; cat $T/T.TXT; echo 'A:\>'; } |
+			$C/base64_host -d $T/out/H.BIN >/dev/null 2>&1
+		n=$(cmp $T/out/H.BIN $T/T.BIN && echo same)
+		check "base64_host -d passes over a command line and a prompt" "same" "$n"
+		rm -f $T/out/H2.BIN
+		head -n 20 $T/T.TXT | $C/base64_host -d $T/out/H2.BIN >/dev/null 2>&1
+		n="rc=$? $(test -e $T/out/H2.BIN && echo file || echo none)"
+		check "and a text cut short fails, with no file" "rc=1 none" "$n"
+		printf abc >$T/S.BIN
+		$C/base64_host $T/S.BIN 2>/dev/null | head -n 1 >$T/S.TXT
+		mkdisk $T/b64k.imd $C/CLIB.SYS $C/BASE64.COM $T/T.TXT >/dev/null
+		out=$($EMU -a $T/b64k.imd -T -t 30 -e 'A:\>' \
+			-k "base64 -d t.txt t.txt\\rbase64 -d s.bin\\E\\P\\P$(cat $T/S.TXT)\\E\\P.\\E\\P\\Pdir\\r" |
+			tr -d '\r')
+		check "BASE64 -D X X refuses" "would be erased before it is read" "$out"
+		check "BASE64 -D takes keys from the C library's getch" "3 bytes to" "$out"
+		n="=$(echo "$out" | grep -c '^A:\\>\.\?$')="
+		# only the last prompt is a bare one
+		check "and leaves no '.' or empty line to the shell" "=1=" "$n"
 		# The page module on the host, page.c and page.s on the
 		# Z80 core: down and up, jumps, 3000 random edits and saves
 		# checked against a model, and a file of LF lines saved as it was

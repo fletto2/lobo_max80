@@ -14,6 +14,8 @@
  *                On CP/M: BASE64 -D FILE.BIN, paste, '.'
  *   CP/M->Host:  capture serial output from BASE64 FILE.BIN
  *                base64_host -d file.bin < captured.txt
+ *                (the capture may hold the command line and the
+ *                prompt: only lines of base64 letters are read)
  */
 
 #include <stdio.h>
@@ -100,11 +102,19 @@ static long lzss_decompress(const unsigned char *in, long inlen,
             if (flags & (1 << bit)) {
                 out[op++] = in[ip++];
             } else {
-                unsigned char b1 = in[ip++];
-                unsigned char b2 = in[ip++];
-                int length = (b1 >> 4) + MINMATCH;
-                long offset = ((b1 & 0x0F) << 8 | b2) + 1;
+                unsigned char b1, b2;
+                int length;
+                long offset;
                 int j;
+
+                if (ip + 2 > inlen)
+                    return op;      /* cut short: the caller says so */
+                b1 = in[ip++];
+                b2 = in[ip++];
+                length = (b1 >> 4) + MINMATCH;
+                offset = ((b1 & 0x0F) << 8 | b2) + 1;
+                if (offset > op)
+                    return -1;      /* before the start: not our stream */
                 for (j = 0; j < length && op < orig_size; j++) {
                     out[op] = out[op - offset];
                     op++;
@@ -207,7 +217,8 @@ static int do_decode(const char *filename)
     unsigned char *compbuf, *filebuf;
     long compsz, filesz, orig_size;
     unsigned char quad[4];
-    int qpos, pads, c, v;
+    int qpos, pads, c, started;
+    static char line[4096];
 
     /* First pass: base64 decode from stdin into compbuf.
      * Allocate generously; resize after. */
@@ -219,38 +230,52 @@ static int do_decode(const char *filename)
     qpos = 0;
     pads = 0;
 
-    while ((c = getchar()) != EOF) {
-        /* Stop at '.' on a line by itself (but stdin usually just ends) */
-        /* Skip CR/LF/whitespace */
-        if (c == '\r' || c == '\n' || c == ' ' || c == '\t')
+    /* Only lines of base64 letters count, so a capture may hold the
+     * echoed command and the prompt after it: lines before the data
+     * are passed over, and the data ends at a line that is not
+     * base64 ('.' alone, the prompt) or at a padded group. */
+    started = 0;
+    while (fgets(line, sizeof line, stdin)) {
+        size_t n = strcspn(line, "\r\n");
+        size_t k;
+        int good = n > 0;
+
+        while (n > 0 && (line[n - 1] == ' ' || line[n - 1] == '\t'))
+            n--;
+        for (k = 0; k < n && good; k++)
+            if (b64val(line[k]) < 0 && line[k] != '=')
+                good = 0;
+        if (!good || n == 0) {
+            if (started)
+                break;
             continue;
-
-        /* '.' at any point means end (CP/M terminator) */
-        if (c == '.')
+        }
+        started = 1;
+        for (k = 0; k < n; k++) {
+            c = line[k];
+            if (c == '=') {
+                quad[qpos++] = 0;
+                pads++;
+            } else {
+                if (pads)
+                    break;          /* a letter after '=': ends here */
+                quad[qpos++] = b64val(c);
+            }
+            if (qpos == 4) {
+                int nbytes = 3 - pads;
+                if (nbytes >= 1 && compsz < bufmax)
+                    compbuf[compsz++] = (quad[0] << 2) | (quad[1] >> 4);
+                if (nbytes >= 2 && compsz < bufmax)
+                    compbuf[compsz++] = (quad[1] << 4) | (quad[2] >> 2);
+                if (nbytes >= 3 && compsz < bufmax)
+                    compbuf[compsz++] = (quad[2] << 6) | quad[3];
+                qpos = 0;
+                if (pads)
+                    break;
+            }
+        }
+        if (pads)
             break;
-
-        if (c == '=') {
-            quad[qpos++] = 0;
-            pads++;
-        } else {
-            v = b64val(c);
-            if (v < 0) continue;
-            quad[qpos++] = v;
-        }
-
-        if (qpos == 4) {
-            int nbytes = 3 - pads;
-            if (nbytes >= 1 && compsz < bufmax)
-                compbuf[compsz++] = (quad[0] << 2) | (quad[1] >> 4);
-            if (nbytes >= 2 && compsz < bufmax)
-                compbuf[compsz++] = (quad[1] << 4) | (quad[2] >> 2);
-            if (nbytes >= 3 && compsz < bufmax)
-                compbuf[compsz++] = (quad[2] << 6) | quad[3];
-
-            if (pads) break;
-            qpos = 0;
-            pads = 0;
-        }
     }
 
     if (compsz < 4) {
@@ -274,6 +299,12 @@ static int do_decode(const char *filename)
 
     if (filesz < 0) {
         fprintf(stderr, "Decompression error\n");
+        free(filebuf);
+        return 1;
+    }
+    if (filesz != orig_size) {
+        fprintf(stderr, "Short: %ld of %ld bytes, %s not written\n",
+                filesz, orig_size, filename);
         free(filebuf);
         return 1;
     }

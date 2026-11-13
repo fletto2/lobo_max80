@@ -113,9 +113,12 @@ restores a saved game.
 
 BASE64 moves files to and from a host as text: LZSS in agfa9000's
 format, then base64, 76 columns. `BASE64 FILE` writes FILE to the
-screen, `BASE64 -D FILE` takes the text typed or pasted until a `.`
-alone on a line, `BASE64 -D FILE TEXT` reads it from the file TEXT. On
-the host, `base64_host FILE` and `base64_host -d FILE`. agfa9000's
+screen, ended by a `.` line, `BASE64 -D FILE` takes the text typed or
+pasted until a `.` alone on a line, `BASE64 -D FILE TEXT` reads it
+from the file TEXT. On the host, `base64_host FILE` and
+`base64_host -d FILE`, which reads only lines of base64 letters, so a
+capture of the serial line may keep the command and the prompt, and
+writes nothing if the text is cut short. agfa9000's
 version holds the whole file in memory and tries every place in the 4K
 window for each byte. This one streams both ways and follows hash
 chains, 24 places a byte, so it takes a file of any size and

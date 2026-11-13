@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <conio.h>
 
 #define WINSZ	4096
@@ -175,6 +176,7 @@ static int encode(const char *name)
 		b64out();
 	if (col)
 		putchar('\n');
+	puts(".");		/* the end, as the host's text has it */
 	return 0;
 }
 
@@ -246,9 +248,14 @@ static int b64val(int c)
 static int decode(const char *name, const char *text)
 {
 	FILE *in = 0;
-	unsigned char quad[4], nq = 0, pads = 0, sol = 1;
+	unsigned char quad[4], nq = 0, pads = 0, sol = 1, done = 0;
 	int c, v;
 
+	/* "wb" erases the file first */
+	if (text && !strcasecmp(name, text)) {
+		printf("BASE64: %s would be erased before it is read\n", text);
+		return 1;
+	}
 	if (text && !(in = fopen(text, "r"))) {
 		printf("BASE64: no file %s\n", text);
 		return 1;
@@ -256,6 +263,8 @@ static int decode(const char *name, const char *text)
 	out = fopen(name, "wb");
 	if (!out) {
 		printf("BASE64: cannot make %s\n", name);
+		if (in)
+			fclose(in);
 		return 1;
 	}
 	dbit = 8;
@@ -279,9 +288,15 @@ static int decode(const char *name, const char *text)
 			sol = 1;
 			continue;
 		}
-		if (c == '.' && sol)
+		if (c == '.' && sol) {
+			if (!in)	/* and its Enter, not the shell's */
+				while ((c = getch()) != '\r' && c != '\n')
+					;
 			break;
+		}
 		sol = 0;
+		if (done)
+			continue;	/* after the padding, up to the '.' */
 		if (c == '=') {
 			v = 0;
 			pads++;
@@ -295,7 +310,7 @@ static int decode(const char *name, const char *text)
 			if (pads < 1)
 				lzbyte(quad[2] << 6 | quad[3]);
 			if (pads)
-				break;
+				done = 1;
 			nq = 0;
 		}
 	}

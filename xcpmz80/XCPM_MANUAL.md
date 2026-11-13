@@ -325,7 +325,10 @@ port or a terminal's copy and paste.
     BASE64 -D FILE TEXT      read the text from the file TEXT
 
 On the PC, `base64_host FILE` makes the text and
-`base64_host -d FILE` reads it back. `base64_host` is built in
+`base64_host -d FILE` reads it back. It reads only the lines of base64
+letters, so a copy of the screen or the serial line can keep the
+command and the prompt around the text. A text cut short is an error,
+and no file is written. `base64_host` is built in
 `xcpmz80/c` with `make`. The text is compressed, so it is shorter than
 plain base64.
 

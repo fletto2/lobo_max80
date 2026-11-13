@@ -816,6 +816,7 @@ bf_11:	ld	a,(scb+SCB_CMODE)
 	ld	a,h
 	cp	high const
 	jr	nz,bf_k
+	call	bfkp
 	ld	a,(KTAKE)
 	ld	b,a
 	ld	a,(KFILL)
@@ -841,6 +842,7 @@ bf_6i:	ld	a,(scb+SCB_CIVEC+1)
 	ld	a,h
 	cp	high const
 	jp	nz,bf_k
+	call	bfkp
 	ld	a,(KTAKE)
 	ld	b,a
 	ld	a,(KFILL)
@@ -859,6 +861,19 @@ bf_ret:	ld	sp,(usersp)
 	ld	hl,0
 	ld	a,l
 	ld	b,h
+	ret
+; With the interrupts off, as the C library keeps them, no tick scans
+; the keys: kpoll does, on the BDOS's stack, or a program polling 6 or
+; 11 never sees one. With them on, only the return on the program's
+; stack, as an interrupt puts there anyway
+bfkp:	ld	a,i
+	ret	pe
+	ld	a,i
+	ret	pe
+	ld	(usersp),sp
+	ld	sp,(kstk)
+	call	kpoll
+	ld	sp,(usersp)
 	ret
 
 ; The interrupts while the kernel is mapped, set before it is. A
