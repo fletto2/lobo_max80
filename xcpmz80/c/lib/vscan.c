@@ -53,7 +53,7 @@ int __vscan(int (*get)(void *), void (*unget)(int, void *), void *arg,
 	const char *fmt, va_list ap)
 {
 	int n = 0, width;
-	unsigned char size, base, neg, any;
+	unsigned char size, base, neg, any, conv = 0;
 	unsigned long v;
 	char *d;
 
@@ -73,8 +73,11 @@ int __vscan(int (*get)(void *), void (*unget)(int, void *), void *arg,
 		if (*fmt != '%' || fmt[1] == '%') {
 			if (*fmt == '%')
 				fmt++;
-			if (c != (unsigned char)*fmt)
+			if (c != (unsigned char)*fmt) {
+				if (c == EOF && !conv)
+					n = EOF;	/* the input ended first */
 				break;
+			}
 			NEXT();
 			continue;
 		}
@@ -107,8 +110,11 @@ int __vscan(int (*get)(void *), void (*unget)(int, void *), void *arg,
 		if (*fmt != 'c' && *fmt != '[')
 			while (c != EOF && isspace(c))
 				NEXT();
-		if (c == EOF)
+		if (c == EOF) {
+			if (!conv)
+				n = EOF;
 			break;
+		}
 		switch (*fmt) {
 		case 'c':
 			if (width == 32767)
@@ -229,6 +235,7 @@ int __vscan(int (*get)(void *), void (*unget)(int, void *), void *arg,
 			}
 			break;
 		}
+		conv = 1;
 		if (!skip)
 			n++;
 	}

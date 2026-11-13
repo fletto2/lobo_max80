@@ -34,7 +34,8 @@ int getch(void) __LIB
 
 int putch(int c) __LIB
 {
-	bdos(6, (unsigned char)c);
+	/* function 6 reads a key for FFh (and FEh in CP/M 3) */
+	bdos((unsigned char)c >= 0xfe ? 2 : 6, (unsigned char)c);
 	return (unsigned char)c;
 }
 
@@ -68,10 +69,16 @@ int cprintf(const char *fmt, ...) __LIB
 }
 
 /* function 10 into buf: buf[0] the room, buf[1] the length read, the
- * text from buf+2 with a 0 after it */
+ * text from buf+2 with a 0 after it. At most buf[0] - 1 characters,
+ * so the 0 fits in buf[0] + 2 bytes, as DOS has it */
 char *cgets(char *buf) __LIB
 {
+	unsigned char room = buf[0];
+
+	if (room)
+		buf[0] = room - 1;
 	bdos(10, (unsigned int)buf);
+	buf[0] = room;
 	buf[2 + (unsigned char)buf[1]] = 0;
 	return buf + 2;
 }

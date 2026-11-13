@@ -65,8 +65,8 @@ start:	ld	sp,(6)
 	call	_cpmargs		; DE = argv, from the command tail
 	ld	hl,(_cpmargc)		; sdcccall(1): argc in HL, and
 					; argv in DE, from cpmargs
-	call	_main
-	ld	hl,#0
+	call	_main			; its result, in DE, for exit
+	ex	de,hl
 	push	hl
 	call	_exit
 

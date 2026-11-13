@@ -310,6 +310,7 @@ if [ "$(uname)" = Linux ]; then
 		check "C: snprintf cuts and counts" "snprintf truncat 5" "$out"
 		check "C: sscanf %i, %[, widths, %n" "scan 4 12 31 abc def 15" "$out"
 		check "C: sscanf %*d and %o" "scan2 4 511" "$out"
+		check "C: sscanf gives EOF when the input ends before a conversion" "scan3 -1 0 -1 1" "$out"
 		check "C: a text file written and read by lines" "lines 300" "$out"
 		check "C: and by fread, 50 bytes at a time" "fread 2590 0" "$out"
 		check "C: fseek, a write in the middle, ftell, SEEK_END" "bin 188 85 301 1024" "$out"
@@ -335,6 +336,13 @@ if [ "$(uname)" = Linux ]; then
 		mkdisk $T/ct0.imd $C/CTEST.COM
 		out=$(python3 tools/session.py "-a $T/ct0.imd" 'ctest\r' @20)
 		check "C: with no CLIB.SYS a program says so" "Needs xcpmz80 and its C library, CLIB.SYS" "$out"
+		# main's result is the return code (BDOS 108): RC.COM prints it,
+		# 0 before, FF00h after BASE64's usage, which returns 1
+		printf '\016\154\021\377\377\315\005\000\174\021\031\001\376\377\302\024\001\021\037\001\016\011\303\005\000rc=00$rc=ff$' >$T/RC.COM
+		mkdisk $T/rc.imd $T/RC.COM $C/CLIB.SYS $C/BASE64.COM
+		out=$($EMU -a $T/rc.imd -T -t 30 -e 'A:\>' -k 'rc\rbase64\rrc\r' | tr -d '\r')
+		check "C: what main returns is the program's return code" "=rc=00 rc=ff=" \
+			"=$(printf '%s\n' "$out" | grep '^rc=' | tr '\n' ' ' | sed 's/ $//')="
 		mkdisk $T/adv.imd $C/CLIB.SYS $C/ADVENT.COM $C/ADVENT1.TXT $C/ADVENT2.TXT \
 			$C/ADVENT3.TXT $C/ADVENT4.TXT
 		out=$(python3 tools/session.py "-a $T/adv.imd" 'advent\r' @40 'n\r' @20 \

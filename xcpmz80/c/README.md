@@ -54,7 +54,7 @@ helpers, multiply, divide and the long and float arithmetic, and
 | `time.h` | time, clock, difftime, mktime, gmtime, localtime and their `_r` forms, asctime, ctime, strftime |
 | `setjmp.h`, `assert.h`, `errno.h`, `err.h` | setjmp and longjmp, assert, errno, err, errx, warn, warnx |
 | `unistd.h`, `fcntl.h` | open, creat, read, write, close, lseek, unlink, access, isatty, sleep, usleep, chdir and getcwd for the drive, getopt |
-| `conio.h` | kbhit, getch, getche, putch, cputs, cprintf, cgets: the console one key at a time with no echo, by function 6 |
+| `conio.h` | kbhit, getch, getche, putch, cputs, cprintf, cgets: the console one key at a time with no echo, by function 6 (FEh and FFh by function 2); cgets reads at most buf[0] - 1 characters, so the buffer is buf[0] + 2 bytes |
 | `cpm.h` | bdos, bios (by function 50 under CP/M 3), the version, drive and user, cpm_findfirst and cpm_findnext for the directory, cpm_filesize |
 
 - `lib/crt0.s`: the start-up of a program linked with `cpm.lib`. Puts the stack under the BDOS, zeroes the

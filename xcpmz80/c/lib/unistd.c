@@ -162,7 +162,8 @@ unsigned int sleep(unsigned int sec) __LIB
 			spin(1000);
 		return 0;
 	}
-	end += sec;
+	if (sec)		/* whole seconds: one more, so never less */
+		end += sec + 1;
 	while (time(NULL) < end)
 		;
 	return 0;

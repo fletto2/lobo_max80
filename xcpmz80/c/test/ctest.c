@@ -244,6 +244,10 @@ int main(void)
 		n = sscanf("  77 ", "%*d%n", &x);
 		sscanf("777", "%o", &u);
 		say("scan2 %d %u\n", x, u);
+		/* EOF when the input ends before the first conversion */
+		say("scan3 %d %d %d %d\n", sscanf("   ", "%d", &x),
+			sscanf("ab", "ab"), sscanf("ab", "ab%d", &x),
+			sscanf("7 ", "%d %d", &x, &y));
 	}
 	snprintf(buf, 8, "%s", "truncated text");
 	say("snprintf %s %d\n", buf, snprintf(NULL, 0, "%d", 12345));
