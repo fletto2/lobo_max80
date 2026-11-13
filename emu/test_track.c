@@ -208,6 +208,8 @@ int main(void)
 	expect(!fdc_ready(), "  and is not ready on the 8-inch one");
 	fdc_command(0x88);
 	expect(fdc.intrq && !fdc.busy && (fdc.status & 0x80), "  where a read ends Not Ready");
+	mlatch_write(0x41);
+	expect(!(fdc_read(0) & 0x80), "  and S7 goes when a ready drive is picked again");
 	mlatch_write(0x42);
 	expect(fdc_ready(), "5-inch with no disk: ready, there is no READY line");
 	fdc_command(0x88);
@@ -218,6 +220,12 @@ int main(void)
 	expect(!fdc.busy && fdc.intrq, "  until a force interrupt");
 	fdc_command(0x00);
 	expect((fdc.status & 0x14) == 0x10, "  a restore ends with seek error, no track 0");
+	expect((fdc_read(0) & 0x14) == 0x10, "  and the CPU reads the seek error");
+	expect(fdc.intrq, "  INTRQ from the D8 is held through the restore and a read");
+	fdc_command(0xd0);
+	expect(fdc.intrq, "  and through a D0");
+	fdc_read(0);
+	expect(!fdc.intrq, "  which lets the next status read clear it");
 	mlatch_write(0x42);
 	expect(io_read(0x7e1) & 0x20, "the 5-inch motor timer runs after a 5-inch select");
 	cpu.cycles += CPU_HZ * 3;
@@ -286,6 +294,37 @@ int main(void)
 	while (fdc.busy) {
 		cpu.cycles += CPU_HZ / 100000;
 		fdc_write(3, 0);
+	}
+
+	/* a multi-sector read past the last sector: record not found */
+	mlatch_write(0x62);
+	fdc_write(0, 0xd0);
+	fdc_write(1, 0);
+	expect((sector_status(0x90, 28) & 0x1c) == 0x10,
+	    "a multi-sector read past the last sector ends Record Not Found");
+
+	/* an IMD track with no sectors is no track; a size table refused */
+	{
+		static struct disk dz;
+		static const uint8_t im[] = { 'I', 'M', 'D', ' ', 0x1a,
+		    5, 0, 0, 0, 2,			/* cylinder 0: none */
+		    5, 1, 0, 1, 1, 0, 2, 0xe5 };	/* 1: one sector */
+		char path[] = "/tmp/test_track_XXXXXX";
+		int fd = mkstemp(path);
+		FILE *f = fdopen(fd, "wb");
+
+		fwrite(im, 1, sizeof im, f);
+		fclose(f);
+		expect(load_imd(&dz, path) == 0 && !dz.trk[0][0].present &&
+		    dz.trk[1][0].present && dz.trk[1][0].nsec == 1,
+		    "an IMD track with no sectors loads as no track");
+		f = fopen(path, "wb");
+		fwrite(im, 1, sizeof im, f);
+		fputc(5, f); fputc(2, f); fputc(0, f); fputc(1, f);
+		fputc(0xff, f);
+		fclose(f);
+		expect(load_imd(&dz, path) < 0, "  a sector size table is refused");
+		remove(path);
 	}
 
 	/* the 5-inch disk stops when the motor timer runs out */

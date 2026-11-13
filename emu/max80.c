@@ -173,9 +173,16 @@ static int load_imd(struct disk *d, const char *path)
 	i++;
 	while (i + 5 <= n) {
 		int mode = b[i], cyl = b[i + 1], head = b[i + 2];
-		int ns = b[i + 3], size = 128 << b[i + 4];
+		int ns = b[i + 3], size;
 		uint8_t *smap, *cmap = NULL, *hmap = NULL;
 		struct track *t;
+
+		if (b[i + 4] > 6) {	/* FFh: a size table, not handled */
+			fprintf(stderr, "%s: sector size code %02x\n", path,
+			    b[i + 4]);
+			return -1;
+		}
+		size = 128 << b[i + 4];
 
 		i += 5;
 		smap = b + i;
@@ -192,6 +199,8 @@ static int load_imd(struct disk *d, const char *path)
 			fprintf(stderr, "%s: track %d out of range\n", path, cyl);
 			return -1;
 		}
+		if (!ns)		/* a track with no sectors: as none */
+			continue;
 		t = &d->trk[cyl][head & 1];
 		t->present = 1;
 		t->mfm = mode >= 3;
@@ -377,6 +386,9 @@ static struct {
 	unsigned long long step_at;	/* -M: T-state a type I command ends */
 	uint8_t done_status;
 	int fi;			/* Force Interrupt's I3-I0 still waiting */
+	int d8;			/* INTRQ held by D8 until a D0 (WD179x) */
+	uint8_t t1err;		/* type I seek error (S4), kept till the
+				   next command as type1_status rebuilds */
 	int side_cmp;		/* S/C: the ID's head must be this, or -1 */
 	struct sector *cur;	/* the sector being read or written */
 	unsigned long long fi_index;	/* the next index pulse */
@@ -578,7 +590,7 @@ static void type1_status(void)
 		s |= 0x04;
 	if (on_connector() && disks[fdc.drive].wprot)
 		s |= 0x40;
-	fdc.status = s;
+	fdc.status = s | fdc.t1err;
 }
 
 static struct sector *find_sector(void)
@@ -662,7 +674,9 @@ static void fdc_command(uint8_t cmd)
 	if (!mech_first)
 		mech_first = cpu.cycles;
 	mech_last = cpu.cycles;
-	fdc.intrq = 0;
+	if (!fdc.d8)		/* after D8 only D0 and then a read or */
+		fdc.intrq = 0;	/* a command clears it */
+	fdc.t1err = 0;
 	fdc.lost = 0;
 	fdc.drq_at = 0;
 	fdc.done_at = 0;
@@ -680,8 +694,12 @@ static void fdc_command(uint8_t cmd)
 		   ready to not ready, I0 on not ready to ready. A status read
 		   leaves INTRQ set after one of these (p.5). */
 		fdc.fi = cmd & 0x0f;
-		if (cmd & 0x08)
+		if (!fdc.fi)
+			fdc.d8 = 0;
+		if (cmd & 0x08) {
 			fdc.intrq = 1;
+			fdc.d8 = 1;
+		}
 		fdc.fi_index = fdc.drive >= 0 ? (cpu.cycles / REV_T + 1) * REV_T : 0;
 		return;
 	}
@@ -713,10 +731,10 @@ static void fdc_command(uint8_t cmd)
 			steps = abs(to - fdc.pos[d]);
 			fdc.pos[d] = to;
 		}
-		type1_status();
 		/* no drive there: a restore gives up after 255 steps */
 		if (!on_connector() && (cmd >> 4) == 0)
-			fdc.status |= 0x10;
+			fdc.t1err = 0x10;
+		type1_status();
 		if (mech && steps) {
 			static const int rate[4] = { 3, 6, 10, 15 };
 			unsigned long long t = (unsigned long long)steps *
@@ -852,11 +870,9 @@ static void fdc_byte_done(int lost)
 	if (fdc.multi && !(rtype & 0x08)) {	/* a CRC error ends it */
 		fdc.sector++;
 		fdc_start_sector();
-		if (fdc.buf)
-			return;
-		if (mech)
-			return;	/* it ends when the 5 turns are up */
-		fdc_done(rtype);	/* end of track ends a multi-sector command */
+		/* past the last sector: record not found, at once
+		   without -M, after 5 turns with it, as the FDC searches
+		   for the next sector */
 		return;
 	}
 	if (mech) {		/* the CRC bytes pass, then INTRQ */
@@ -913,15 +929,15 @@ static uint8_t fdc_read(int reg)
 	fdc_tick();
 	switch (reg) {
 	case 0:
-		if (!fdc.fi)
+		if (!fdc.fi && !fdc.d8)
 			fdc.intrq = 0;
 		if (fdc.type1) {
 			type1_status();	/* bit 1 is the index pulse */
 			return fdc.status | (fdc.busy ? 1 : 0) | STUCK;
 		}
-		if (!fdc_ready())
-			fdc.status |= 0x80;
-		return (fdc.status & ~0x03) | (fdc.busy ? 1 : 0) |
+		/* S7 is the Ready input as it is now */
+		return (fdc.status & ~0x83) | (fdc_ready() ? 0 : 0x80) |
+		    (fdc.busy ? 1 : 0) |
 		    (fdc.drq ? 2 : 0) | STUCK;
 	case 1: return fdc.track;
 	case 2: return fdc.sector;
