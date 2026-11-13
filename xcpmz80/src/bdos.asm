@@ -747,6 +747,11 @@ f18_2:	call	dsnext
 sfound:	jr	z,sf_1
 	cp	R_NOFILE
 	jp	nz,dskerr
+	xor	a			; none: 18 finds nothing either, not
+	ld	(sall),a		; the file an earlier search was on
+	ld	(sspat),a
+	ld	(sexmode),a
+	dec	a
 	jp	retA
 sf_1:	xor	a
 	ld	(sext),a
@@ -941,7 +946,11 @@ f19:	call	fcbin
 ; 20: read sequential, the multi-sector count of records
 f20:	call	seqopn			; B = count, C = 0 done
 	jp	nz,dskerr
-f20_1:	push	bc
+f20_1:	call	seqfix			; CR 128: the next extent now
+	ld	a,(CFCB+F_S2)		; past 8M, 65536 records: the end
+	cp	10h
+	jr	nc,f20_eof
+	push	bc
 	call	seqrec
 	call	rdrec
 	pop	bc
@@ -949,7 +958,8 @@ f20_1:	push	bc
 	or	a
 	jr	nz,f20_eof
 	call	todma
-	call	seqnext
+	ld	hl,CFCB+F_CR		; CR on, to 128 at most, as CP/M 2.2
+	inc	(hl)
 	inc	c
 	djnz	f20_1
 	xor	a
@@ -967,13 +977,19 @@ f20_eof: ld	a,1
 ; 21: write sequential
 f21:	call	seqopn
 	jp	nz,dskerr
-f21_1:	push	bc
+f21_1:	call	seqfix
+	ld	a,(CFCB+F_S2)		; past 8M: the disk is full for it
+	cp	10h
+	ld	a,E_FULL
+	jr	nc,f21_err
+	push	bc
 	call	fromdma
 	call	seqrec
 	call	wrrec
 	pop	bc
 	jr	nz,f21_err
-	call	seqnext
+	ld	hl,CFCB+F_CR
+	inc	(hl)
 	inc	c
 	djnz	f21_1
 	push	bc
@@ -1017,13 +1033,23 @@ fop_no:	ld	a,E_READ		; nothing to read or write: an error
 	or	a
 	ret
 
-; HL = the sequential record: (S2 * 32 + EX) * 128 + CR
+; HL = the sequential record: (S2 * 32 + EX) * 128 + CR, CR 128 the
+; next extent's first, as function 36 counts it
 seqrec:	call	extrec
 	ld	a,(CFCB+F_CR)
-	and	7Fh
-	or	l
-	ld	l,a
+	ld	e,a
+	ld	d,0
+	add	hl,de
 	ret
+
+; Sequential reads and writes leave CR at 128 after an extent's last
+; record, EX as it was, as CP/M 2.2: a reopen finds that extent, and
+; "CR = RC" appends to a file of whole extents. The next one moves on.
+; Keeps BC.
+seqfix:	ld	hl,CFCB+F_CR
+	bit	7,(hl)
+	ret	z
+	ld	(hl),7Fh
 
 ; Move on a record: CR, then EX, then S2. A new extent gets its RC.
 seqnext: ld	hl,CFCB+F_CR

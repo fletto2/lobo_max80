@@ -301,6 +301,11 @@ fo_9:	cp	R_NOFILE		; none: Z, A = R_NOFILE
 fmake:	call	fcbdrw
 	ret	nz
 	call	fcbpat
+	ld	hl,spat			; a '?' in the name: FAT cannot hold it,
+	ld	bc,11			; and the search would take any file
+	ld	a,'?'			; for it and empty that
+	cpir
+	jr	z,fm_no
 	call	dsfirst
 	jr	z,fm_old
 	cp	R_NOFILE
@@ -990,7 +995,7 @@ fm_2:	ld	de,11			; with the old one's attributes,
 ; and t2' (SYS) bits. A = 0, or R_NOFILE.
 ; Set R/O and SYS of every file the FCB names from t1' and t2', as
 ; CP/M 2.2 (the user's choice, 2026-11-12)
-fattrib: call	fcbdrv
+fattrib: call	fcbdrw			; R/O by 28 too
 	ret	nz
 	call	fcbpat
 	call	dsfirst

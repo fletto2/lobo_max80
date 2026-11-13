@@ -1535,6 +1535,173 @@ out=$($EMU -a $T/fr.imd -T -t 40 -w a:$T/out/fr.imd -e 'A:\>' \
 k1=$(printf '%s\n' "$out" | grep -a 'K free' | tail -1)
 out=$($EMU -a $T/out/fr.imd -T -t 20 -e 'A:\>' -k 'free\r')
 check "FREE's kept count is a fresh count's" "$k1" "$out"
+# I297: BDT.COM, the BDOS file calls a review found wrong. Each result
+# in hex, a directory code 0-3 shown as ok: make "A?.TXT" (FF, AB.TXT
+# not emptied), make BIG.DAT, 128 writes (EX 00, CR 80, as CP/M 2.2),
+# close, a reopen of that FCB (found), CR = RC and one write (an append,
+# not over record 0), close; search ????????.DAT, every extent, search
+# NOSUCH.XYZ (FF), search next (FF, not BIG.DAT's second extent); 30 on
+# a drive 28 made R/O
+cat >$T/bdt.asm <<'EOW'
+	org	100h
+	ld	sp,0F000h
+	ld	de,fq
+	ld	c,22
+	call	bd
+	ld	de,fb
+	ld	c,22
+	call	bd
+	ld	de,buf
+	ld	c,26
+	call	5
+	ld	b,128
+w1:	push	bc
+	ld	a,b
+	ld	(buf),a
+	ld	de,fb
+	ld	c,21
+	call	5
+	pop	bc
+	djnz	w1
+	ld	a,(fb+12)
+	call	hxs
+	ld	a,(fb+32)
+	call	hxs
+	ld	de,fb
+	ld	c,16
+	call	bd
+	ld	de,fb
+	ld	c,15
+	call	bd
+	ld	a,(fb+15)
+	ld	(fb+32),a
+	ld	a,'Z'
+	ld	(buf),a
+	ld	de,fb
+	ld	c,21
+	call	bd
+	ld	de,fb
+	ld	c,16
+	call	bd
+	ld	de,fs
+	ld	c,17
+	call	bd
+	ld	de,fn
+	ld	c,17
+	call	bd
+	ld	c,18
+	call	bd
+	ld	de,crlf
+	ld	c,9
+	call	5
+	ld	c,28
+	call	5
+	ld	de,fa
+	ld	c,30
+	call	bd
+	jp	0
+bd:	call	5
+hxs:	cp	4
+	jr	nc,hx
+	ld	a,'o'
+	call	pc
+	ld	a,'k'
+	call	pc
+	jr	sp1
+hx:	push	af
+	rrca
+	rrca
+	rrca
+	rrca
+	call	h1
+	pop	af
+	call	h1
+sp1:	ld	a,' '
+pc:	ld	e,a
+	ld	c,2
+	jp	5
+h1:	and	0Fh
+	add	a,'0'
+	cp	'9'+1
+	jr	c,pc
+	add	a,7
+	jr	pc
+crlf:	db	13,10,'$'
+fq:	db	0,'A?      TXT'
+	ds	24
+fb:	db	0,'BIG     DAT'
+	ds	24
+fs:	db	0,'????????DAT','?'
+	ds	23
+fn:	db	0,'NOSUCH  XYZ','?'
+	ds	23
+fa:	db	0,'AB      ',0D4h,'XT'
+	ds	24
+buf:	ds	128
+EOW
+(cd $T && sjasmplus --nologo --msg=war --raw=BDT.COM bdt.asm >/dev/null)
+printf 'ab text\n' >$T/AB.TXT
+mkdisk $T/bdt.imd $T/BDT.COM $T/AB.TXT >/dev/null
+out=$($EMU -a $T/bdt.imd -T -t 40 -e 'A:\>' -k 'bdt\r' -w a:$T/out/bdt.imd)
+check "BDOS file calls as CP/M 2.2 (I297)" "FF ok ok 80 ok ok ok ok ok FF FF" "$out"
+python3 ../tools/imd2raw.py $T/out/bdt.imd $T/out/bdt.img >/dev/null
+mcopy -o -i $T/out/bdt.img ::AB.TXT ::BIG.DAT $T/out/ >/dev/null 2>&1
+same "make with a '?' leaves AB.TXT as it was" $T/AB.TXT $T/out/AB.TXT
+out=$(python3 -c "
+d = open('$T/out/BIG.DAT', 'rb').read()
+print(len(d), d[0], d[127 * 128], chr(d[128 * 128]))")
+check "the append after a reopen at 16K is record 128" "16512 128 1 Z" "$out"
+check "30 on a drive made R/O by 28 changes nothing" "=0=" "=$(mattrib -i $T/out/bdt.img ::AB.TXT | grep -c '^ *R')="
+# Past record 65535, 8M, a sequential read is the end of the file, not
+# record 0 again
+cat >$T/e8.asm <<'EOW'
+	org	100h
+	ld	de,fe
+	ld	c,15
+	call	bd
+	ld	de,buf
+	ld	c,26
+	call	5
+	ld	hl,0FFFFh
+	ld	(fe+33),hl
+	ld	de,fe
+	ld	c,33
+	call	bd
+	ld	de,fe
+	ld	c,20
+	call	bd
+	ld	de,fe
+	ld	c,20
+	call	bd
+	jp	0
+bd:	call	5
+	push	af
+	rrca
+	rrca
+	rrca
+	rrca
+	call	h1
+	pop	af
+	call	h1
+	ld	a,' '
+pc:	ld	e,a
+	ld	c,2
+	jp	5
+h1:	and	0Fh
+	add	a,'0'
+	cp	'9'+1
+	jr	c,pc
+	add	a,7
+	jr	pc
+fe:	db	0,'BIG8    DAT'
+	ds	24
+buf:	ds	128
+EOW
+(cd $T && sjasmplus --nologo --msg=war --raw=E8.COM e8.asm >/dev/null)
+python3 -c "open('$T/BIG8.DAT', 'wb').write(bytes(65537 * 128))"
+python3 tools/mkdisk.py $SYS --hd 10 $T/e8.img $T/E8.COM $T/BIG8.DAT >/dev/null
+out=$($EMU -D 7 -h $T/e8.img -T -t 40 -e 'A:\>' -k 'e8\r')
+check "past record 65535 a read is the end of the file (I297)" "00 00 00 01" "$out"
 python3 ../tools/imd2raw.py $T/out/fr.imd $T/out/fr.img >/dev/null
 k2=$(mdir -i $T/out/fr.img :: | grep -a 'bytes free' | tr -d ' ' | sed 's/bytesfree//')
 check "and mtools'" "A: $((k2 / 1024))K free" "$k1"

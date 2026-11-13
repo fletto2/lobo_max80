@@ -408,7 +408,12 @@ there, from` and the address, back at the prompt.
   ask, but every file is in every one.
 - File names are kept in upper case. A file's R/O attribute is FAT's
   read-only flag, SYS is FAT's system flag.
-- A file holds up to 8 MB.
+- A file holds up to 8 MB. A longer one, copied from a PC, reads as
+  ending at 8 MB.
+- A file cannot be made (BDOS 22) with `?` in its name, which FAT
+  cannot hold: the call returns FFh, as for a full directory.
+- One disk parameter block serves every drive: the address BDOS 31
+  gives holds the drive last asked about.
 - A program can end with RET, as on CP/M 2.2.
 - A program that renames files (BDOS 23) or sets their attributes
   (BDOS 30) with `?` in the name changes every file that matches, as
