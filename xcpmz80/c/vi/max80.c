@@ -138,6 +138,8 @@ windinit(void)
     P(P_LI) = Rows = 24;
     oldcaps = KCAPS;
     KCAPS = 0x20;
+    bdos(45, 0xFF);	/* a disk error returned, not a warm boot, which
+			   would lose the edits and Caps Lock (I286) */
 }
 
 void
@@ -147,6 +149,7 @@ windexit(int r)
     toutstr(T_CV);
     flushbuf();
     KCAPS = oldcaps;
+    bdos(45, 0);
     exit(r);
 }
 

@@ -850,6 +850,18 @@ static u8 askname(const char *what)
 	return 1;
 }
 
+static const char *storyname;	/* argv[1], for zsave's check */
+
+/* The name after its drive or folder */
+static const char *basename_of(const char *n)
+{
+	const char *b = n;
+	for (; *n; n++)
+		if (*n == ':' || *n == '\\' || *n == '/')
+			b = n + 1;
+	return b;
+}
+
 static u8 savehdr[14];
 
 static void makehdr(void)
@@ -868,7 +880,8 @@ static void zsave(void)
 	u8 ok = 0;
 	u16 st[4];
 
-	if (askname("Save")) {
+	if (askname("Save") &&	/* not over the story itself (I287) */
+	    strcasecmp(basename_of(line), basename_of(storyname)) != 0) {
 		makehdr();
 		st[0] = pcpage;
 		st[1] = pcp - pcbase;
@@ -1321,6 +1334,7 @@ int main(int argc, char **argv)
 
 	if (argc < 2)
 		usage();
+	storyname = argv[1];
 	if (!openstory(argv[1])) {
 		printf("Cannot open %s\r\n", argv[1]);
 		exit(1);

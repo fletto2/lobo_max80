@@ -18,6 +18,11 @@ export SESSION_LOG
 : >$SESSION_LOG
 
 check() {	# name, text to find, output
+	if [ -z "$2" ]; then	# a failed $(...): nothing to look for (I288)
+		echo "FAIL $1: no text to look for"
+		fail=1
+		return
+	fi
 	if printf '%s\n' "$3" | grep -qF -- "$2"; then
 		echo "ok   $1"
 	else
@@ -413,7 +418,10 @@ check "ESC * clears, ESC E inserts a line, ESC R deletes one" "NEW|L1|L2|L3|" "$
 if [ "$(uname)" = Linux ]; then
 	# The C programs, built with SDCC when it is there: CTEST
 	# checks the CP/M C library, ADVENT plays, saves and restores
-	if make -s -C c >/dev/null 2>&1; then
+	# A build that fails is a FAIL, not a skip (I288)
+	if [ -x "${SDCC_BIN:-/opt/cross/sdcc-4.6.0/bin}/sdcc" ]; then
+		make -s -C c >/dev/null 2>&1 ||
+			{ echo "FAIL the C programs do not build: make -C c"; fail=1; }
 		C=c/build
 		mkdisk $T/ct.imd $C/CTEST.COM $C/CLIB.SYS
 		out=$(python3 tools/session.py "-a $T/ct.imd" @10)
@@ -481,6 +489,20 @@ if [ "$(uname)" = Linux ]; then
 		check "and a game saved is restored" "Game restored from mygame.adv" "$out"
 		check "where it was" "You're inside building." "$out"
 		check "and XYZZY goes on from there" "It is now pitch dark." "$out"
+		# I287: a RESTORE of a short file leaves the game as it was, a
+		# SAVE to a name that cannot be made plays on
+		printf 'XXXXXXXXXX' >$T/SHORT.ADV
+		mkdisk $T/adv2.imd $C/CLIB.SYS $C/ADVENT.COM $C/ADVENT1.TXT $C/ADVENT2.TXT \
+			$C/ADVENT3.TXT $C/ADVENT4.TXT $T/SHORT.ADV
+		out=$(python3 tools/session.py "-a $T/adv2.imd" 'advent\r' @40 'n\r' @20 \
+			'in\r' @20 'restore\r' @20 'short\r' @20 'look\r' @20 \
+			'suspend\r' @20 'q:bad\r' @20 \
+			'inventory\r' @20)
+		check "ADVENT: a short saved game is refused (I287)" "data format error" "$out"
+		check "and the game is where it was" "=1=" \
+			"=$(printf '%s\n' "$out" | sed -n '/data format error/,$p' | grep -c 'You are inside a building')="
+		check "a SAVE that cannot be made says so" "Sorry, I cannot save your game to q:bad.adv" "$out"
+		check "and the game goes on" "You're not carrying anything." "$out"
 		# ZORK: MojoZork plays a version 3 story through its page
 		# cache, saves and restores. The stories are Infocom's and never
 		# in this repo, so this runs only when ZORK_STORIES names a
@@ -509,7 +531,7 @@ if [ "$(uname)" = Linux ]; then
 			check "with the leaflet carried" "  A leaflet" "$out"
 			check "where it was" "You are facing the north side of a white house." "$out"
 			getfile $T/out/zk.imd MYGAME.SAV $T/out/MYGAME.SAV
-			check "and the save is MYGAME.SAV" "8704" "$(wc -c <$T/out/MYGAME.SAV)"
+			check "and the save is MYGAME.SAV" "=8704=" "=$(wc -c <$T/out/MYGAME.SAV)="
 			out=$($EMU -a $T/zk.imd -T -t 40 -e "$ZP" \
 				-k 'zork zork1.dat\ropen mailbox\rread leaflet\r')
 			check "ZORK plays Zork I, 84K in a 55K TPA" "Revision 88 / Serial number 840726" "$out"
@@ -520,6 +542,13 @@ if [ "$(uname)" = Linux ]; then
 			check "and takes inventory" "You are empty-handed." "$out"
 			out=$($EMU -a $T/zk.imd -T -t 60 -e "$ZP" -k 'zork zork1.dat\r$verify\r')
 			check "and VERIFY reads all of the story file" "The disk is correct." "$out"
+			# a save under the story's own name fails, the story kept (I287)
+			out=$($EMU -a $T/zk.imd -T -t 60 -e "$ZP" -w a:$T/out/zk2.imd \
+				-k 'zork zork1.dat\rsave\rzork1.dat\rnorth\r')
+			check "ZORK will not save over its story" "Failed." "$out"
+			check "and plays on" "You are facing the north side of a white house." "$out"
+			getfile $T/out/zk2.imd ZORK1.DAT $T/out/ZORK1.DAT
+			same "and the story is as it was" $ZS/zork_i_the_great_underground_empire.dat $T/out/ZORK1.DAT
 		else
 			echo "skip ZORK: no stories in $ZS"
 		fi
@@ -683,7 +712,7 @@ print(sum(1 for i in range(struct.unpack_from('<H', b, 17)[0])
           if b[root + i * 32 + 11] == 0x0F and b[root + i * 32] not in (0, 0xE5)))
 EOF
 )
-		check "ERA and RD take the long names before the entry" "0" "$n"
+		check "ERA and RD take the long names before the entry" "=0=" "=$n="
 		# MD in a full root: 16 root entries, 15 taken
 		python3 tools/mkdisk.py $SYS --hd 1 $T/rf.img $T/DA.TXT >/dev/null
 		python3 $T/dmg.py $T/rf.img bpb 0x11 1000
@@ -825,6 +854,31 @@ EOF
 		check "VI: the back arrow rubs out on the : line" "A: VI       TXT" "$out"
 		getfile $T/out/vi3.imd VI.TXT $T/out/VI3.TXT
 		check "and while typing" "XQone two three" "$(head -1 $T/out/VI3.TXT)"
+		# I286: VI on a .BAK saves it in place, a write to a
+		# write-protected disk is VI's own message, not a warm boot,
+		# and the file is left, a : line of 100 keys is cut, not run
+		# over the stack. EMACS shows an FDh byte as }, not a wait.
+		printf 'one\ntwo\n' >$T/NOTES.BAK
+		printf 'A\375B\n' >$T/FD.TXT
+		mkdisk $T/vk.imd $C/CLIB.SYS $C/VI.COM $C/EMACS.COM $T/NOTES.BAK $T/VI.TXT \
+			$T/FD.TXT >/dev/null
+		out=$(python3 tools/session.py "-a $T/vk.imd -w a:$T/out/vk.imd" \
+			'vi notes.bak\r' @40 'x' ':w\r' @20 ':q\r' @20 'dir notes.*\r' @10)
+		check "VI saves a .BAK in place (I286)" "A: NOTES    BAK" "$out"
+		getfile $T/out/vk.imd NOTES.BAK $T/out/NOTES.BAK
+		check "with the change" "=ne=" "=$(head -1 $T/out/NOTES.BAK | tr -d '\r')="
+		out=$(python3 tools/session.py "-a $T/vk.imd -R a" 'vi vi.txt\r' @40 'x' ':w\r' @20)
+		check "VI on a write-protected disk says so itself" "Write error, the file is as it was" "$out"
+		check "and goes on, no warm boot" "=0=" "=$(printf '%s\n' "$out" | grep -c 'CP/M Error')="
+		out=$(python3 tools/session.py "-a $T/vk.imd -R a" \
+			'vi vi.txt\r' @40 'x' ':w\r' @20 ':q!\r' @20 'dir vi.txt\r' @10)
+		check "and quits to the shell" "A: VI       TXT" "$out"
+		out=$(python3 tools/session.py "-a $T/vk.imd" 'vi vi.txt\r' @40 \
+			":$(printf 'x%.0s' $(seq 100))" @20 '\x1b' @20 ':q\r' '@?A:\>' 'dir vi.txt\r' '@/VI       TXT')
+		check "VI cuts a : line of 100 keys and goes on" "A: VI       TXT" "$out"
+		out=$(python3 tools/session.py "-a $T/vk.imd" 'emacs fd.txt\r' @40)
+		check "EMACS shows an FDh byte and does not wait on it" "}B" "$out"
+		check "and goes on to read the file" "[Read 1 line]" "$out"
 		# A file bigger than the memory, paged through a window:
 		# 1000 lines, 55K. Its end and back, a read through writes no
 		# work file, a change left in the work file, a search, G and :N
@@ -945,7 +999,8 @@ EOF
 		esac
 		# The apps disk: boots, loads CLIB.SYS, and runs the programs on
 		# it, on 8-inch and 5.25-inch
-		make -s apps >/dev/null 2>&1
+		make -s apps >/dev/null 2>&1 ||
+			{ echo "FAIL make apps"; fail=1; }	# not tested as it was (I288)
 		out=$(python3 tools/session.py "-a build/apps.imd" @10 'dir\r' @20 'zork\r' @20)
 		check "the apps disk loads CLIB.SYS" "C library loaded" "$out"
 		check "and has the C programs" "CLIB     SYS : VI       COM" "$out"
@@ -958,7 +1013,7 @@ EOF
 		out=$(python3 tools/session.py "-D 1 -a build/apps_525.imd" @10 'vi x.txt\r' @40)
 		check "and VI" '"X.TXT" [New File]' "$out"
 	else
-		echo "skip the C programs: no SDCC"
+		echo "skip the C programs: no SDCC in ${SDCC_BIN:-/opt/cross/sdcc-4.6.0/bin}"
 	fi
 else
 	echo "skip the tests through the key socket: Linux only"
@@ -986,7 +1041,7 @@ mkdisk $T/clk.imd build/CLOCK.COM
 out=$($EMU -a $T/clk.imd -T -t 15 -e 'A:\>' -k 'clock\r')
 check "CLOCK reads the date from the clock chip" "$(date +%m/%d/%y) " "$out"
 n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} [0-2][0-9]:[0-5][0-9]:[0-5][0-9]$')
-check "and the time, every digit" "1" "$n"
+check "and the time, every digit" "=1=" "=$n="
 
 # BENCH reads BENCH.DAT over and over for 30 clock seconds.
 # With the drives' mechanics (-M) a pass of 40000 bytes takes seconds.
@@ -995,7 +1050,7 @@ mkdisk $T/bn.imd build/BENCH.COM $T/BENCH.DAT >/dev/null
 out=$($EMU -a $T/bn.imd -T -M -t 60 -e 'A:\>' -k 'dir\rbench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
 n=$(printf '%s
 ' "$out" | grep -aEc '^x{16} [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
-check "BENCH prints the tag, passes, records and seconds, 30 or more" "1" "$n"
+check "BENCH prints the tag, passes, records and seconds, 30 or more" "=1=" "=$n="
 mkdisk $T/nb.imd build/BENCH.COM >/dev/null
 out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
 check "BENCH says No file" "No file" "$out"
@@ -1008,7 +1063,7 @@ check "and an empty BENCH.DAT is refused, not timed with the command tail as its
 mkdisk $T/db.imd build/BENCH.COM $T/bd/BENCH.DAT >/dev/null
 out=$($EMU -a $T/db.imd -T -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
 n=$(printf '%s\n' "$out" | grep -aEc '^ab cdefghijklmno [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
-check "and a \$ in the tag is shown as a space, the line whole" "1" "$n"
+check "and a \$ in the tag is shown as a space, the line whole" "=1=" "=$n="
 
 # A read on a disk at interleave 1 takes the whole track in one FDC
 # command, from the next sector to come round, into a track buffer:
@@ -1030,7 +1085,7 @@ for b in "720 1 70 --525 720" "720 2 55 --525 720" "8in 1 120" "8in 3 85" \
 	set -- $(benchrate $T/tb.imd "$D")
 	fast=no; [ "${1:-0}" -ge $floor ] && fast=yes
 	check "BENCH on $name at interleave $ilv reads $floor records a second or more" "yes" "$fast ($1)"
-	check "with no Lost Data" "0" "${2:-x}"
+	check "with no Lost Data" "=0=" "=${2:-x}="
 done
 
 # The track buffer never gives what a write has replaced. TBW.COM reads
@@ -1168,7 +1223,7 @@ for m in -M ""; do
 	out=$($EMU -D 1 -a $T/tb.imd -T $m -t 30 -e 'A:\>' -k 'type tbz.txt\r')
 	check "a bad sector later on the track does not fail a read before it ($m)" "the good sector" "$out"
 	n=$(printf '%s\n' "$out" | grep -aciE 'error|I/O')
-	check "and gives no error" "0" "$n"
+	check "and gives no error" "=0=" "=$n="
 done
 
 # MORE: a screen of 23 lines, Space the next, Enter one more, Q
@@ -1271,8 +1326,8 @@ check "and the copies in it" "C        COM       131" "$out"
 mcopy -o -i $T/o2/fd.img ::GAMES/M.COM $T/out/M.COM
 same "COPY into a folder is byte exact" build/MORE.COM $T/out/M.COM
 out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>|A:\GAMES>' -k 'cd games\rc\rclock\r')
-check "COPY \\NAME from the root, and it and CLOCK, not in the folder, run" "2" \
-	"$(printf '%s\n' "$out" | grep -c '^[0-9][0-9]/[0-9][0-9]/[0-9][0-9] ')"
+check "COPY \\NAME from the root, and it and CLOCK, not in the folder, run" "=2=" \
+	"=$(printf '%s\n' "$out" | grep -c '^[0-9][0-9]/[0-9][0-9]/[0-9][0-9] ')="
 check "the folder stays through the warm boots" 'A:\GAMES>clock' "$out"
 out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>' -k 'save 1 games\rren games=more.com\rdir\r')
 check "SAVE to a folder's name makes no file" "No file" "$out"
@@ -1311,7 +1366,7 @@ mkdisk $T/ae.imd build/XCPM.FNT $T/AUTOEXEC.BAT >/dev/null
 out=$($EMU -a $T/ae.imd -T -t 20 -e 'A:\>' -k 'autoexec\r')
 check "AUTOEXEC.BAT runs at boot" "A:\>DIR *.FNT" "$out"
 check "and by its name" "A:\>autoexec" "$out"
-check "twice in all" "2" "$(printf '%s\n' "$out" | grep -c 'A: XCPM     FNT')"
+check "twice in all" "=2=" "=$(printf '%s\n' "$out" | grep -c 'A: XCPM     FNT')="
 
 # On a write-protected A: there is no A:$$$.SUB: AUTOEXEC.BAT runs from
 # memory, first line first, through the warm boot of a program
@@ -1459,7 +1514,7 @@ python3 ../tools/imd2raw.py $T/out/ren.imd $T/out/ren.img >/dev/null
 out=$(mdir -b -i $T/out/ren.img :: | sort | tr '\n' ' ')
 check "A.TXT and C.TXT are now .BAK, B.TXT stays" "::/A.BAK ::/B.BAK ::/B.TXT ::/C.BAK" "$out"
 out=$(mattrib -i $T/out/ren.img ::*.BAK | grep -c '^ *R')
-check "30 made every .BAK R/O" "3" "$out"
+check "30 made every .BAK R/O" "=3=" "=$out="
 same "and B.BAK is the old one" $T/B.BAK $(mcopy -o -i $T/out/ren.img ::B.BAK $T/out/B.BAK && echo $T/out/B.BAK)
 # FREE counts the clusters once a mount and keeps the count as files
 # come and go: the same as a count after a reboot, and as mtools'
@@ -1480,7 +1535,7 @@ python3 tools/mkdisk.py $SYS $T/fo.imd --pc 1440 --in SUB $(for i in $(seq 1 300
 out=$($EMU -a $T/fo.imd -T -t 300 -w a:$T/out/fo.imd -e 'A:\>' \
 	-k 'save 1 sub\\zz.com\rmd sub\\in\rsave 1 sub\\in\\y.com\rera sub\\f150.txt\rrd sub\\in\rera sub\\in\\y.com\rrd sub\\in\rtype sub\\f299.txt\rls sub\\zz.com\r')
 check "a file made at the end of a long folder is found" "ZZ.COM       256" "$out"
-check "and one far along it is read" "299" "$out"
+check "and one far along it is read" "=1=" "=$(printf '%s\n' "$out" | tr -d '\r' | grep -cx '299')="
 out=$($EMU -a $T/out/fo.imd -T -t 300 -e 'A:\>' -k 'ls sub\\f1*.txt\r')
 check "and its files are counted, F150 gone" "110 files" "$out"
 python3 ../tools/imd2raw.py $T/out/fo.imd $T/out/fo.img >/dev/null

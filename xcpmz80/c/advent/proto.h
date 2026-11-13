@@ -5,7 +5,7 @@
 void scanint    (int *pi, char *str);
 void initplay   (void);
 void opentxt    (void);
-void saveadv    (void);
+int  saveadv    (void);
 void restore    (void);
 char *savefile  (int save, char *path, size_t len);
 

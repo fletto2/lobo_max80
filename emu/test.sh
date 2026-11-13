@@ -7,6 +7,11 @@ cd "$(dirname "$0")"
 fail=0
 
 check() {	# name, text to find, output
+	if [ -z "$2" ]; then	# a failed $(...): nothing to look for (I288)
+		echo "FAIL $1: no text to look for"
+		fail=1
+		return
+	fi
 	if printf '%s\n' "$3" | grep -qF -- "$2"; then
 		echo "ok   $1"
 	else

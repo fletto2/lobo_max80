@@ -240,6 +240,7 @@ writeit(char *fname, LPtr *start, LPtr *end)
     int             lines;
     LPtr           *p;
     bool_t          bad;
+    char            tmp[40];
 
     if (Partial != NULL && strcasecmp(fname, Partial) == 0) {
 	emsg("Only part of the file was read, not written (:q! quits)");
@@ -254,23 +255,25 @@ writeit(char *fname, LPtr *start, LPtr *end)
     msg(IObuff);
 
     /*
-     * Form the backup file name - change foo.* to foo.bak - use IObuff to
-     * hold the backup file name
+     * Write to foo.$$S, and only once that is whole does it take the
+     * name: the old file goes to foo.BAK with the 'backup' option, or
+     * goes. Not foo.BAK first, so a failed write leaves the file as it
+     * was, again and again, and foo.BAK edited is never its own backup
+     * (I286). IObuff holds the backup's name, tmp the new file's.
      */
     strcpy(IObuff, fname);
     for (s = IObuff; *s && *s != '.'; s++);
     *s = NUL;
+    if (strlen(IObuff) > sizeof(tmp) - 5) {
+	emsg("Name too long");
+	return FALSE;
+    }
+    strcpy(tmp, IObuff);
+    strcat(tmp, ".$$s");
     strcat(IObuff, ".bak");
+    remove(tmp);
 
-    /*
-     * Delete any existing backup and move the current version to the backup.
-     * For safety, we don't remove the backup until the write has finished
-     * successfully. And if the 'backup' option is set, leave it around.
-     */
-    remove(IObuff);
-    rename(fname, IObuff);
-
-    f = P(P_CR) ? fopen(fname, "w") : fopenb(fname, "w");
+    f = P(P_CR) ? fopen(tmp, "w") : fopenb(tmp, "w");
     if (f == NULL) {
 	emsg("Can't open file for writing!");
 	return FALSE;
@@ -305,15 +308,24 @@ writeit(char *fname, LPtr *start, LPtr *end)
     if (fclose(f) != 0)
 	bad = TRUE;
     if (bad) {
-	emsg("Write error, the old file is in the .BAK file");
+	remove(tmp);
+	emsg("Write error, the file is as it was");
 	return FALSE;
     }
 
     /*
-     * Remove the backup unless they want it left around
+     * The old file to the backup if they want it left around, else gone,
+     * and the new one takes its name
      */
-    if (!P(P_BK))
+    if (P(P_BK) && strcasecmp(IObuff, fname) != 0) {
 	remove(IObuff);
+	rename(fname, IObuff);
+    } else
+	remove(fname);
+    if (rename(tmp, fname) != 0) {
+	emsg("Cannot rename the new file, it is in the .$$S file");
+	return FALSE;
+    }
 
     sprintf(IObuff, "\"%s\" %d line%s, %ld character%s", fname,
 	    lines, (lines > 1) ? "s" : "",

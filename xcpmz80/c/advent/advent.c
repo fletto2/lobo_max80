@@ -55,10 +55,13 @@ int main(int argc, char *argv[])
 		limit = 330;
 	saveflg = 0;
 	srand(511); /* seed random	*/
-	while (!saveflg)
-		turn();
-	if (saveflg)
-		saveadv();
+	for (;;) {	/* a SAVE that fails plays on (I287) */
+		while (!saveflg)
+			turn();
+		if (saveadv())
+			break;
+		saveflg = 0;
+	}
 #ifndef BUILTIN
 	fclose(fd1);
 	fclose(fd2);
@@ -201,69 +204,82 @@ void opentxt(void)
 #endif
 }
 
+/* What a saved game holds, in order: SAVE writes it and RESTORE reads
+   it all before it changes any of it (I287) */
+static struct { int *p; int n; } savetab[] = {
+	{ &turns, 1 },
+	{ &loc, 1 },
+	{ &oldloc, 1 },
+	{ &oldloc2, 1 },
+	{ &newloc, 1 },
+	{ &cond[0], MAXLOC },
+	{ &place[0], MAXOBJ },
+	{ &fixed[0], MAXOBJ },
+	{ &visited[0], MAXLOC },
+	{ &prop[0], MAXOBJ },
+	{ &tally, 1 },
+	{ &tally2, 1 },
+	{ &limit, 1 },
+	{ &lmwarn, 1 },
+	{ &wzdark, 1 },
+	{ &closing, 1 },
+	{ &closed, 1 },
+	{ &holding, 1 },
+	{ &detail, 1 },
+	{ &knfloc, 1 },
+	{ &clock1, 1 },
+	{ &clock2, 1 },
+	{ &panic, 1 },
+	{ &dloc[0], DWARFMAX },
+	{ &dflag, 1 },
+	{ &dseen[0], DWARFMAX },
+	{ &odloc[0], DWARFMAX },
+	{ &daltloc, 1 },
+	{ &dkill, 1 },
+	{ &chloc, 1 },
+	{ &chloc2, 1 },
+	{ &bonus, 1 },
+	{ &numdie, 1 },
+	{ &object1, 1 },
+	{ &gaveup, 1 },
+	{ &foobar, 1 },
+};
+#define NSAVE (sizeof(savetab) / sizeof(savetab[0]))
+
 /*
-		save adventure game
+		save adventure game: 1 if it was saved
 */
-void saveadv(void)
+int saveadv(void)
 {
 	char nm[64];
 	FILE *fp;
+	int i, bad = 0;
 
 	savefile(1, nm, sizeof(nm));
 
 	fp = fopen(nm, "wb");
-	if (!fp)
-		err(1, "Sorry, I cannot save your game to %s", nm);
-
-	fwrite(&turns,      sizeof(int), 1, fp);
-	fwrite(&loc,        sizeof(int), 1, fp);
-	fwrite(&oldloc,     sizeof(int), 1, fp);
-	fwrite(&oldloc2,    sizeof(int), 1, fp);
-	fwrite(&newloc,     sizeof(int), 1, fp);      /* location variables */
-	fwrite(&cond[0],    sizeof(int), MAXLOC, fp); /* location status	*/
-	fwrite(&place[0],   sizeof(int), MAXOBJ, fp); /* object location	*/
-	fwrite(&fixed[0],   sizeof(int), MAXOBJ, fp); /* second object loc	*/
-	fwrite(&visited[0], sizeof(int), MAXLOC, fp); /* >0 if has been here	*/
-	fwrite(&prop[0],    sizeof(int), MAXOBJ, fp); /* status of object	*/
-	fwrite(&tally,      sizeof(int), 1, fp);
-	fwrite(&tally2,     sizeof(int), 1, fp);      /* item counts		*/
-	fwrite(&limit,      sizeof(int), 1, fp);      /* time limit		*/
-	fwrite(&lmwarn,     sizeof(int), 1, fp);      /* lamp warning flag	*/
-	fwrite(&wzdark,     sizeof(int), 1, fp);
-	fwrite(&closing,    sizeof(int), 1, fp);
-	fwrite(&closed,     sizeof(int), 1, fp);      /* game state flags	*/
-	fwrite(&holding,    sizeof(int), 1, fp);      /* count of held items	*/
-	fwrite(&detail,     sizeof(int), 1, fp);      /* LOOK count		*/
-	fwrite(&knfloc,     sizeof(int), 1, fp);      /* knife location	*/
-	fwrite(&clock1,     sizeof(int), 1, fp);
-	fwrite(&clock2,     sizeof(int), 1, fp);
-	fwrite(&panic,      sizeof(int), 1, fp);      /* timing variables	*/
-	fwrite(&dloc[0],    sizeof(int), DWARFMAX, fp);  /* dwarf locations	*/
-	fwrite(&dflag,      sizeof(int), 1, fp);      /* dwarf flag		*/
-	fwrite(&dseen[0],   sizeof(int), DWARFMAX, fp); /* dwarf seen flag	*/
-	fwrite(&odloc[0],   sizeof(int), DWARFMAX, fp); /* dwarf old locations	*/
-	fwrite(&daltloc,    sizeof(int), 1, fp);      /* alternate appearance	*/
-	fwrite(&dkill,      sizeof(int), 1, fp);      /* dwarves killed	*/
-	fwrite(&chloc,      sizeof(int), 1, fp);
-	fwrite(&chloc2,     sizeof(int), 1, fp);      /* chest locations	*/
-	fwrite(&bonus,      sizeof(int), 1, fp);      /* to pass to end	*/
-	fwrite(&numdie,     sizeof(int), 1, fp);      /* number of deaths	*/
-	fwrite(&object1,    sizeof(int), 1, fp);      /* to help intrans.	*/
-	fwrite(&gaveup,     sizeof(int), 1, fp);      /* 1 if he quit early	*/
-	fwrite(&foobar,     sizeof(int), 1, fp);      /* fie fie foe foo...	*/
-	if (fclose(fp) == -1)
-		err(1, "Sorry, I cannot seem to close the save game file %s", nm);
+	if (!fp) {	/* the game goes on, to try another name (I287) */
+		warn("Sorry, I cannot save your game to %s", nm);
+		return 0;
+	}
+	for (i = 0; i < NSAVE; i++)
+		if (fwrite(savetab[i].p, sizeof(int), savetab[i].n, fp) != savetab[i].n)
+			bad = 1;
+	if (fclose(fp) == -1 || bad) {
+		remove(nm);
+		warn("Sorry, I cannot write the save game file %s", nm);
+		return 0;
+	}
 
 	printf("Game saved to %s -- see you later!\n", nm);
+	return 1;
 }
 
-/*
-	restore saved game handler
-*/
 void restore(void)
 {
 	char nm[64];
 	FILE *fp;
+	int *buf, *q, i, total = 0;
 
 	savefile(0, nm, sizeof(nm));
 
@@ -272,49 +288,19 @@ void restore(void)
 		warn("Sorry, cannot find any saved game to load from %s", nm);
 		return;
 	}
-
-	if (fread(&turns,      sizeof(int), 1, fp) != 1 ||
-	    fread(&loc,        sizeof(int), 1, fp) != 1 ||
-	    fread(&oldloc,     sizeof(int), 1, fp) != 1 ||
-	    fread(&oldloc2,    sizeof(int), 1, fp) != 1 ||
-	    fread(&newloc,     sizeof(int), 1, fp) != 1 ||	       /* location variables	*/
-	    fread(&cond[0],    sizeof(int), MAXLOC, fp) != MAXLOC ||   /* location status	*/
-	    fread(&place[0],   sizeof(int), MAXOBJ, fp) != MAXOBJ ||   /* object location	*/
-	    fread(&fixed[0],   sizeof(int), MAXOBJ, fp) != MAXOBJ ||   /* second object loc	*/
-	    fread(&visited[0], sizeof(int), MAXLOC, fp) != MAXLOC ||   /* >0 if has been here	*/
-	    fread(&prop[0],    sizeof(int), MAXOBJ, fp) != MAXOBJ ||   /* status of object	*/
-	    fread(&tally,      sizeof(int), 1, fp) != 1 ||
-	    fread(&tally2,     sizeof(int), 1, fp) != 1 ||        /* item counts		*/
-	    fread(&limit,      sizeof(int), 1, fp) != 1 ||        /* time limit		*/
-	    fread(&lmwarn,     sizeof(int), 1, fp) != 1 ||        /* lamp warning flag	*/
-	    fread(&wzdark,     sizeof(int), 1, fp) != 1 ||
-	    fread(&closing,    sizeof(int), 1, fp) != 1 ||
-	    fread(&closed,     sizeof(int), 1, fp) != 1 ||        /* game state flags	*/
-	    fread(&holding,    sizeof(int), 1, fp) != 1 ||        /* count of held items	*/
-	    fread(&detail,     sizeof(int), 1, fp) != 1 ||        /* LOOK count		*/
-	    fread(&knfloc,     sizeof(int), 1, fp) != 1 ||        /* knife location	*/
-	    fread(&clock1,     sizeof(int), 1, fp) != 1 ||
-	    fread(&clock2,     sizeof(int), 1, fp) != 1 ||
-	    fread(&panic,      sizeof(int), 1, fp) != 1 ||	       /* timing variables	*/
-	    fread(&dloc[0],    sizeof(int), DWARFMAX, fp) != DWARFMAX || /* dwarf locations	*/
-	    fread(&dflag,      sizeof(int), 1, fp) != 1 ||	       /* dwarf flag		*/
-	    fread(&dseen[0],   sizeof(int), DWARFMAX, fp) != DWARFMAX || /* dwarf seen flag	*/
-	    fread(&odloc[0],   sizeof(int), DWARFMAX, fp) != DWARFMAX || /* dwarf old locations	*/
-	    fread(&daltloc,    sizeof(int), 1, fp) != 1 ||	       /* alternate appearance	*/
-	    fread(&dkill,      sizeof(int), 1, fp) != 1 ||	       /* dwarves killed	*/
-	    fread(&chloc,      sizeof(int), 1, fp) != 1 ||
-	    fread(&chloc2,     sizeof(int), 1, fp) != 1 ||        /* chest locations	*/
-	    fread(&bonus,      sizeof(int), 1, fp) != 1 ||        /* to pass to end	*/
-	    fread(&numdie,     sizeof(int), 1, fp) != 1 ||        /* number of deaths	*/
-	    fread(&object1,    sizeof(int), 1, fp) != 1 ||        /* to help intrans.	*/
-	    fread(&gaveup,     sizeof(int), 1, fp) != 1 ||        /* 1 if he quit early	*/
-	    fread(&foobar,     sizeof(int), 1, fp) != 1) {        /* fie fie foe foo...	*/
+	for (i = 0; i < NSAVE; i++)
+		total += savetab[i].n;
+	buf = malloc(total * sizeof(int));
+	if (!buf || fread(buf, sizeof(int), total, fp) != total) {
 		warn("Failed reading saved gave file, %s, data format error", nm);
+		free(buf);
 		fclose(fp);
-		return;
+		return;	/* the game as it was (I287) */
 	}
-
 	fclose(fp);
+	for (q = buf, i = 0; i < NSAVE; q += savetab[i].n, i++)
+		memcpy(savetab[i].p, q, savetab[i].n * sizeof(int));
+	free(buf);
 
 	printf("Game restored from %s\n", nm);
 	describe();
@@ -342,9 +328,7 @@ char *savefile(int save, char *path, size_t len)
 
 	if (!fgets(fn, 32, stdin)) {
 		home = getenv("LOGNAME");
-		if (!home)
-			exit(0);
-		snprintf(fn, sizeof(fn), "%s", home);
+		snprintf(fn, sizeof(fn), "%s", home ? home : "advent");
 	} else {
 		char *sptr;
 
@@ -356,8 +340,16 @@ char *savefile(int save, char *path, size_t len)
 			*sptr = '\0'; /* kill extension	*/
 	}
 
-	if (strlen(fn) > 8)
-		fn[8] = '\0'; /* max 8 char filename	*/
+	{	/* max 8 char filename, after a drive or folder (I287) */
+		char *base = fn, *sp;
+		for (sp = fn; *sp; sp++)
+			if (*sp == ':' || *sp == '\\' || *sp == '/')
+				base = sp + 1;
+		if (!*base)	/* no name: advent */
+			snprintf(base, sizeof(fn) - (base - fn), "advent");
+		if (strlen(base) > 8)
+			base[8] = '\0';
+	}
 	strcat(fn, ".adv");
 
 #ifdef CPM
