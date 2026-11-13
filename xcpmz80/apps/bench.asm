@@ -29,10 +29,19 @@ RD	equ	20h
 	ld	de,FCB			; record 0 starts with the disk's tag
 	ld	c,20
 	call	BDOS
+	or	a			; none: an empty file, no tag, no pass
+	jp	nz,empty
 	ld	hl,TAIL
 	ld	de,tag
-	ld	bc,16
-	ldir
+	ld	b,16
+tg_1:	ld	a,(hl)			; a $ would end its printing
+	cp	'$'
+	jr	nz,tg_2
+	ld	a,' '
+tg_2:	ld	(de),a
+	inc	hl
+	inc	de
+	djnz	tg_1
 	ld	de,msgwait
 	call	puts
 	call	now			; wait for the second to change
@@ -224,11 +233,15 @@ puts:	ld	c,9
 nofile:	ld	de,msgnof
 	call	puts
 	jp	0
+empty:	ld	de,msgemp
+	call	puts
+	jp	0
 noclock: ld	de,msgclk
 	call	puts
 	jp	0
 
 msgnof:	db	'No file',13,10,'$'
+msgemp:	db	'BENCH.DAT is empty',13,10,'$'
 msgclk:	db	'The clock chip does not change',13,10,'$'
 msgwait: db	'Waiting for the clock',13,10,'$'
 msgend:	db	13,10,'$'

@@ -91,9 +91,10 @@ newln:	ld	hl,line
 	ld	de,m_more
 	ld	c,9
 	call	BDOS
-mo_key:	ld	e,0FFh
-	ld	c,6
-	call	BDOS
+mo_key:	ld	c,1			; not 6: DRI's BDOS 2.2 keeps a key
+	call	BDOS			; typed while the screen filled in
+					; a buffer that only 1 reads (I280).
+					; Its echo goes with the prompt.
 	cp	' '
 	ld	b,0			; a new screen
 	jr	z,mo_go
@@ -104,7 +105,7 @@ mo_key:	ld	e,0FFh
 	jr	z,mo_q
 	and	5Fh
 	cp	'Q'
-	jr	nz,mo_key		; no key yet, or another one
+	jr	nz,mo_key		; another key
 mo_q:	ld	de,m_wipe		; Q or ^C: the prompt off, and out
 	ld	c,9
 	call	BDOS
@@ -122,7 +123,7 @@ out:	ld	e,a
 m_use:	db	"MORE NAME.EXT: show a file a screen at a time",13,10,"$"
 m_none:	db	"MORE: no such file",13,10,"$"
 m_more:	db	"--More--$"
-m_wipe:	db	13,"        ",13,"$"
+m_wipe:	db	13,"         ",13,"$"	; the prompt and the key it echoed
 col:	db	0
 line:	db	0
 	ds	64

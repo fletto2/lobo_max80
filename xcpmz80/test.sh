@@ -936,6 +936,16 @@ check "BENCH prints the tag, passes, records and seconds, 30 or more" "1" "$n"
 mkdisk $T/nb.imd build/BENCH.COM >/dev/null
 out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
 check "BENCH says No file" "No file" "$out"
+mkdir -p $T/be $T/bd	# BENCH.DAT itself is for the tests below
+: >$T/be/BENCH.DAT
+mkdisk $T/eb.imd build/BENCH.COM $T/be/BENCH.DAT >/dev/null
+out=$($EMU -a $T/eb.imd -T -t 20 -e 'A:\>' -k 'bench\E\P\P\P')
+check "and an empty BENCH.DAT is refused, not timed with the command tail as its tag" "BENCH.DAT is empty" "$out"
+{ printf 'ab$cdefghijklmnop'; head -c 4000 /dev/zero | tr '\000' 'x'; } >$T/bd/BENCH.DAT
+mkdisk $T/db.imd build/BENCH.COM $T/bd/BENCH.DAT >/dev/null
+out=$($EMU -a $T/db.imd -T -t 60 -e 'A:\>' -k 'bench\E\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P\P')
+n=$(printf '%s\n' "$out" | grep -aEc '^ab cdefghijklmno [1-9][0-9]* [1-9][0-9]* (3[0-9]|[4-9][0-9])$')
+check "and a \$ in the tag is shown as a space, the line whole" "1" "$n"
 
 # A read on a disk at interleave 1 takes the whole track in one FDC
 # command, from the next sector to come round, into a track buffer:
