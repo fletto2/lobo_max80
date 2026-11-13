@@ -117,6 +117,15 @@ fmt_vol:	call	fmtvol
 	jp	nz,fmt_err
 	ld	a,(fmtdrv)
 	call	umount
+	ld	a,(fmtdrv)		; its folders are gone: at the root
+	call	cwdptr
+	xor	a
+	ld	(hl),a
+	inc	hl
+	ld	(hl),a
+	ld	a,(fmtdrv)
+	call	pthptr
+	ld	(hl),0
 	call	pmsg
 	db	"Formatted, ",0
 	ld	a,(fmtdrv)
@@ -413,11 +422,14 @@ csys:	call	memchk
 	ld	(fdrive),a
 	call	mount
 	jp	nz,sherr
-	ld	a,(ix+D_FATSEC+1)	; room for it in the reserved sectors?
+	call	sysat			; room for it in the reserved sectors,
+	ld	hl,SYSSEC		; from where it goes (a track on in a
+	add	hl,de			; PC's layout) to the first FAT?
+	ex	de,hl
+	ld	l,(ix+D_FATSEC)
+	ld	h,(ix+D_FATSEC+1)
 	or	a
-	jr	nz,sy_1
-	ld	a,(ix+D_FATSEC)
-	cp	SYSSEC+1
+	sbc	hl,de
 	jr	nc,sy_1
 	call	pmsg
 	db	0Dh,0Ah,"No room for the system",0Dh,0Ah,0
@@ -640,6 +652,12 @@ ft_1:	ld	a,0Dh
 ft_2:	call	fdsel
 	ret	nz
 	call	fdseek
+	ld	hl,fdwdly		; after a seek or a motor start, the
+	ld	a,(hl)			; head's 50 ms in all, as fdrw waits
+	ld	(hl),0			; before a write
+	or	a
+	ld	a,35
+	call	nz,msdelay
 	ld	a,(fmtsd)		; the side, bit 4
 	rrca
 	rrca
@@ -682,7 +700,8 @@ ftw2:	jp	pe,ftw
 ftw3:	ei
 	ld	a,(FSTAT)
 	cpl
-	and	0C4h			; not ready, protected, lost data
+	and	0E4h			; not ready, protected, write fault,
+					; lost data
 	jr	z,ft_3
 	bit	7,a
 	ld	c,E_NOTRDY
@@ -692,7 +711,7 @@ ftw3:	ei
 	jr	nz,ft_9
 	ld	hl,fdtries
 	dec	(hl)
-	jr	nz,ft_2
+	jp	nz,ft_2
 	ld	c,E_WRITE
 ft_9:	call	crlf
 	ld	a,c
