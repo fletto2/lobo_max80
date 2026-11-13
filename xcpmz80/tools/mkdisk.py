@@ -30,14 +30,18 @@ the 8-inch connector at 500 kbit/s.
   the boot ROM reads when there is no sector 0, and the system follows
   it.
 
---ss makes a 360 or 720 one sided, the same cylinders (--525 720 --ss is
-80 cylinders of one side, 360K).
+--ss makes a --525 360 or 720 one sided, the same cylinders (--525 720
+--ss is 80 cylinders of one side, 360K, and --525 360 --ss the 180K
+disk, its BPB as --525 180). Not with --pc: the boot sector takes a one
+sided disk as Lobo's layout.
 
 --ilv N, --skew N and --hskew N set a floppy's sector order: the
 interleave (default 3 for 8-inch, 2 for the others), the slots each cylinder is turned (default 0, 3
 for 8-inch) and the slots the second side is turned more (default 0).
 
-The FILEs are copied into the root directory, named in upper case 8.3.
+The FILEs are copied into the root directory, named in upper case 8.3:
+ASCII letters, digits and DOS's marks, one dot, two of one name an
+error. --hd takes --raw too, the same bytes, and no floppy option.
 `--in FOLDER` before some FILEs puts them in a folder of that name, `--in .`
 returns to the root.
 The IMD is for the emulator, the raw image for mtools.
@@ -91,7 +95,9 @@ def f5_bpb(system, kb, ss=False):
     if kb not in PC:
         raise SystemExit('--pc: 360, 180, 720 or 1440')
     cyls, heads, spt, spc, nroot, media = PC[kb]
-    if ss:                      # --ss: the same cylinders, one side
+    if ss and kb == 360:        # --ss: one side of 40 cylinders, 180K
+        cyls, heads, spt, spc, nroot, media = PC[180]
+    elif ss:                    # the same cylinders, one side
         heads, media = 1, 0xf8
     total = cyls * spt * heads
     p = bpb(system)
@@ -134,12 +140,27 @@ def fat12_set(fat, n, v):
         fat[i + 1] = (fat[i + 1] & 0xf0) | (v >> 8 & 0x0f)
 
 
+OK83 = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'()-@^_`{}~")
+
+
 def name83(path):
+    """The 11 bytes of an 8.3 name, as DOS allows them: ASCII letters,
+    digits and its few marks, one dot"""
     base = os.path.basename(path).upper()
     stem, _, ext = base.partition('.')
-    if not stem or len(stem) > 8 or len(ext) > 3:
+    if (not stem or len(stem) > 8 or len(ext) > 3 or
+            not set(stem + ext) <= OK83):
         raise SystemExit('%s: not an 8.3 name' % path)
     return stem.ljust(8).encode() + ext.ljust(3).encode()
+
+
+def nodups(names, where):
+    """Two files of one name: only the first could be found"""
+    seen = set()
+    for n in names:
+        if n in seen:
+            raise SystemExit('%s: %s twice' % (where, n.decode().strip()))
+        seen.add(n)
 
 
 def build(system, files, pc=False):
@@ -204,6 +225,7 @@ def build(system, files, pc=False):
         ents.append((name83(path), 0x20, alloc(open(path, 'rb').read()),
                      os.path.getsize(path)))
     for fname, paths in folders.items():
+        nodups([name83(q) for q in paths], fname)
         # the folder's own cluster comes first, so . can name it
         dclus = clus
         dsize = ((2 + len(paths)) * 32 + csize - 1) // csize * csize
@@ -216,7 +238,8 @@ def build(system, files, pc=False):
                              alloc(open(path, 'rb').read()), os.path.getsize(path))
         off = (data0 + (dclus - 2) * p['spc']) * 512
         disk[off:off + len(d)] = d
-        ents.append((fname.encode('ascii').ljust(11)[:11], 0x10, dclus, 0))
+        ents.append((name83(fname), 0x10, dclus, 0))
+    nodups([e[0] for e in ents], 'the root')
     if len(ents) > p['nroot']:
         raise SystemExit('root directory full')
     for i, (nm, attr, first, size) in enumerate(ents):
@@ -269,11 +292,16 @@ def main():
         i = args.index('--hd')
         mb = int(args[i + 1])
         del args[i:i + 2]
+        for opt in ('--ilv', '--skew', '--hskew', '--ss', '--ds', '--pc', '--525'):
+            if opt in args:
+                raise SystemExit('--hd: %s is for a floppy' % opt)
         if len(args) < 2:
             raise SystemExit(__doc__)
         system = hd_bpb(open(args[0], 'rb').read(), mb)
         disk, p = build(system, folder_args(args[2:]))
         open(args[1], 'wb').write(disk)
+        if raw:             # the image is raw already: the same bytes
+            open(raw, 'wb').write(disk)
         return
     system = open(args[0], 'rb').read()
     eight, pc = True, False
@@ -295,6 +323,8 @@ def main():
     ss = '--ss' in args
     if ss:
         args.remove('--ss')
+    if ss and '--pc' in args:   # the boot sector takes one side as Lobo's
+        raise SystemExit('--ss: with --525, Lobo\'s layout, not --pc')
     for opt in ('--525', '--pc'):
         if opt in args:
             i = args.index(opt)

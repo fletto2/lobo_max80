@@ -76,6 +76,21 @@ print(' '.join(str(x) for x in d[i+5:i+5+d[i+3]]))" "$1" "${2:-0}"
 #PART
 out=$(mdir -i build/xcpmz80.img :: 2>&1)
 check "the disk is a FAT volume mtools reads" "Serial Number is 4D58-3830" "$out"
+# mkdisk.py refuses what would make a bad disk: two files of one name,
+# a name DOS cannot have, --pc one sided, which does not boot
+mkdir -p $T/mk1 $T/mk2
+echo a >$T/mk1/same.txt
+echo b >$T/mk2/SAME.TXT
+echo c >$T/a.b.c
+out=$(python3 tools/mkdisk.py $SYS $T/mk.imd $T/mk1/same.txt $T/mk2/SAME.TXT 2>&1)
+check "mkdisk: two files of one name refused" "SAME    TXT twice" "$out"
+out=$(python3 tools/mkdisk.py $SYS $T/mk.imd $T/a.b.c 2>&1)
+check "mkdisk: a name with two dots refused" "not an 8.3 name" "$out"
+out=$(python3 tools/mkdisk.py $SYS --pc 720 --ss $T/mk.imd 2>&1)
+check "mkdisk: --pc with --ss refused" "not --pc" "$out"
+python3 tools/mkdisk.py $SYS --525 360 --ss $T/mk.imd --raw $T/mk.img >/dev/null
+out=$(minfo -i $T/mk.img :: 2>&1)
+check "mkdisk: --525 360 --ss has the 180K BPB" "media descriptor byte: 0xfc" "$out"
 
 out=$($EMU -a "$DISK" -t 5)
 check "boot to sign-on" "XCP/M-Z80 v0.2 for the Lobo MAX-80" "$out"
