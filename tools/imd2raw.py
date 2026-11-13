@@ -3,10 +3,18 @@
 
 Usage: python3 tools/imd2raw.py IN.imd OUT.img
 
-Sectors are written in cylinder, head, sector-number order. A sector the
-.imd marks unavailable is written as E5 filler and reported.
+Sectors are written in cylinder, head, sector-number order. A track
+whose sector numbers have a gap or a duplicate, or a sector the .imd
+marks unavailable, stops it with an error and no output, since every
+byte after it would be at the wrong offset or a file would hold E5
+filler. convert(path, unavailable=True) writes E5 for an unavailable
+sector instead, for callers that check the sectors they use.
 """
 import sys
+
+
+class ImdError(ValueError):
+    pass
 
 
 def read_tracks(path):
@@ -24,6 +32,10 @@ def read_tracks(path):
             i += nsec
         size = 128 << ssize
         secs = {}
+        if len(set(smap)) != len(smap):
+            raise ImdError(f'{path}: c{cyl} h{head & 1}: a sector number twice: {smap}')
+        if smap and sorted(smap) != list(range(min(smap), min(smap) + nsec)):
+            raise ImdError(f'{path}: c{cyl} h{head & 1}: sector numbers with a gap: {sorted(smap)}')
         for s in smap:
             kind = d[i]
             i += 1
@@ -39,16 +51,22 @@ def read_tracks(path):
     return tracks
 
 
-def convert(path):
+def convert(path, unavailable=False):
     out = bytearray()
     for cyl, head, size, secs in sorted(read_tracks(path), key=lambda t: t[:2]):
         for s in sorted(secs):
             if secs[s] is None:
-                print(f'{path}: c{cyl} h{head} s{s} unavailable', file=sys.stderr)
+                if not unavailable:
+                    raise ImdError(f'{path}: c{cyl} h{head} s{s} unavailable')
+                print(f'{path}: c{cyl} h{head} s{s} unavailable, E5 written', file=sys.stderr)
             out += secs[s] or b'\xe5' * size
     return bytes(out)
 
 
 if __name__ == '__main__':
+    try:
+        data = convert(sys.argv[1])
+    except ImdError as e:
+        sys.exit(f'imd2raw: {e}')
     with open(sys.argv[2], 'wb') as f:
-        f.write(convert(sys.argv[1]))
+        f.write(data)
