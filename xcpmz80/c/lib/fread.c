@@ -16,6 +16,8 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *f) __LIB
 
 	if (!size || !nmemb)
 		return 0;
+	if (nmemb > 0xFFFFu / size)	/* not past 64K, which would wrap */
+		nmemb = 0xFFFFu / size;
 	want = size * nmemb;
 	text = f->flags & F_TEXT;
 	while (got < want) {
@@ -53,6 +55,8 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *f) __LIB
 
 	if (!size || !nmemb)
 		return 0;
+	if (nmemb > 0xFFFFu / size)	/* not past 64K, which would wrap */
+		nmemb = 0xFFFFu / size;
 	want = size * nmemb;
 	for (put = 0; put < want; put++)
 		if (fputc(*p++, f) == EOF)

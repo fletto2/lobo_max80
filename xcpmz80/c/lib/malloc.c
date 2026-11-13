@@ -111,12 +111,17 @@ void *realloc(void *p, size_t n) __LIB
 	have = (*b & ~USED) - 2;
 	if (n <= have)
 		return p;
+	if (n > 0x7ff0) {	/* as malloc: its size would wrap */
+		errno = ENOMEM;
+		return NULL;
+	}
 	/* grow in place into a free block after it, or at the top */
 	*b &= ~USED;
 	merge(b);
 	if (b == top) {
 		unsigned int sz = (n + 3) & ~1u;
-		if (sz <= (unsigned int)(limit() - (unsigned char *)b)) {
+		if ((unsigned char *)b <= limit() &&
+		    sz <= (unsigned int)(limit() - (unsigned char *)b)) {
 			*b = sz | USED;
 			top = NEXTB(b);
 			return p;

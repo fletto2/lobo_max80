@@ -8,6 +8,10 @@ char *fgets(char *buf, int n, FILE *f) __LIB
 	int c, i = 0;
 	unsigned char k;
 
+	if (n == 1) {		/* room for the 0 alone */
+		*buf = 0;
+		return buf;
+	}
 	while (i < n - 1) {
 		/* The console, a byte put back, the end or a file not open
 		   for reading: a byte at a time, as fgetc has them */

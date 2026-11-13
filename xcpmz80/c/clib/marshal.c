@@ -51,7 +51,8 @@ static unsigned char *afloor;		/* how far down it may go */
 
 /* One argument copied: where its slot is, what it held, its copy */
 struct slot {
-	unsigned char kind;	/* 0 none to copy back, 'S' 'd' 'B' 'x' 'o' 'T' 'e' 'g' 'G' */
+	unsigned char kind;	/* 0 none to copy back, 'S' 'd' 'B' 'x' 'o' 'T' 'e' 'g' 'G',
+				   'h' a scanf pointer used as it is, counted */
 	unsigned char arg;	/* its number, for pN */
 	unsigned char *where;	/* the argument's place on the stack */
 	unsigned int user;	/* the program's address */
@@ -193,7 +194,8 @@ static struct slot *copyarg(unsigned char kind, unsigned char arg,
 	/* used as it is, but an end pointer, which must be translated */
 	if ((u >= 0x8000u && kind != 'e') || !u) {
 		s->copy = (unsigned char *)u;
-		s->kind = 0;
+		/* a scanf pointer still counts among those stored */
+		s->kind = kind == 'g' || kind == 'G' ? 'h' : 0;
 		nslot++;
 		return s;
 	}
@@ -208,12 +210,23 @@ static struct slot *copyarg(unsigned char kind, unsigned char arg,
 
 #define word(w)	(*(unsigned int *)(w))
 
-/* a string's copy: its length and the 0 */
-static struct slot *strarg(unsigned char kind, unsigned char arg, unsigned char *w)
+/* a string's copy: its length and the 0, and room for the string at
+ * more, which is to be added to it */
+static struct slot *strarg(unsigned char kind, unsigned char arg, unsigned char *w,
+	unsigned int more)
 {
-	unsigned int u = word(w);
+	unsigned int u = word(w), n;
+	struct slot *s;
 
-	return copyarg(kind, arg, w, u && u < 0x8000u ? __ustrlen(u) + 1 : 0, 1);
+	if (!u || u >= 0x8000u)
+		return copyarg(kind, arg, w, 0, 1);
+	n = __ustrlen(u) + 1;
+	if (more)
+		more = more < 0x8000u ? __ustrlen(more) : strlen((char *)more);
+	if (!(s = copyarg(kind, arg, w, n + more, 0)))
+		return NULL;
+	__uget(s->copy, u, n);
+	return s;
 }
 
 /* the places of the arguments, by their sizes, to find argument N */
@@ -252,7 +265,7 @@ static unsigned char *fmtargs(const char *fmt, unsigned char *a)
 			case 0:
 				return a;
 			case 's':
-				if (!strarg(0, 0xff, a))
+				if (!strarg(0, 0xff, a, 0))
 					return NULL;
 				a += 2;
 				break;
@@ -273,6 +286,29 @@ static unsigned char *fmtargs(const char *fmt, unsigned char *a)
 		}
 	}
 	return a;
+}
+
+/* A string written with no size known, sprintf's or scanf's %s with
+ * no width: its copy is given at the end, a share of the arena that is
+ * left, or it is used as it is at 8000h or above */
+static struct slot *later(unsigned char kind, unsigned char arg, unsigned char *w)
+{
+	struct slot *s;
+
+	if (nslot == NSLOT)
+		return NULL;
+	s = &slots[nslot++];
+	s->kind = kind;
+	s->arg = arg;
+	s->where = w;
+	s->user = word(w);
+	s->copy = (unsigned char *)s->user;
+	s->len = 0;
+	if (s->user && s->user < 0x8000u)
+		s->copy = NULL;	/* given its room below */
+	else
+		s->kind = kind == 'g' && s->user ? 'h' : 0;
+	return s;
 }
 
 /* scanf's pointers: a copy for each, written back if it was stored */
@@ -321,8 +357,11 @@ static unsigned char *scanargs(const char *fmt, unsigned char *a)
 		switch (conv) {
 		case 's':
 		case '[':
-			if (!copyarg('g', 0xff, a, width ? width + 1 : 256, 0))
-				return NULL;
+			if (width) {
+				if (!copyarg('g', 0xff, a, width + 1, 0))
+					return NULL;
+			} else if (!later('g', 0xff, a))
+				return NULL;	/* the rest of the arena, as 'd' */
 			break;
 		case 'c':
 			if (!copyarg('G', 0xff, a, width ? width : 1, 1))
@@ -372,6 +411,9 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 	/* the arena: in A1, above the heap and its margin */
 	abot = a - STACKROOM;
 	afloor = (unsigned char *)__clib_heaptop() + 64;
+	/* never under 8000h: there the library sees itself, B2 */
+	if ((unsigned int)afloor < 0x8000u)
+		afloor = (unsigned char *)0x8000u;
 	if ((unsigned int)a < 0x8000u + STACKROOM || abot < afloor)
 		goto full;
 	if (n >= __clib_n || !__clib_tab[n].fn)
@@ -409,29 +451,20 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 			a += 2;
 			break;
 		case 's':
-			if (!strarg(0, i, a))
+			if (!strarg(0, i, a, 0))
 				goto full;
 			a += 2;
 			break;
 		case 'S':
-			if (!(s = strarg('S', i, a)))
+			/* strcat's: room for the string after it as well */
+			if (!(s = strarg('S', i, a, sig[1] == 's' ? word(a + 2) : 0)))
 				goto full;
 			a += 2;
 			break;
 		case 'd':
 			/* written: the rest of the arena, known at the end */
-			if (nslot == NSLOT)
+			if (!later('d', i, a))
 				goto full;
-			s = &slots[nslot++];
-			s->kind = 'd';
-			s->arg = i;
-			s->where = a;
-			s->user = word(a);
-			s->copy = (unsigned char *)s->user;
-			if (s->user && s->user < 0x8000u)
-				s->copy = NULL;	/* given its room below */
-			else
-				s->kind = 0;
 			a += 2;
 			break;
 		case 'b':
@@ -439,7 +472,7 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 		case 'x':
 			{
 				unsigned int len = word(argp[sig[1] - '0']);
-				if (!copyarg(*sig == 'b' ? 0 : *sig, i, a, len, *sig != 'B'))
+				if (!copyarg(*sig == 'b' ? 0 : *sig, i, a, len, 1))
 					goto full;
 				sig++;
 				a += 2;
@@ -469,7 +502,7 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 			break;
 		case 'F':
 		case 'G':
-			if (!strarg(0, i, a))
+			if (!strarg(0, i, a, 0))
 				goto full;
 			fmt = (const char *)word(a);
 			fsc = *sig;
@@ -494,17 +527,25 @@ void *__clib_pre(unsigned int n, unsigned char *a) __LIB
 			break;
 		}
 	}
-	/* the string written gets what is left */
-	for (i = 0; i < nslot; i++)
-		if (slots[i].kind == 'd' && !slots[i].copy) {
-			unsigned int n = abot - afloor;
-			if (n < 2)
-				goto full;
-			slots[i].copy = take(n);
-			slots[i].copy[0] = 0;
-			slots[i].len = n;
-			*(unsigned char **)slots[i].where = slots[i].copy;
-		}
+	/* the strings written with no size get what is left, shared */
+	{
+		unsigned char k = 0;
+		unsigned int n;
+
+		for (i = 0; i < nslot; i++)
+			if ((slots[i].kind == 'd' || slots[i].kind == 'g') && !slots[i].copy)
+				k++;
+		n = k ? (unsigned int)(abot - afloor) / k : 0;
+		for (i = 0; i < nslot; i++)
+			if ((slots[i].kind == 'd' || slots[i].kind == 'g') && !slots[i].copy) {
+				if (n < 2)
+					goto full;
+				slots[i].copy = take(n);
+				slots[i].copy[0] = 0;
+				slots[i].len = n;
+				*(unsigned char **)slots[i].where = slots[i].copy;
+			}
+	}
 	csig = __clib_tab[n].sig;
 	cerrno = errno;
 	return __clib_tab[n].fn;
@@ -548,12 +589,16 @@ void __clib_post(void) __LIB
 		s = &slots[i];
 		/* the argument back as the program had it */
 		*(unsigned int *)s->where = s->user;
+		if (s->kind == 'h') {	/* used as it is, but one stored */
+			if (stored && stored != 0xff)
+				stored--;
+			continue;
+		}
 		if (!s->kind || !s->user)
 			continue;
 		switch (s->kind) {
 		case 'S':
-			n = strlen((char *)s->copy) + 1;
-			__uput(s->user, s->copy, n > s->len ? n : s->len);
+			__uput(s->user, s->copy, strlen((char *)s->copy) + 1);
 			break;
 		case 'd':
 			__uput(s->user, s->copy, strlen((char *)s->copy) + 1);

@@ -145,6 +145,10 @@ void *realloc(void *p, size_t n) __LIB
 	have = (HDR(b) & ~USED) - 2;
 	if (n <= have)
 		return p;
+	if (n > 0x7ff0) {	/* as malloc: its size would wrap */
+		errno = ENOMEM;
+		return NULL;
+	}
 	/* free for a moment, and the free blocks after it merged in: low,
 	 * which may be one of them, comes down to it, or malloc would find
 	 * a free block inside the one grown here */
@@ -154,7 +158,7 @@ void *realloc(void *p, size_t n) __LIB
 	merge(b);
 	if (b == top) {
 		unsigned int sz = (n + 3) & ~1u;
-		if (sz <= limit() - b) {
+		if (b <= limit() && sz <= limit() - b) {
 			SETHDR(b, sz | USED);
 			top = b + sz;
 			return p;

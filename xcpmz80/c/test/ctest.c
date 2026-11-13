@@ -57,6 +57,8 @@ static unsigned char iffon(void) __naked
 }
 
 static volatile int sink;
+/* buffers under 8000h, in the program's bank, which the library copies */
+static char sb[800], sb2[800];
 
 static int initd = 1234;	/* initialized data, copied by crt0 */
 static int zero;		/* zeroed by crt0 */
@@ -97,6 +99,16 @@ int main(void)
 		-42, 7, 0xbe, 123456789L, "str", "abcdef", 'Z', 65535u);
 	sprintf(buf, "%d-%s", 99, "ok");
 	say("sprintf %s\n", buf);
+	/* the copy of a buffer under 8000h kept above 8000h, off the
+	 * library's own bank, while the heap is still low */
+	memset(sb2, 'c', 700);
+	sb2[700] = 0;
+	sprintf(sb, "%s-%d", sb2, 7);
+	/* and the library's code where the copy went before still runs:
+	 * functions from there, for CTEST's heap */
+	say("lowbuf %d %s %d %s %d\n", (int)strlen(sb), sb + 698,
+		strncasecmp("AbC", "abd", 2), stpcpy(sb2, "st") - sb2 == 2 ? "stp" : "bad",
+		!!isblank(' '));
 	n = sscanf("  17 abc -5", "%d %s %d", &i, buf, &c);
 	say("sscanf %d %d %s %d\n", n, i, buf, c);
 
@@ -299,6 +311,46 @@ int main(void)
 	c = iffon();
 	__asm__("ei");
 	say("iff %d %d %d\n", n, i, c);
+	{
+		/* a pointer on the stack and one under 8000h, one stored: the
+		 * other keeps what it had */
+		int k = 0, j;
+		char *p, *q;
+
+		strcpy(sb, "kept");
+		n = sscanf("5", "%d %19s", &k, sb);
+		say("mixed %d %d %s\n", n, k, sb);
+		/* %s with no width, longer than 256 */
+		memset(sb, 'a', 300);
+		strcpy(sb + 300, " 7");
+		n = sscanf(sb, "%s %d", sb2, &k);
+		say("long %d %d %d\n", n, (int)strlen(sb2), k);
+		/* strcat onto a short string, 780 bytes */
+		memset(sb2, 'b', 780);
+		sb2[780] = 0;
+		strcpy(sb, "ab");
+		strcat(sb, sb2);
+		say("cat %d %c\n", (int)strlen(sb), sb[781]);
+		/* fgets leaves the bytes after the line as they were, and
+		 * with room for the 0 alone gives an empty string */
+		memset(sb, 'X', 20);
+		sb[20] = 0;
+		f = fopen("CTEST.TXT", "r");
+		fgets(sb, 10, f);
+		strcpy(sb2, "Q");
+		j = fgets(sb2, 1, f) == sb2 && !sb2[0];
+		fclose(f);
+		say("tail %c %d\n", sb[8], j);
+		/* realloc to near 64K at the top of the heap */
+		p = malloc(1000);
+		q = realloc(p, 65534);
+		say("big %s\n", q ? "got" : "null");
+		/* fread's size times count past 64K: the items there are */
+		p = malloc(3000);
+		f = fopen("CTEST.TXT", "r");
+		say("fread2 %u\n", (unsigned)fread(p, 128, 513, f));
+		fclose(f);
+	}
 	say("name? ");
 	fgets(buf, sizeof(buf), stdin);
 	say("got %s", buf);

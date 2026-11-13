@@ -179,6 +179,8 @@ unsigned int __r_fread(unsigned int p, unsigned int size, unsigned int nmemb, FI
 
 	if (!size || !nmemb)
 		return 0;
+	if (nmemb > 0xFFFFu / size)	/* not past 64K, which would wrap */
+		nmemb = 0xFFFFu / size;
 	want = size * nmemb;
 	while (got < want) {
 		k = want - got > PIECE ? PIECE : want - got;
@@ -199,6 +201,8 @@ unsigned int __r_fwrite(unsigned int p, unsigned int size, unsigned int nmemb, F
 
 	if (!size || !nmemb)
 		return 0;
+	if (nmemb > 0xFFFFu / size)	/* not past 64K, which would wrap */
+		nmemb = 0xFFFFu / size;
 	want = size * nmemb;
 	while (put < want) {
 		k = want - put > PIECE ? PIECE : want - put;
