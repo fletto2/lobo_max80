@@ -236,13 +236,15 @@ nofile:	ld	de,msgnof
 empty:	ld	de,msgemp
 	call	puts
 	jp	0
-noclock: ld	de,msgclk
+noclock: ld	c,1			; the key read, not left for the
+	call	BDOS			; prompt after (I302)
+	ld	de,msgclk
 	call	puts
 	jp	0
 
 msgnof:	db	'No file',13,10,'$'
 msgemp:	db	'BENCH.DAT is empty',13,10,'$'
-msgclk:	db	'The clock chip does not change',13,10,'$'
+msgclk:	db	13,10,'The clock chip does not change',13,10,'$'
 msgwait: db	'Waiting for the clock',13,10,'$'
 msgend:	db	13,10,'$'
 

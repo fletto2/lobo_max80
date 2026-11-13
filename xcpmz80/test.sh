@@ -1079,6 +1079,37 @@ out=$($EMU -a $T/clk.imd -T -t 15 -e 'A:\>' -k 'clock\r')
 check "CLOCK reads the date from the clock chip" "$(date +%m/%d/%y) " "$out"
 n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} [0-2][0-9]:[0-5][0-9]:[0-5][0-9]$')
 check "and the time, every digit" "=1=" "=$n="
+# The clock put in 12-hour mode, PM, by a program with TIME SET held
+# (-C): the hours tens written as 5, then CLOCK says PM (I302)
+cat >$T/h12.asm <<'EOW'
+	org	100h
+	ld	a,0CFh			; port A all outputs, for the digit
+	ld	(0F7FDh),a
+	xor	a
+	ld	(0F7FDh),a
+	ld	a,(0F7FCh)		; the RAM chunks kept
+	and	0F0h
+	or	5			; 12-hour, PM, tens 1
+	ld	(0F7FCh),a
+	ld	a,45h			; HOLD, register 5
+	ld	(0F7FEh),a
+	ld	a,55h			; and WRITE
+	ld	(0F7FEh),a
+	ld	a,45h
+	ld	(0F7FEh),a
+	xor	a
+	ld	(0F7FEh),a
+	ld	a,0CFh			; bits 3-0 inputs again
+	ld	(0F7FDh),a
+	ld	a,0Fh
+	ld	(0F7FDh),a
+	ret
+EOW
+(cd $T && sjasmplus --nologo --msg=war --raw=H12.COM h12.asm >/dev/null)
+mkdisk $T/clk12.imd build/CLOCK.COM $T/H12.COM >/dev/null
+out=$($EMU -C -a $T/clk12.imd -T -t 15 -e 'A:\>' -k 'h12\rclock\r' | tr -d '\r')
+n=$(printf '%s\n' "$out" | grep -aEc '^[0-9]{2}/[0-9]{2}/[0-9]{2} 1[0-9]:[0-5][0-9]:[0-5][0-9] PM$')
+check "CLOCK in 12-hour mode says PM (I302)" "=1=" "=$n="
 
 # BENCH reads BENCH.DAT over and over for 30 clock seconds.
 # With the drives' mechanics (-M) a pass of 40000 bytes takes seconds.
@@ -1091,6 +1122,12 @@ check "BENCH prints the tag, passes, records and seconds, 30 or more" "=1=" "=$n
 mkdisk $T/nb.imd build/BENCH.COM >/dev/null
 out=$($EMU -a $T/nb.imd -T -t 20 -e 'A:\>' -k 'dir\rbench\E\P\P\P')
 check "BENCH says No file" "No file" "$out"
+# A key typed while BENCH waits for the clock stops it, and is read,
+# not left at the prompt after (I302)
+out=$($EMU -a $T/bn.imd -T -t 20 -e 'A:\>' -k 'bench\Ez\P\P' | tr -d '\r')
+check "a key stops BENCH's wait and is not left for the prompt (I302)" \
+	"does not change A:\> " \
+	"$(printf '%s\n' "$out" | grep -v '^ *$' | tail -2 | tr '\n' ' ')"
 mkdir -p $T/be $T/bd	# BENCH.DAT itself is for the tests below
 : >$T/be/BENCH.DAT
 mkdisk $T/eb.imd build/BENCH.COM $T/be/BENCH.DAT >/dev/null
@@ -1278,6 +1315,20 @@ check "and shows tabs and the end" "        x       0000" "$out"
 check "and ends at the end" "last A:\> " "$(last2 "$out")"
 out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'q' @20)
 check "and Q stops it" "line 23 A:\> " "$(last2 "$out")"
+# Lines that wrap where MORE did not count them (I302): LF alone keeps
+# the column, as the console does, a form feed shows as ^L, and wrong
+# keys at --More-- leave nothing on the screen. The first screen still
+# holds the first line at the first --More--
+for i in $(seq 1 40); do printf 'L%02d %049d\n' $i 0; done >$T/MLF.TXT
+for i in $(seq 1 40); do printf '\014R%02d %075d\r\n' $i 0; done >$T/MFF.TXT
+mkdisk $T/more2.imd build/MORE.COM $T/MLF.TXT $T/MFF.TXT >/dev/null
+out=$(python3 tools/session.py "-a $T/more2.imd" 'more mlf.txt\r' @20)
+check "MORE counts the wraps of lines ended by LF alone (I302)" "L01 " "$out"
+out=$(python3 tools/session.py "-a $T/more2.imd" 'more mff.txt\r' @20)
+check "and of lines with a form feed in them" "^LR01 " "$out"
+out=$(python3 tools/session.py "-a $T/more.imd" 'more mt.txt\r' @20 'abcdefg' @20 ' ' @20)
+check "and wrong keys at --More-- are wiped" "=0 line 46 --More-- =" \
+	"=$(printf '%s\n' "$out" | grep -c 'bcdefg') $(last2 "$out")="
 
 
 #PART
@@ -1359,7 +1410,7 @@ python3 ../tools/imd2raw.py $T/o2/fd.imd $T/o2/fd.img >/dev/null
 fatok "the folders are a clean FAT volume" $T/o2/fd.img
 out=$(mdir -/ -i $T/o2/fd.img ::GAMES 2>&1)
 check "mtools reads the folder and the folder in it" "Directory for ::/GAMES/OLD" "$out"
-check "and the copies in it" "C        COM       131" "$out"
+check "and the copies in it" "C        COM $(printf '%9d' $(wc -c <build/CLOCK.COM))" "$out"
 mcopy -o -i $T/o2/fd.img ::GAMES/M.COM $T/out/M.COM
 same "COPY into a folder is byte exact" build/MORE.COM $T/out/M.COM
 out=$($EMU -a $T/o2/fd.imd -t 30 -e 'A:\>|A:\GAMES>' -k 'cd games\rc\rclock\r')

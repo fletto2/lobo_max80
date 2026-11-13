@@ -5,7 +5,10 @@
 ; After 23 lines it waits at --More--: Space shows the next screen,
 ; Enter the next line, Q or ^C stops. A line longer than 80 columns
 ; counts as two, a tab goes to the next column of 8, the file ends at
-; ^Z or its last record. Only BDOS calls, so it runs under any CP/M.
+; ^Z or its last record. Bit 7 is dropped, as the console does, and
+; other control characters show as ^L and so on, two columns, so the
+; count of lines is the screen's. Only BDOS calls, so it runs under any
+; CP/M.
 
 BDOS	equ	5
 FCB	equ	5Ch
@@ -52,14 +55,17 @@ quit:	ld	c,9
 	jp	0
 
 ; A character to the screen, counting columns and lines
-show:	cp	9
+show:	and	7Fh			; bit 7 off, as the console (I302)
+	cp	9
 	jr	z,sh_tab
 	cp	13
 	jr	z,sh_cr
 	cp	10
 	jr	z,sh_lf
 	cp	' '
-	jr	c,out			; other controls: as they are
+	jr	c,sh_ctl		; other controls as ^X, counted (I302)
+	cp	7Fh
+	jr	z,sh_ctl
 	call	out
 	ld	hl,col
 	inc	(hl)
@@ -68,6 +74,12 @@ show:	cp	9
 	ret	c
 	ld	(hl),0			; the screen wrapped
 	jr	newln
+sh_ctl:	push	af
+	ld	a,'^'
+	call	show
+	pop	af
+	xor	40h			; 0Ch: L, 7Fh: ?
+	jr	show
 sh_tab:	ld	a,' '
 	call	show
 	ld	a,(col)
@@ -78,17 +90,15 @@ sh_cr:	xor	a
 	ld	(col),a
 	ld	a,13
 	jr	out
-sh_lf:	xor	a
-	ld	(col),a
-	ld	a,10
-	call	out
+sh_lf:	ld	a,10			; down a row, the column kept, as
+	call	out			; the console does (I302)
 newln:	ld	hl,line
 	inc	(hl)
 	ld	a,(hl)
 	cp	ROWS
 	ret	c
 	; a screen full: wait
-	ld	de,m_more
+mo_pr:	ld	de,m_more
 	ld	c,9
 	call	BDOS
 mo_key:	ld	c,1			; not 6: DRI's BDOS 2.2 keeps a key
@@ -105,7 +115,11 @@ mo_key:	ld	c,1			; not 6: DRI's BDOS 2.2 keeps a key
 	jr	z,mo_q
 	and	5Fh
 	cp	'Q'
-	jr	nz,mo_key		; another key
+	jr	z,mo_q
+	ld	de,m_wipe		; another key: its echo off, and the
+	ld	c,9			; prompt again (I302)
+	call	BDOS
+	jr	mo_pr
 mo_q:	ld	de,m_wipe		; Q or ^C: the prompt off, and out
 	ld	c,9
 	call	BDOS
@@ -123,7 +137,8 @@ out:	ld	e,a
 m_use:	db	"MORE NAME.EXT: show a file a screen at a time",13,10,"$"
 m_none:	db	"MORE: no such file",13,10,"$"
 m_more:	db	"--More--$"
-m_wipe:	db	13,"         ",13,"$"	; the prompt and the key it echoed
+m_wipe:	db	13,"                ",13,"$"	; the prompt and the key it
+					; echoed, a tab too
 col:	db	0
 line:	db	0
 	ds	64

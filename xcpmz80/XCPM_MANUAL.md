@@ -276,15 +276,18 @@ shows every character the font holds, 00h to BFh, in a table.
     CLOCK
 
 prints the date and time from the clock chip, such as
-`10/30/26 21:44:50`. The clock is set with the TIME SET button on the
-back of the machine held down.
+`10/30/26 21:44:50`, with AM or PM after it when the chip is in
+12-hour mode. The clock is set with the TIME SET button on the back of
+the machine held down.
 
 ### MORE
 
     MORE name
 
 shows a text file a screen at a time. At `--More--`, SPACE shows the
-next screen, ENTER the next line, and Q or ^C stops.
+next screen, ENTER the next line, and Q or ^C stops. Control
+characters other than tab, CR and LF show as `^L` and so on, and bit 7
+of each byte is dropped, as WordStar sets it.
 
 ## Programs on the apps disk
 

@@ -17,6 +17,7 @@ RD	equ	20h
 	call	rtread
 	ld	hl,regs+5		; hours tens: bit 3 24-hour, bit 2 PM
 	ld	a,(hl)
+	ld	(h10),a			; for AM or PM (I302)
 	and	03h
 	ld	(hl),a
 	ld	hl,regs+8		; date tens: bit 2 leap year
@@ -27,7 +28,7 @@ RD	equ	20h
 cl_1:	ld	a,(hl)
 	inc	hl
 	or	a
-	ret	z
+	jr	z,cl_end
 	jp	p,cl_2
 	and	7Fh
 	ld	de,regs
@@ -43,6 +44,18 @@ cl_2:	push	hl
 	call	BDOS
 	pop	hl
 	jr	cl_1
+
+; In 12-hour mode AM or PM after the time (I302)
+cl_end:	ld	a,(h10)
+	ld	de,m_crlf
+	bit	3,a
+	jr	nz,cl_pr		; 24-hour
+	ld	de,m_am
+	bit	2,a
+	jr	z,cl_pr
+	ld	de,m_pm
+cl_pr:	ld	c,9
+	jp	BDOS
 
 ; Register A of the clock to A, bits 3-0. The chip wants READ held at
 ; least 6 us before the data is good.
@@ -82,5 +95,9 @@ rr_2:	inc	hl
 ; 6 day of the week, 7 date, 8 tens, 9 month, 10 tens, 11 year, 12 tens
 R	equ	80h
 fmt:	db	R+10,R+9,'/',R+8,R+7,'/',R+12,R+11,' '
-	db	R+5,R+4,':',R+3,R+2,':',R+1,R+0,0Dh,0Ah,0
+	db	R+5,R+4,':',R+3,R+2,':',R+1,R+0,0
+m_am:	db	" AM"
+m_crlf:	db	0Dh,0Ah,"$"
+m_pm:	db	" PM",0Dh,0Ah,"$"
+h10:	db	0
 regs:	db	0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh,0FFh
