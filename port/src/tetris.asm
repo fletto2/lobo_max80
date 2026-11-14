@@ -1,6 +1,6 @@
 ; TETRIS.COM: the Game Boy Tetris 1P A-type game for the Lobo MAX-80
 ; under CP/M 2.2 or xcpmz80. Our own Z80 code. The game's numbers come
-; from your own copy of the cartridge, lifted by port/tools/build.py into
+; from your own copy of the cartridge, lifted by tools/build.py into
 ; tables.asm, which is never shared.
 ;
 ; The title, ENTER to go on, DOWN held for hard mode. The level select,

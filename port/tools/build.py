@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """Build TETRIS.COM from our source and your own Tetris.gb.
 
-Usage: python3 port/tools/build.py ROM
+Usage: python3 tools/build.py ROM
 
 ROM is your own copy of the Game Boy Tetris cartridge, retail DMG-TRA-1
 (World, Rev A), checked by SHA1. The game's numbers are lifted from it
-into port/src/tables.asm, which git ignores: Nintendo's bytes stay on
-your machine. Then sjasmplus assembles port/src/ and the program goes
-on boot disks for the emulator, which take TETRIS at the prompt:
+into src/tables.asm, which git ignores: Nintendo's bytes stay on your
+machine. Then sjasmplus assembles src/ and the program goes on boot
+disks for the emulator, which take TETRIS at the prompt:
 
-  port/build/TETRIS.COM
-  port/build/tetris.imd      emu/max80 -a port/build/tetris.imd
-  port/build/tetris_525.imd  emu/max80 -D 1 -a port/build/tetris_525.imd
-  port/build/tetris_180.imd  emu/max80 -D 1 -a port/build/tetris_180.imd
+  build/TETRIS.COM
+  build/tetris.imd      max80 -a build/tetris.imd
+  build/tetris_525.imd  max80 -D 1 -a build/tetris_525.imd
+  build/tetris_180.imd  max80 -D 1 -a build/tetris_180.imd
 
 tetris_525.imd and tetris_180.imd are xcpmz80 for a 5.25-inch drive,
 360K double sided and 180K single sided. sjasmplus is $SJASMPLUS, or
 sjasmplus on the PATH. It crashes on a UNC path, so the sources are
-assembled in a local scratch directory. The disks need xcpmz80's make.
+assembled in a local scratch directory. The disks need xcpmz80's make,
+in $XCPMZ80, or found beside this folder: a max80_xcpmz80 checkout, or
+xcpmz80/ in a lobo_max80 checkout.
 """
 import hashlib
 import os
@@ -44,6 +46,20 @@ def sjasmplus():
     if not found:
         raise SystemExit('sjasmplus not found: set SJASMPLUS or put it on the PATH')
     return found
+
+
+def xcpmz80():
+    """The xcpmz80 folder that makes the system for the boot disks"""
+    if os.environ.get('XCPMZ80'):
+        return os.environ['XCPMZ80']
+    for path in (os.path.join(ROOT, 'xcpmz80'),
+                 os.path.join(ROOT, 'max80_xcpmz80'),
+                 os.path.join(ROOT, 'lobo_max80', 'xcpmz80'),
+                 os.path.join(ROOT, '..', 'max80_xcpmz80')):
+        if os.path.isfile(os.path.join(path, 'Makefile')):
+            return os.path.abspath(path)
+    raise SystemExit('xcpmz80 not found: set XCPMZ80, or check out '
+                     'max80_xcpmz80 or lobo_max80 beside this folder')
 
 
 # The addresses in the ROM of the numbers the port uses
@@ -108,7 +124,7 @@ def tables(rom):
     """The lines of tables.asm"""
     cells, row, col = pieces(rom)
     lines = [
-        '; Lifted from your own Tetris.gb by port/tools/build.py.',
+        '; Lifted from your own Tetris.gb by tools/build.py.',
         '; Generated, gitignored, never committed: the values are Nintendo\'s.',
         '',
         '; Frames a row less one, by level (0x%04X)' % SPEEDS,
@@ -152,7 +168,7 @@ def lift(path):
 
 
 def assemble(com, defines=()):
-    """Assembles port/src/ into com, with these sjasmplus defines, such
+    """Assembles src/ into com, with these sjasmplus defines, such
     as TEST or LEVEL=9"""
     with tempfile.TemporaryDirectory() as tmp:
         for name in os.listdir(SRC):
@@ -174,12 +190,7 @@ def main():
     com = os.path.join(BUILD, 'TETRIS.COM')
     assemble(com)
     imd = os.path.join(BUILD, 'tetris.imd')
-    # xcpmz80, from XCPMZ80 or a max80_xcpmz80 checkout beside this one
-    xcpm = os.environ.get('XCPMZ80')
-    xcpm = xcpm or os.path.join(os.path.dirname(ROOT), 'max80_xcpmz80')
-    if not os.path.isfile(os.path.join(xcpm, 'Makefile')):
-        sys.exit('build.py: no xcpmz80 in %s: check out max80_xcpmz80 beside '
-                 'this repo, or set XCPMZ80' % xcpm)
+    xcpm = xcpmz80()
     subprocess.run(['make', '-s', 'build/xcpmz80.sys'], cwd=xcpm, check=True)
     # On an 8-inch xcpmz80 boot disk
     subprocess.run([sys.executable, '-I', os.path.join(xcpm, 'tools', 'mkdisk.py'),
@@ -193,10 +204,10 @@ def main():
     subprocess.run([sys.executable, '-I', os.path.join(xcpm, 'tools', 'mkdisk.py'),
                     os.path.join(xcpm, 'build', 'xcpmz80.sys'), '--525', '180', imd180, com],
                    check=True, stdout=subprocess.DEVNULL)
-    print('%s, %d bytes, on %s, %s and %s' % (os.path.relpath(com, ROOT), os.path.getsize(com),
-                                              os.path.relpath(imd, ROOT),
-                                              os.path.relpath(imd525, ROOT),
-                                              os.path.relpath(imd180, ROOT)))
+    print('%s, %d bytes, on %s, %s and %s' % (os.path.relpath(com, PORT), os.path.getsize(com),
+                                              os.path.relpath(imd, PORT),
+                                              os.path.relpath(imd525, PORT),
+                                              os.path.relpath(imd180, PORT)))
 
 
 if __name__ == '__main__':
