@@ -5,3 +5,5 @@ test_sasi
 test_keys
 test_iff
 test_dev
+test_app
+build/

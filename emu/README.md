@@ -117,6 +117,9 @@ in UTC, and a saved `.imd` carries it in its header, in place of the
 host's time, so a build that writes a disk through the emulator makes
 the same bytes each time.
 
+## Mac app
+
+
 ## License
 
 MIT, in `LICENSE`.

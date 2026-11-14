@@ -39,23 +39,14 @@ it runs in this emulator:
   and LDOS disks, and everything above. It draws in an SDL2 window, or
   in the terminal without SDL2. `emu/frame2png.py` turns a frame saved
   by its `-p` into a PNG.
-- `port/`: Tetris, the Game Boy game, ported to the MAX-80 for
-  xcpmz80. The source is ours. The game's numbers are lifted from your
-  own copy of the cartridge when you build it, so no byte of
-  Nintendo's is included. It needs max80_xcpmz80 checked out beside
-  this repo. Its `README.md` says how.
 - `tools/`: disk image converters, `.imd` to raw sectors and DMK to
   `.imd`.
 - `reference/rom/max80.e12`: Lobo's v1.3 boot ROM, 512 bytes, included
   for the emulator.
 
-The Tetris port in the emulator:
-
-![Tetris in play](screenshots/tetris.png)
-
 ## Disk images
 
-The disks built from this source are on archive.org, ready for the
+The disks built from these repos are on archive.org, ready for the
 emulator or a real machine, as
 [Lobo Max80 homebrew software](https://archive.org/details/lobo-max80-homebrew_202611).
 The original Lobo disks, CP/M 2.2, CP/M 3, LDOS and the applications
@@ -74,10 +65,9 @@ cd emu
 ```
 
 Ctrl-] quits. `-D 1` boots a 5.25" disk. `make test` runs the tests,
-and `emu/README.md` lists every option. The Tetris port also needs
-[sjasmplus](https://github.com/z00m128/sjasmplus) and Python 3.
+and `emu/README.md` lists every option.
 
 ## License
 
-The emulator and the Tetris port are MIT, in each folder's `LICENSE`.
-The scripts in `tools/` are MIT on the terms in `emu/LICENSE`.
+The emulator is MIT, in `emu/LICENSE`. The scripts in `tools/` are
+MIT on the same terms.

@@ -67,6 +67,13 @@ else
 	echo "FAIL devices unit test:"; ./test_dev; fail=1
 fi
 
+# The Mac app's interface to the emulator
+if ./test_app > /dev/null 2>&1; then
+	echo "ok   the app's insert, eject, changed flag and Save Disk As (test_app)"
+else
+	echo "FAIL app interface unit test:"; ./test_app; fail=1
+fi
+
 # Options read as their help says: -F d's second in decimal,
 # -t 0 and an -i time that is not a number refused
 opts=""

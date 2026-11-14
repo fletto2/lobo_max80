@@ -115,6 +115,7 @@
 #include <sys/un.h>
 #endif
 #include "z80.h"
+#include "app.h"
 #ifdef HAVE_SDL
 #include <SDL.h>
 #endif
@@ -166,6 +167,8 @@ struct disk {
 	int wprot;		/* -R: the disk is write-protected */
 	int three;		/* -3: a 3.5-inch drive, 300 rpm */
 	int one;		/* single sided, SYSFLG bit 4 on the 8-inch connector */
+	int changed;		/* written or formatted since loaded or saved */
+	int own;		/* path is a file the app saved: it may save there again */
 	struct track trk[MAXCYL][2];
 };
 
@@ -760,6 +763,7 @@ static void fdc_start_sector(void)
 	}
 	fdc.cur = s;
 	if (fdc.writing) {
+		disks[fdc.drive].changed = 1;
 		s->deleted = fdc.wdel;
 		s->missing = s->bad = 0;
 	}
@@ -1019,9 +1023,11 @@ static void fdc_byte_done(int lost)
 		fdc.wtrack = 0;
 		/* the drive deselected or changed on the way: no track is
 		   kept, rather than half of one on another drive */
-		if (fdc.drive == fdc.wt_drive)
+		if (fdc.drive == fdc.wt_drive) {
 			track_from_stream(&disks[fdc.drive].trk[fdc.pos[fdc.drive]][fdc.side],
 			    trackbuf, fdc.len);
+			disks[fdc.drive].changed = 1;
+		}
 		fdc_done(0);
 		return;
 	}
@@ -3321,7 +3327,17 @@ static int win_events(void)
 	while (SDL_PollEvent(&e)) {
 		switch (e.type) {
 		case SDL_QUIT:
+#ifdef MAC_APP
+			if (!mac_quit())	/* unsaved disks: the user said no */
+				break;
+#endif
 			return 1;
+#ifdef MAC_APP
+		case SDL_DROPFILE:
+			mac_drop(e.drop.file);
+			SDL_free(e.drop.file);
+			break;
+#endif
 		case SDL_WINDOWEVENT:
 			if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
 				memset(held_at, 0, sizeof(held_at));
@@ -3365,6 +3381,9 @@ static int win_events(void)
 				if (e.key.keysym.mod & KMOD_CTRL) {
 					int k = e.key.keysym.sym;
 					if (k == SDLK_RIGHTBRACKET)
+#ifdef MAC_APP
+						if (mac_quit())
+#endif
 						return 1;
 					if (k >= SDLK_a && k <= SDLK_z)
 						ch = k - SDLK_a + 1;
@@ -3782,17 +3801,125 @@ static void dbg_poll(void)
 }
 #endif
 
+/* ---- The app's interface (app.h): called between ticks ---- */
+
+static int run_fast;		/* -f: no pacing to real time */
+
+int app_insert(int d, const char *path)
+{
+	if (d < 0 || d > 3)
+		return -1;
+	int r = swap_disk(d, path);
+	if (r == 0) {
+		disks[d].changed = 0;
+		disks[d].own = 0;
+	}
+	return r;
+}
+
+int app_eject(int d)
+{
+	struct disk *k;
+
+	if (d < 0 || d > 3)
+		return -1;
+	if (fdc.busy)
+		return 1;
+	k = &disks[d];
+	free_tracks(k);
+	fdc.cur = NULL;
+	k->loaded = 0;
+	k->changed = 0;
+	k->own = 0;
+	k->one = 0;
+	k->path = NULL;		/* strdup'd by swap_disk, or argv: left */
+	return 0;
+}
+
+int app_save(int d, const char *path, char *why, int whylen)
+{
+	char *p;
+
+	if (d < 0 || d > 3 || !disks[d].loaded) {
+		snprintf(why, whylen, "There is no disk in drive %c.", 'A' + d);
+		return -1;
+	}
+	/* never over a loaded image, the archive's above all, but over the
+	   file the app itself saved this disk to */
+	for (int i = 0; i < 4; i++) {
+		const char *q = disks[i].path;
+		if (!q || !same_file(path, q) || (i == d && disks[d].own))
+			continue;
+		snprintf(why, whylen, "That file is the disk in drive %c. "
+		    "Save to a new file.", 'A' + i);
+		return -1;
+	}
+	if (sasi.path && same_file(path, sasi.path)) {
+		snprintf(why, whylen, "That file is the hard disk. Save to a new file.");
+		return -1;
+	}
+	if (!(p = strdup(path)) || save_imd(&disks[d], path)) {
+		free(p);
+		snprintf(why, whylen, "The disk could not be written to %s.", path);
+		return -1;
+	}
+	disks[d].path = p;
+	disks[d].own = 1;
+	disks[d].changed = 0;
+	return 0;
+}
+
+const char *app_disk(int d)
+{
+	return d >= 0 && d < 4 && disks[d].loaded ? disks[d].path : NULL;
+}
+
+int app_changed(int d)
+{
+	return d >= 0 && d < 4 && disks[d].loaded && disks[d].changed;
+}
+
+int app_kind(int d)
+{
+	if (d < 0 || d > 3 || !disks[d].loaded)
+		return 0;
+	for (int c = 0; c < MAXCYL; c++)
+		for (int h = 0; h < 2; h++)
+			if (disks[d].trk[c][h].present)
+				return disks[d].trk[c][h].fast ? 8 : 5;
+	return 0;
+}
+
+void app_set_wprot(int d, int on)
+{
+	if (d >= 0 && d < 4)
+		disks[d].wprot = !!on;
+}
+
+void app_set_fast(int on)
+{
+	run_fast = !!on;
+}
+
+int app_fast(void)
+{
+	return run_fast;
+}
+
 int main(int argc, char **argv)
 {
 	const char *rompath = "../reference/rom/max80.e12";
 	const char *keys = NULL, *pgm = NULL, *wavpath = NULL, *inst = NULL;
 	double seconds = 0;
-	int fast = 0, opt, typed = 0, window = 0, debug = 0, show_lost = 0;
+	int opt, typed = 0, window = 0, debug = 0, show_lost = 0;
 	int rom_given = 0;
 	FILE *f;
 
 #ifdef HAVE_SDL
 	window = 1;
+#endif
+#ifdef MAC_APP
+	mac_args(&argc, &argv);	/* the saved settings, launched from Finder */
 #endif
 	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:ACBqV:S:LKMG:N:")) != -1) {
 		switch (opt) {
@@ -3839,7 +3966,7 @@ int main(int argc, char **argv)
 			dipsw = v;
 			break;
 		}
-		case 'f': fast = 1; break;
+		case 'f': run_fast = 1; break;
 		case 'k': {	/* the queue holds KEYQ - 1 */
 			int n;
 			unescape(optarg, &n);
@@ -3853,7 +3980,7 @@ int main(int argc, char **argv)
 		case 'e': prompt = optarg; break;
 		case 't':
 			seconds = atof(optarg);
-			fast = 1;
+			run_fast = 1;
 			/* 0 was taken and ran for ever */
 			if (!(seconds > 0 && seconds <= 1e7))
 				return fprintf(stderr, "-t: seconds, more than 0, "
@@ -4105,6 +4232,14 @@ int main(int argc, char **argv)
 		(int)(slash - argv[0]), argv[0]) < (int)sizeof near &&
 	    (f = fopen(near, "rb")))
 		rompath = near;
+#ifdef __APPLE__
+	/* in MAX-80.app, Contents/Resources beside Contents/MacOS */
+	if (!f && !rom_given && slash &&
+	    snprintf(near, sizeof near, "%.*s/../Resources/max80.e12",
+		(int)(slash - argv[0]), argv[0]) < (int)sizeof near &&
+	    (f = fopen(near, "rb")))
+		rompath = near;
+#endif
 	if (!f || fread(rom, 1, 512, f) != 512) {
 		fprintf(stderr, "%s: cannot read the 512-byte boot ROM\n", rompath);
 		return 1;
@@ -4127,6 +4262,10 @@ int main(int argc, char **argv)
 #ifdef HAVE_SDL
 	if (window && win_open())
 		return 1;
+#endif
+#ifdef MAC_APP
+	if (window)
+		mac_init();
 #endif
 	if (inst && !debug)
 		return fprintf(stderr, "-N names the debug sockets, it needs -g\n"), 2;
@@ -4180,6 +4319,10 @@ int main(int argc, char **argv)
 		if (tty && beep_count != beeps_before)
 			fputc('\a', stdout);	/* the terminal bell */
 		key_tick();
+#ifdef MAC_APP
+		if (window)
+			mac_tick();
+#endif
 		ticks++;
 #ifdef __linux__
 		if (debug) {
@@ -4208,9 +4351,9 @@ int main(int argc, char **argv)
 			clock_gettime(CLOCK_MONOTONIC, &now);
 			long late = (now.tv_sec - next.tv_sec) * 1000000000L
 			    + now.tv_nsec - next.tv_nsec;
-			if (fast && late < 1000000000L / 60)
+			if (run_fast && late < 1000000000L / 60)
 				continue;
-			if (fast)
+			if (run_fast)
 				next = now;
 			if (win_events())
 				break;
@@ -4218,7 +4361,7 @@ int main(int argc, char **argv)
 			   showed, but a frame behind time skips up to 3 draws so
 			   the CPU keeps time on a slow host */
 			static int skipped;
-			if (!fast && late > 1000000000L / 60 && skipped < 3)
+			if (!run_fast && late > 1000000000L / 60 && skipped < 3)
 				skipped++;
 			else {
 				skipped = 0;
@@ -4239,7 +4382,7 @@ int main(int argc, char **argv)
 				screen_draw();
 			}
 		}
-		if (!fast) {
+		if (!run_fast) {
 			next.tv_nsec += 1000000000L / 60;
 			if (next.tv_nsec >= 1000000000L) {
 				next.tv_nsec -= 1000000000L;
