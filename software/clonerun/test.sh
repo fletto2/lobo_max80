@@ -372,6 +372,9 @@ fi
 # on row 23 for a moment at each start
 # ENTER at once stays on GAME OVER, it may be a dig, and the
 # letters give it time, GAME OVER ignoring them
+# -e "$P|$OVER" types the second ENTER only once GAME OVER shows, so it
+# lands there; keep both ENTERs in the keys, as nothing else shows it
+# came
 $EMU -a $T/xc.imd -t 34 -e "$P|$OVER" -k 'CRT 14 26\r\r' > $T/gstay.txt
 if grep -q 'GAME OVER' $T/gstay.txt; then
 	ok "ENTER at once on GAME OVER does nothing"

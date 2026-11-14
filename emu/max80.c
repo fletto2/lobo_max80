@@ -1516,6 +1516,7 @@ static uint8_t rtc_old;		/* and what it was */
 static uint8_t rtc_reg[13];
 static int rtc_set;		/* rtc_reg holds a time */
 static uint64_t rtc_sec;	/* the emulated second rtc_reg is at */
+static int rtc_pend;		/* a second's edge came under HOLD */
 static int time_set;		/* -C: TIME SET held */
 
 static int rtc_days(void)	/* in the month the digits hold */
@@ -1578,16 +1579,28 @@ static void rtc_sync(void)
 		uint8_t v[13] = { tm->tm_sec % 10, tm->tm_sec / 10,
 			tm->tm_min % 10, tm->tm_min / 10, tm->tm_hour % 10,
 			(tm->tm_hour / 10) | 8, tm->tm_wday, tm->tm_mday % 10,
-			(tm->tm_mday / 10) | (tm->tm_year % 4 ? 0 : 4),
+			/* the leap flag as the chip has it: cleared
+			   past 29 February */
+			(tm->tm_mday / 10) |
+			    (tm->tm_year % 4 || tm->tm_mon > 1 ? 0 : 4),
 			(tm->tm_mon + 1) % 10, (tm->tm_mon + 1) / 10,
 			tm->tm_year % 10, (tm->tm_year / 10) % 10 };
 		memcpy(rtc_reg, v, 13);
 		rtc_set = 1;
 		rtc_sec = sec;
 	}
-	if (rtc_held()) {	/* the count stands while HOLD is high */
+	/* The count stands while HOLD is high, but the chip keeps the edge
+	   of a second that passes and counts it when HOLD falls: "HOLD
+	   < 1 s keeps time" (Appendix E p.7) */
+	if (rtc_held()) {
+		if (rtc_sec < sec)
+			rtc_pend = 1;
 		rtc_sec = sec;
 		return;
+	}
+	if (rtc_pend) {
+		rtc_tick();
+		rtc_pend = 0;
 	}
 	while (rtc_sec < sec) {
 		rtc_tick();
@@ -1618,6 +1631,7 @@ static void rtc_port_b(uint8_t old)
 		int a = pio_b & 0x0f;
 		if (a == 0 || a == 1) {	/* either seconds digit clears both */
 			rtc_reg[0] = rtc_reg[1] = 0;
+			rtc_pend = 0;	/* and the second's count with them */
 		} else if (a < 13)	/* PA3-0 that are inputs float to
 					   their pull-ups (PIO-23): 1s */
 			rtc_reg[a] = (pio_a | pio_mask[0]) & 0x0f;
@@ -1702,6 +1716,7 @@ static struct sio_chan {
 	const char *in_path, *out_path;	/* -i, -o */
 	unsigned long long shift_end;	/* the character being sent ends */
 	int buf;		/* a byte waiting to be sent + 1, or 0 */
+	unsigned long long buf_at;	/* it could be sent from then */
 	unsigned long long rx_at;	/* -i a:file@s: the remote starts then */
 	unsigned long long rx_next;	/* the next byte has arrived */
 	int rx_on, rx_eof;	/* the remote has started, has no more */
@@ -1744,7 +1759,10 @@ static void sio_tx_pump(struct sio_chan *ch)
 	while (ch->buf && cpu.cycles >= ch->shift_end && (ch->wr[5] & 8) && cts) {
 		uint8_t v = ch->buf - 1;
 		int data = sio_bits(ch->wr[5] >> 5);
-		unsigned long long from = ch->shift_end > cpu.cycles ? ch->shift_end : cpu.cycles;
+		/* it went into the shift register when the last character
+		   ended, or when it was written, not when the SIO is next
+		   looked at */
+		unsigned long long from = ch->shift_end > ch->buf_at ? ch->shift_end : ch->buf_at;
 		ch->buf = 0;
 		ch->shift_end = from + sio_char_t(ch, 1);
 		if (ch->out && !(ch->wr[5] & 0x10)) {	/* no break */
@@ -1865,6 +1883,7 @@ static void sio_write(int reg, uint8_t v)
 	sio_tx_pump(ch);
 	if (!(reg & 1)) {		/* data: into the buffer, the last wins */
 		ch->buf = v + 1;
+		ch->buf_at = cpu.cycles;
 		ch->tx_ie = 1;
 		sio_tx_pump(ch);
 		return;
@@ -1872,6 +1891,9 @@ static void sio_write(int reg, uint8_t v)
 	ch->wr[ch->ptr] = v;
 	if (ch->ptr) {
 		ch->ptr = 0;
+		/* a byte held by Tx enable or CTS can go from now on */
+		if (ch->buf && ch->buf_at < cpu.cycles)
+			ch->buf_at = cpu.cycles;
 		sio_rx_pump(ch);	/* WR3 may have turned the receiver on */
 		sio_tx_pump(ch);	/* WR5 the sender */
 		sio_ie = (sio[0].wr[1] | sio[1].wr[1]) & 0x1a;
@@ -1947,8 +1969,9 @@ static void prn_write(uint8_t v)
 
 /*
  * SYSFLG bit 6, the CRTC's DISPTMG: on while the beam is in the picture.
- * A character clock is 8 dots of 15.2 MHz, 8/3 CPU T-states. Interlace
- * is not modeled, every field is taken as a frame.
+ * A character clock is 8 dots of 15.2 MHz, 8/3 CPU T-states. With -q
+ * the formula takes a field as a frame and leaves out its half line;
+ * -B counts the fields as raster_line does.
  */
 static int raster = 1;		/* the beam-raced CRTC, off with -q */
 static int quick;		/* -q: idealised timing, for speed */
@@ -2491,7 +2514,9 @@ static void screen_draw(void)
  *
  * R8 interlace: mode 1 (sync only) draws each scan line on two image
  * lines, as both fields show the same thing. Mode 3 (sync and video)
- * draws a row's R9+1 raster lines once, split over the two fields.
+ * draws a row's R9+1 raster lines once, split over the two fields,
+ * with R4, R6 and R7 counted in pairs of rows, as the HD46505R does
+ * (raster_line). Both have a half line a field.
  *
  * VLATCH bit 3 shows every second character twice as wide. Which of
  * each pair shows depends on the hsync phase; with the
@@ -2550,18 +2575,34 @@ static struct {
 	int cur;		/* rast_img being drawn */
 	int shown_w, shown_h;	/* the last whole frame, in rast_img[!cur] */
 	int started;
+	int odd;		/* R8 = 3: this field shows the odd rasters */
 } rs;
 
 static void raster_frame(void)
 {
 	rs.vc = rs.ra = rs.adj = rs.in_adj = 0;
+	if ((crtc[8] & 3) == 3)	/* the fields take turns, even rasters first */
+		rs.ra = rs.odd ^= 1;
+	else
+		rs.odd = 0;
 	rs.ma_row = (crtc[12] << 8 | crtc[13]) & 0x3fff;
 	rs.vdisp = (crtc[6] & 0x7f) != 0;
 }
 
+/*
+ * R8 = 3, interlace sync and video: the HD46505R counts R4, R6 and R7
+ * in units of two rows, and each field draws every other raster of
+ * each row, the even ones, then the odd, so a field is
+ * (R4+1)(R9+1)+R5 lines and a half, taken here as R5 adjust lines in
+ * the even field and R5+1 in the odd (App G p.15 note 2, p.34, p.67).
+ */
 static void raster_line(void)
 {
-	int lines_end = rs.ra == (crtc[9] & 0x1f);
+	int il = (crtc[8] & 3) == 3, m = il ? 2 : 1;
+	int r9 = crtc[9] & 0x1f, first = il ? rs.odd : 0;
+	int lines_end = il ? rs.ra + 2 > r9 : rs.ra == r9;
+	int vtot = (crtc[4] & 0x7f) * m + m - 1, vmask = il ? 0xff : 0x7f;
+	int adjl = (crtc[5] & 0x1f) + (il && rs.odd);
 
 	if (rs.in_vs && --rs.vs_left == 0) {	/* the end of vsync */
 		rs.in_vs = 0;
@@ -2572,23 +2613,24 @@ static void raster_line(void)
 	} else if (!rs.in_vs)
 		rs.y++;
 	if (rs.in_adj) {
-		if (++rs.adj >= (crtc[5] & 0x1f))
+		if (++rs.adj >= adjl)
 			raster_frame();
 	} else if (lines_end) {
-		rs.ra = 0;
+		rs.ra = first;
 		rs.ma_row = (rs.ma_row + crtc[1]) & 0x3fff;
-		if (rs.vc == (crtc[4] & 0x7f)) {
-			if (crtc[5] & 0x1f)
+		if (rs.vc == vtot) {
+			if (adjl)
 				rs.in_adj = 1, rs.adj = 0;
 			else
 				raster_frame();
 		} else
-			rs.vc = (rs.vc + 1) & 0x7f;
-		if (!rs.in_adj && rs.vc == (crtc[6] & 0x7f) && rs.vc)
+			rs.vc = (rs.vc + 1) & vmask;
+		if (!rs.in_adj && rs.vc == (crtc[6] & 0x7f) * m && rs.vc)
 			rs.vdisp = 0;
 	} else
-		rs.ra = (rs.ra + 1) & 0x1f;
-	if (!rs.in_adj && rs.ra == 0 && rs.vc == (crtc[7] & 0x7f) && !rs.in_vs) {
+		rs.ra = (rs.ra + m) & 0x1f;
+	if (!rs.in_adj && rs.ra == (il ? rs.odd : 0) &&
+	    rs.vc == (crtc[7] & 0x7f) * m && !rs.in_vs) {
 		rs.in_vs = 1;
 		rs.vs_left = 16;	/* fixed in the HD46505R */
 	}
@@ -2673,8 +2715,13 @@ static int frame_draw(struct geom *g)
 	int vsw = 16;		/* fixed in the HD46505R, R3 is HSYNC only */
 	int il = mode & 1;		/* two fields to a frame */
 	int rowh = mode == 1 ? lines * 2 : lines;
+	if (mode == 3) {	/* the HD46505R counts rows in pairs (raster_line) */
+		vtotal *= 2;
+		vdisp *= 2;
+		vpos *= 2;
+	}
 	int hs_end = crtc[2] + hsw, vs_start = vpos * rowh, vs_lines = vsw << il;
-	int fh = vtotal * rowh + (vadj << il);
+	int fh = vtotal * rowh + (vadj << il) + il;	/* a half line a field */
 	int start = crtc[12] << 8 | crtc[13];
 
 	/* -B: the frame drawn, whatever the registers say now: a program
@@ -3650,7 +3697,10 @@ static void dbg_memdump(int cl)
 			dbg_send(cl, "ok\n", 3);
 		return;
 	}
-	if (sscanf(req, "%x %x %7s", &addr, &len, name) < 1) {
+	int used = 0;	/* the address must be all hex: "disc b" is a typo */
+	if (sscanf(req, "%x%n", &addr, &used) < 1 ||
+	    (req[used] && !strchr(" \t\r\n", req[used])) ||
+	    sscanf(req, "%x %x %7s", &addr, &len, name) < 1) {
 		dbg_send(cl, "usage: ADDR LEN [A1|A2|B1|B2|V], in hex\n", 40);
 		return;
 	}
@@ -3666,7 +3716,9 @@ static void dbg_memdump(int cl)
 	if (len > 4096)
 		len = 4096;
 	for (unsigned i = 0; i < len; i += 16) {
-		n += sprintf(buf + n, "%04X:", (addr + i) & 0xffff);
+		/* the address the row's first byte has, wrapped as read */
+		n += sprintf(buf + n, "%04X:", (addr + i) &
+		    (chunk < 0 ? 0xffff : chunk == 4 ? 0x7ff : 0x7fff));
 		for (unsigned j = 0; j < 16 && i + j < len; j++) {
 			uint16_t a = addr + i + j;
 			n += sprintf(buf + n, " %02X", chunk < 0 ? dbg_peek(a) :

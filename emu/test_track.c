@@ -628,7 +628,38 @@ int main(void)
 	expect(frame_draw(&g) && g.w == 912 && g.h == 248,
 	    "  R4 = R9 = 0 after the frame: it is saved at its own size");
 	memcpy(crtc, lobo, 16);
+
+	/* R8 = 3 on the HD46505R counts R4, R6 and R7 in pairs of
+	   rows, a field (R4+1)(R9+1)+R5 lines and a half (App G p.34,
+	   p.67): the CRTC trick disk's test 4, 262 and 263 lines in turn,
+	   24 rows of 8 lines shown in each, even rasters then odd */
+	static const uint8_t ilv[16] = { 0x77, 0x50, 0x61, 0x06, 15, 6,
+	    12, 14, 3, 15, 0x20, 0, 0, 0, 0, 0 };
+	memcpy(crtc, ilv, 16);
+	memset(&rs, 0, sizeof(rs));
+	raster_frame();
+	int vs_at[6], nvs = 0, shown[6] = { 0 }, parity_ok = 1, was_vs = 0;
+	for (int line = 0; line < 2000 && nvs < 6; line++) {
+		if (rs.vdisp && !rs.in_adj) {
+			if (nvs)
+				shown[nvs - 1]++;
+			parity_ok &= (rs.ra & 1) == rs.odd;
+		}
+		raster_line();
+		if (rs.in_vs && !was_vs)
+			vs_at[nvs++] = line;
+		was_vs = rs.in_vs;
+	}
+	expect(nvs == 6 && vs_at[2] - vs_at[1] + vs_at[3] - vs_at[2] == 525 &&
+	    vs_at[2] - vs_at[1] != vs_at[3] - vs_at[2] &&
+	    vs_at[4] - vs_at[2] == 525,
+	    "interlace: fields of 262 and 263 lines in turn, as R4 = 15 in pairs");
+	expect(shown[1] == 192 && shown[2] == 192 && parity_ok,
+	    "  24 rows of 8 lines shown a field, each field its own rasters");
 	raster = 0;
+	expect(frame_draw(&g) && g.rows == 24 && g.cell_h == 16 && g.h == 32 * 16 + 12 + 1 - 32,
+	    "  the frame 24 rows of 16 lines, 525 lines less the vsyncs");
+	memcpy(crtc, lobo, 16);
 
 	/* -V stretches video accesses */
 	vlatch = 0xf0;

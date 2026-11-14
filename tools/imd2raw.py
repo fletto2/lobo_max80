@@ -9,6 +9,8 @@ marks unavailable, stops it with an error and no output, since every
 byte after it would be at the wrong offset or a file would hold E5
 filler. convert(path, unavailable=True) writes E5 for an unavailable
 sector instead, for callers that check the sectors they use.
+A sector the .imd marks as read with a data CRC error keeps its bytes,
+named on stderr.
 
 The tracks must make one layout, as every disk here has: cylinders from
 0 with none missing, the same heads on each, every track with the same
@@ -61,6 +63,9 @@ def read_tracks(path):
             i += 1
             if kind > 8:
                 raise ImdError(f'{path}: c{cyl} h{head & 1} s{s}: sector kind {kind}')
+            if kind >= 5:   # read with a data CRC error: kept, and said
+                print(f'{path}: c{cyl} h{head & 1} s{s}: a data CRC error, its bytes kept',
+                      file=sys.stderr)
             if kind == 0:
                 secs[s] = None
             elif kind % 2 == 1:

@@ -32,6 +32,19 @@ check() {	# name, text to find, output
 	fi
 }
 
+# hasline name regex output: a whole line of the output, CRs and
+# trailing spaces left out, matches the extended regex, so the program's
+# own output line, not the command echoed with it
+hasline() {
+	if printf '%s\n' "$3" | tr -d '\r' | sed 's/ *$//' | grep -qxE -- "$2"; then
+		echo "ok   $1"
+	else
+		echo "FAIL $1: no line like '$2' in:"
+		printf '%s\n' "$3"
+		fail=1
+	fi
+}
+
 same() {	# name, file, file
 	if cmp -s "$2" "$3"; then
 		echo "ok   $1"
@@ -1521,6 +1534,7 @@ rm -f $T/out/lst.txt
 $EMU -a $T/ha.imd -T -t 20 -l $T/out/lst.txt -e 'A:\>' \
 	-k "$(printf '\020')$(printf 'a%.0s' $(seq 76))\\L$(printf '\030')\r" >/dev/null
 check "the back arrow at a wrapped row prints no form feed" "=0=" "=$(tr -cd '\014' <$T/out/lst.txt | wc -c | tr -d ' ')="
+check "and the line was printed, its 76 a's" "=76=" "=$(tr -cd 'a' <$T/out/lst.txt | wc -c | tr -d ' ')="
 # The shell's commands: _ in a name, no SAVE, TYPE or REN without a
 # whole name, SAVE past 127 pages, DIR of a folder shows its folders,
 # REN on the old name's drive, a batch file too long for the buffer
@@ -1944,7 +1958,7 @@ EOF
 mcopy -i $T/fh.img $T/FD.COM ::FD.COM
 out=$($EMU -D 7 -h $T/fh.img -t 60 -e 'A:\>|A:\TOOLS>|A:\TOOLS\SUB>|A:\PC\DEEP>' -w h:$T/out/fh.img \
 	-k 'dir\rcd pc\\deep\rtype hi.txt\rcd \\\rfd\rdir\rcd sub\rdir\r')
-check "DIR shows mtools's folder" "PC\\" "$out"
+hasline "DIR shows mtools's folder" "A: .*(TXT|COM|   ) : PC\\\\( .*)?|A: PC\\\\( .*)?" "$out"
 check "CD and TYPE in mtools's folders" "Second line." "$out"
 check "BDOS 118, 124 and 125 from a program" '00 00 00 \TOOLS\SUB00 00 00 FF FF' "$out"
 check "and its CD stays after it" 'A:\TOOLS>dir' "$out"

@@ -389,7 +389,7 @@ def main():
         open(raw, 'wb').write(disk)
 
 
-TAG = re.compile(rb'ILV\d+ SKEW\d+ HSK\d+ *$')
+TAG = re.compile(rb'ILV\d+ SKEW\d+ HSK\d+ *\Z')  # \Z: no newline before the end
 
 
 def bench_tag(disk, ilv, skew, hskew):

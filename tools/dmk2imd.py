@@ -76,6 +76,11 @@ def read_sector(at, dd, problems):
     pre = [0xa1] * 3 if dd else []
     id_ok = crc16(pre + idf) == crc
     c, h, r, n = idf[1:5]
+    # The FDC never matches an ID whose CRC is bad, and its C, H, R and N
+    # cannot be trusted, so it is no sector
+    if not id_ok:
+        problems.append('C%d H%d R%d: bad ID CRC, left out' % (c, h, r))
+        return None
     size = 128 << (n & 3)
     k = 7
     while k < 7 + 64 and not 0xf8 <= at(k) <= 0xfb:
@@ -87,10 +92,10 @@ def read_sector(at, dd, problems):
     data = bytes(at(k + 1 + i) for i in range(size))
     dcrc = at(k + 1 + size) << 8 | at(k + 2 + size)
     data_ok = crc16(pre + [mark] + list(data)) == dcrc
-    if not (id_ok and data_ok):
-        problems.append('C%d H%d R%d: bad %s CRC' % (c, h, r, 'ID' if not id_ok else 'data'))
+    if not data_ok:
+        problems.append('C%d H%d R%d: bad data CRC' % (c, h, r))
     return dict(c=c, h=h, r=r, size=size, dd=dd, data=data,
-                deleted=mark in (0xf8, 0xf9), bad=not (id_ok and data_ok))
+                deleted=mark in (0xf8, 0xf9), bad=not data_ok)
 
 
 def write_imd(tracks, path, eight, source, tool='tools/dmk2imd.py', stamp=None):

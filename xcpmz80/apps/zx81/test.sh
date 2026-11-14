@@ -50,6 +50,18 @@ check() {	# name, text to find, output
 	fi
 }
 
+# loaded name output: none of ZX81.COM's messages for a game it did not
+# start, so a check that the shell came back means the game ran
+loaded() {
+	e=$(printf '%s\n' "$2" | grep -oE 'ZX81 NAME \[|No ZX81\.ROM|ZX81\.ROM is not|No such \.P|Not a good \.P|No USR|Cannot find the screen start' | head -1)
+	if [ -n "$e" ]; then
+		echo "FAIL $1: '$e'"
+		fail=1
+	else
+		echo "ok   $1"
+	fi
+}
+
 no() {		# name, text that must not be there, output
 	if printf '%s\n' "$3" | grep -qF -- "$2"; then
 		echo "FAIL $1: found '$2'"
@@ -94,6 +106,7 @@ out=$($EMU -f -K -T -a $T/norom.imd -e 'A:\>' -k 'ZX81 RET\r' -t 6 2>&1)
 check "no ROM" "No ZX81.ROM" "$out"
 
 out=$(run 8 'ZX81 RET /Y\rDIR\r')
+loaded "the game loads" "$out"
 check "the game's return comes back to the shell" "ZX81     COM" "$out"
 
 # A display file code shows in both pages, from video RAM offset 8. A is
@@ -217,6 +230,7 @@ check "IN A,(C)" "  IN at 4089" "$out"
 check "a ROM call" "  ROM call at 408B" "$out"
 no "but not the kept decode" "at 408E" "$out"
 out=$($EMU -f -K -T -a $T/d.imd -e 'A:\>' -k 'ZX81 SCAN\E\P\P\P\Px\P\P' -t 8 2>&1)
+loaded "the scanned game loads, and the key starts it" "$out"
 no "and a key goes on" "Any key goes on" "$out"
 
 # KEYBOARD at 02BBh and DECODE with SHIFT; CLS at 0A2Ah; RST 10h past
@@ -273,10 +287,12 @@ check "RST 10h past the last line: kept on it" "@@@@@@@@$(zt XY)@@" "$out"
 no "and nothing written past the display file" "ROM call not there" "$out"
 out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 NX /Y\rDIR\r' -t 9 2>&1)
 no "NXTLIN at the display file: the USR found as RUN" "No USR" "$out"
+loaded "and it loaded" "$out"
 check "and the game ran and returned" "ZX81     COM" "$out"
 out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 BIG /Y\rDIR\r' -t 12 2>&1)
 no "a .P ending in the record at the limit loads" "too big" "$out"
 check "and runs" "ZX81     COM" "$out"
+loaded "and nothing refused it" "$out"
 out=$($EMU -f -K -T -a $T/e.imd -e 'A:\>' -k 'ZX81 TOO /Y\r' -t 10 2>&1)
 check "one record more is too big" "too big" "$out"
 out=$($EMU -f -K -T -a $T/badrom.imd -e 'A:\>' -k 'ZX81 RET /Y\r' -t 7 2>&1)
@@ -326,9 +342,16 @@ if [ -f "$ROM" ]; then
 	check "Pipepanic: the menu, through the patched IN" "$(zt CONTROLS)" "$out"
 	out=$(game 34 "ZX81 PIPEPANI /F\\E\\P\\P\\P$w\\Pk\\P\\P\\P\\P\\P\\Pk\\P\\P\\P\\P\\P\\P\\P\\P")
 	no "and Play leaves it" "$(zt CONTROLS)" "$out"
-	$EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\Pm\P\P\P' -t 13 -p $T/k1.pgm >/dev/null 2>&1
-	$EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\P\P\P\P' -t 13 -p $T/k0.pgm >/dev/null 2>&1
-	out=$(cmp -s $T/k0.pgm $T/k1.pgm && echo same || echo differ)
+	rm -f $T/k0.pgm $T/k1.pgm
+	o1=$($EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\Pm\P\P\P' -t 13 -p $T/k1.pgm 2>&1)
+	o0=$($EMU -f -T -a $T/g.imd -e 'A:\>' -k 'ZX81 TETRIS1K /F\E\P\P\P\P\P\P\P\P\P\P\P' -t 13 -p $T/k0.pgm 2>&1)
+	loaded "Tetris1k loads, with the key and without" "$o1
+$o0"
+	if [ -s $T/k0.pgm ] && [ -s $T/k1.pgm ]; then
+		out=$(cmp -s $T/k0.pgm $T/k1.pgm && echo same || echo differ)
+	else
+		out="no frames"
+	fi
 	check "Tetris1k: a key through 07BDh starts a game" "differ" "$out"
 else
 	echo "skip the games: no $ROM"
