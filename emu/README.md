@@ -13,30 +13,35 @@ make test
 ```
 
 SDL2 is found with pkg-config. Without it the emulator has the
-terminal only. `make test` runs `test.sh`: the CP/M CPU tests
+terminal only. macOS builds the terminal one as well, Apple clang
+included; its `-g` sockets stay Linux-only. `make test` runs
+`test.sh`: the CP/M CPU tests
 (`cpmtest.c`), write track and read track, the clock chip and the
 drive connectors (`test_track.c`), the SASI disk (`test_sasi.c`), an
 interrupt right after `LD A,I` (`test_iff.c`), the window's keys
-(`test_keys.c`, with SDL2), and, when `../xcpmz80` has been built, a
-boot of xcpmz80. `test_sound.py` checks beeps recorded with `-s`, and
+(`test_keys.c`, with SDL2), and, when
+[max80_xcpmz80](https://github.com/fletto2/max80_xcpmz80) is checked
+out and built beside this repo (or `XCPMZ80` says where), a boot of
+xcpmz80. `test_sound.py` checks beeps recorded with `-s`, and
 `test_frame.py` a frame saved with `-p`. `frame2png.py frame.pgm
-out.png` turns such a frame into a PNG, as `../screenshots/make.sh`
-does.
+out.png` turns such a frame into a PNG.
 
 ## Run
 
 ```sh
-./max80 -K -a ../xcpmz80/build/xcpmz80.imd
+./max80 -K -a ../../max80_xcpmz80/build/xcpmz80.imd
 ```
 
-Ctrl-] quits. The boot ROM is read from `../reference/rom/max80.e12`.
+Ctrl-] quits. The boot ROM is read from `../reference/rom/max80.e12`,
+or when that isn't there, from `reference/rom/max80.e12` beside the
+`emu/` folder the program is in.
 Disk images are IMD files, and a loaded image is never written to.
 
 ## Options
 
 | Option | What it does |
 | --- | --- |
-| `-r rom` | The boot ROM, default `../reference/rom/max80.e12`. |
+| `-r rom` | The boot ROM, default `../reference/rom/max80.e12`, or the one beside the program's `emu/` folder. |
 | `-a`, `-b`, `-c`, `-d disk.imd` | The disk in drive A to D. |
 | `-h hard.img` | A SASI hard disk, a raw image of 512-byte blocks. |
 | `-n drive` | A blank, unformatted disk in this drive, for FORMAT. |

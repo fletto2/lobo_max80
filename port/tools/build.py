@@ -174,7 +174,12 @@ def main():
     com = os.path.join(BUILD, 'TETRIS.COM')
     assemble(com)
     imd = os.path.join(BUILD, 'tetris.imd')
-    xcpm = os.path.join(ROOT, 'xcpmz80')
+    # xcpmz80, from XCPMZ80 or a max80_xcpmz80 checkout beside this one
+    xcpm = os.environ.get('XCPMZ80')
+    xcpm = xcpm or os.path.join(os.path.dirname(ROOT), 'max80_xcpmz80')
+    if not os.path.isfile(os.path.join(xcpm, 'Makefile')):
+        sys.exit('build.py: no xcpmz80 in %s: check out max80_xcpmz80 beside '
+                 'this repo, or set XCPMZ80' % xcpm)
     subprocess.run(['make', '-s', 'build/xcpmz80.sys'], cwd=xcpm, check=True)
     # On an 8-inch xcpmz80 boot disk
     subprocess.run([sys.executable, '-I', os.path.join(xcpm, 'tools', 'mkdisk.py'),

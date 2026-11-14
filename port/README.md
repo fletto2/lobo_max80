@@ -11,8 +11,11 @@ has one, and no byte of Nintendo's is in its source.
 
 You need the Game Boy cartridge `Tetris (World) (Rev A)`, DMG-TRA-1,
 dumped to a file, SHA1 `74591CC9501AF93873F9A5D3EB12DA12C0723BBC`.
-`build.py` refuses any other file. Then, from the top of the repo, with
-sjasmplus and Python 3 installed:
+`build.py` refuses any other file. The game goes on an xcpmz80 boot
+disk, so check out
+[max80_xcpmz80](https://github.com/fletto2/max80_xcpmz80) beside this
+repo (or set `XCPMZ80` to where it is). Then, from the top of this
+repo, with sjasmplus and Python 3 installed:
 
     make -C emu
     python3 port/tools/build.py path/to/Tetris.gb

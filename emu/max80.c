@@ -12,7 +12,8 @@
  *              [-m 128|64|64f] [-C] [-A|-B] [-q] [-V T] [-L] [-M] [-G fdc.log]
  *              [-g [-N name]]
  *
- *   -r  boot ROM, default ../reference/rom/max80.e12
+ *   -r  boot ROM, default ../reference/rom/max80.e12, or that beside
+ *       the program's folder
  *   -a  drive A (and -b B, -c C, -d D), .imd files, never written to
  *   -h  a SASI hard disk, a raw image of 512-byte blocks, never written
  *       to. -w h:new.img saves it, -D 7 boots from it
@@ -3411,6 +3412,7 @@ static int same_file(const char *a, const char *b)
 {
 	struct stat sa, sb;
 	char da[PATH_MAX], db[PATH_MAX], ta[PATH_MAX], tb[PATH_MAX];
+	char ba[NAME_MAX + 1], bb[NAME_MAX + 1];
 
 	if (stat(a, &sa) == 0 && stat(b, &sb) == 0)
 		return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
@@ -3418,7 +3420,11 @@ static int same_file(const char *a, const char *b)
 	folder_of(b, db);
 	snprintf(ta, sizeof ta, "%s", a);
 	snprintf(tb, sizeof tb, "%s", b);
-	return da[0] && !strcmp(da, db) && !strcmp(basename(ta), basename(tb));
+	/* copied out: macOS basename hands back memory the next call
+	   overwrites, and the two names would compare equal */
+	snprintf(ba, sizeof ba, "%s", basename(ta));
+	snprintf(bb, sizeof bb, "%s", basename(tb));
+	return da[0] && !strcmp(da, db) && !strcmp(ba, bb);
 }
 
 /*
@@ -3458,7 +3464,21 @@ static int save_allowed(const char *path)
 
 static void sleep_until(struct timespec *t)
 {
+#ifdef __APPLE__
+	/* macOS has no clock_nanosleep: sleep the time left to t. */
+	struct timespec now, d;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	d.tv_sec = t->tv_sec - now.tv_sec;
+	d.tv_nsec = t->tv_nsec - now.tv_nsec;
+	if (d.tv_nsec < 0) {
+		d.tv_sec--;
+		d.tv_nsec += 1000000000L;
+	}
+	if (d.tv_sec >= 0)
+		nanosleep(&d, NULL);
+#else
 	clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, t, NULL);
+#endif
 }
 
 static const char *unescape(const char *s, int *n)
@@ -3593,7 +3613,10 @@ static void dbg_regdump(int cl)
 	n += sprintf(buf + n, "\n");
 	dbg_send(cl, buf, n);
 }
+#endif
 
+/* Not a socket matter: the tests and the -w saves free and swap
+   tracks too */
 static void free_tracks(struct disk *k)
 {
 	for (int c = 0; c < MAXCYL; c++)
@@ -3653,6 +3676,7 @@ static int swap_disk(int d, const char *path)
 	return 0;
 }
 
+#ifdef __linux__
 /* "ADDR LEN" in hex: as the CPU sees it now. "ADDR LEN chunk", chunk
    A1, A2, B1 or B2: that 32K chunk of RAM, ADDR from 0 to 7FFF. Chunk V:
    video RAM, ADDR from 0 to 7FF. "screen": the screen as text, as -t
@@ -3764,6 +3788,7 @@ int main(int argc, char **argv)
 	const char *keys = NULL, *pgm = NULL, *wavpath = NULL, *inst = NULL;
 	double seconds = 0;
 	int fast = 0, opt, typed = 0, window = 0, debug = 0, show_lost = 0;
+	int rom_given = 0;
 	FILE *f;
 
 #ifdef HAVE_SDL
@@ -3771,7 +3796,7 @@ int main(int argc, char **argv)
 #endif
 	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:ACBqV:S:LKMG:N:")) != -1) {
 		switch (opt) {
-		case 'r': rompath = optarg; break;
+		case 'r': rompath = optarg; rom_given = 1; break;
 		case 'a': case 'b': case 'c': case 'd':
 			if (load_imd(&disks[opt - 'a'], optarg))
 				return 1;
@@ -4070,6 +4095,16 @@ int main(int argc, char **argv)
 	if (fdlog_path && !(fdlog = fopen(fdlog_path, "w")))
 		return perror(fdlog_path), 2;
 	f = fopen(rompath, "rb");
+	/* With no -r and not run from a folder beside reference/, the ROM
+	   beside the program's own folder, as when run from another
+	   checkout as ../lobo_max80/emu/max80 */
+	static char near[4096];
+	const char *slash = strrchr(argv[0], '/');
+	if (!f && !rom_given && slash &&
+	    snprintf(near, sizeof near, "%.*s/../reference/rom/max80.e12",
+		(int)(slash - argv[0]), argv[0]) < (int)sizeof near &&
+	    (f = fopen(near, "rb")))
+		rompath = near;
 	if (!f || fread(rom, 1, 512, f) != 512) {
 		fprintf(stderr, "%s: cannot read the 512-byte boot ROM\n", rompath);
 		return 1;

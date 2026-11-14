@@ -15,62 +15,43 @@ compatible. It came with CP/M 2.2, later CP/M 3, and LDOS.
   MSM5832 clock and an expansion port.
 - ROM: a 512-byte boot ROM that reads one sector and runs it.
 
-## Screenshots
+The rest of the MAX-80 software I wrote has its own repos, and all of
+it runs in this emulator:
 
-From the emulator. xcpmz80 with its programs, and a folder made and
-entered:
-
-![xcpmz80 at its prompt](screenshots/xcpmz80.png)
-
-Clone Runner's title, and its first stage in play:
-
-![Clone Runner's title](screenshots/clonerun_title.png)
-
-![Clone Runner in play](screenshots/clonerun_play.png)
-
-The Game Boy Tetris port, in `port/`, which you build from your own
-copy of the cartridge:
-
-![Tetris in play](screenshots/tetris.png)
-
-ZX81 games under xcpmz80's ZX81.COM, Pipepanic and Mine81:
-
-![Pipepanic's title](screenshots/zx81_pipepanic.png)
-
-![Mine81's title](screenshots/zx81_mine81.png)
+- [max80_xcpmz80](https://github.com/fletto2/max80_xcpmz80): a CP/M
+  compatible OS that keeps its files on FAT12 disks, so a PC reads and
+  writes them, with a loader for ZX81 machine code games.
+- [max80_cprograms](https://github.com/fletto2/max80_cprograms): C
+  programs for xcpmz80, MicroEMACS, STEVIE (vi), Colossal Cave
+  Adventure, MojoZork and file transfer as base64 text, with a C
+  library resident in the upper 64K.
+- [max80_clonerunner](https://github.com/fletto2/max80_clonerunner):
+  Clone Runner, a dig-and-climb game for xcpmz80, a port of Lode
+  Runner. The original's stages are not included.
+- [max80_diagrom](https://github.com/fletto2/max80_diagrom): the
+  diagnostic disk and the boot disk monitor.
+- [max80_monitor](https://github.com/fletto2/max80_monitor): the
+  monitor on its own.
 
 ## What is here
 
 - `emu/`: the emulator, in C. It boots the original CP/M 2.2, CP/M 3
-  and LDOS disks, and everything below. It draws in an SDL2 window, or
-  in the terminal without SDL2.
-- `xcpmz80/`: a CP/M compatible OS that keeps its files on FAT12 disks,
-  so a PC reads and writes them. Its apps disk has MicroEMACS, STEVIE
-  (vi), Colossal Cave Adventure, MojoZork, a C library resident in the
-  upper 64K, file transfer as base64 text, and a loader for ZX81
-  machine code games.
-- `software/clonerun/`: Clone Runner, a dig-and-climb game for
-  xcpmz80, a port of Lode Runner. The original's stages are not
-  included. `build.sh` reads them from a file you supply, as described
-  in its `README.md`.
-- `port/`: Tetris, the Game Boy game, ported to the MAX-80 for CP/M
-  2.2 and xcpmz80. The source is ours. The game's numbers are lifted
-  from your own copy of the cartridge when you build it, so no byte
-  of Nintendo's is included. Its `README.md` says how.
+  and LDOS disks, and everything above. It draws in an SDL2 window, or
+  in the terminal without SDL2. `emu/frame2png.py` turns a frame saved
+  by its `-p` into a PNG.
+- `port/`: Tetris, the Game Boy game, ported to the MAX-80 for
+  xcpmz80. The source is ours. The game's numbers are lifted from your
+  own copy of the cartridge when you build it, so no byte of
+  Nintendo's is included. It needs max80_xcpmz80 checked out beside
+  this repo. Its `README.md` says how.
 - `tools/`: disk image converters, `.imd` to raw sectors and DMK to
-  `.imd`, and the maker of the ZX81 loader's test files.
-- `screenshots/`: the pictures above. `make.sh` makes them again from
-  the emulator, with `emu/frame2png.py`, which turns a frame saved by
-  the emulator's `-p` into a PNG.
+  `.imd`.
 - `reference/rom/max80.e12`: Lobo's v1.3 boot ROM, 512 bytes, included
   for the emulator.
 
-The `README.md` in each of `emu/`, `xcpmz80/`, `software/clonerun/`
-and `port/` says how to build it, test it and use it.
+The Tetris port in the emulator:
 
-The diagnostic disk and the boot disk monitor are in their own repo,
-[max80_diagrom](https://github.com/fletto2/max80_diagrom), and run in
-this emulator.
+![Tetris in play](screenshots/tetris.png)
 
 ## Disk images
 
@@ -83,32 +64,20 @@ that came with them, are at
 
 ## Building
 
-Linux, or any system with these:
-
-- A C compiler and make, and SDL2 for the window (optional).
-- [sjasmplus](https://github.com/z00m128/sjasmplus) for the Z80 code.
-- Python 3.
-- SDCC 4.6.0 for the C programs on the xcpmz80 apps disk.
-- mtools for the xcpmz80 tests.
+Linux, or any system with a C compiler and make, and SDL2 for the
+window (optional):
 
 ```sh
 make -C emu
-make -C xcpmz80
 cd emu
-./max80 -K -a ../xcpmz80/build/xcpmz80.imd
+./max80 -a DISK.imd
 ```
 
-Ctrl-] quits the emulator. `./max80 -a DISK.imd` boots one of Lobo's
-own disks. `-D 1` boots a 5.25" disk. `make test` in each folder runs
-its tests.
+Ctrl-] quits. `-D 1` boots a 5.25" disk. `make test` runs the tests,
+and `emu/README.md` lists every option. The Tetris port also needs
+[sjasmplus](https://github.com/z00m128/sjasmplus) and Python 3.
 
 ## License
 
-The emulator, xcpmz80, Clone Runner and the Tetris port are MIT, in
-each folder's `LICENSE`. The scripts in `tools/` are MIT on the terms
-in `emu/LICENSE`. The programs on the xcpmz80 apps disk keep
-their own licenses, given in `xcpmz80/README.md` and beside each one:
-MicroEMACS 3.6, STEVIE and Colossal Cave Adventure are public domain,
-MojoZork is zlib, the console font is public domain, and of the ZX81
-games, Mine81 and the Tetris games are public domain and Pipepanic is
-GPL 3.
+The emulator and the Tetris port are MIT, in each folder's `LICENSE`.
+The scripts in `tools/` are MIT on the terms in `emu/LICENSE`.

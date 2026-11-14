@@ -21,6 +21,22 @@ check() {	# name, text to find, output
 	fi
 }
 
+t20() {		# GNU timeout where there is one; macOS has none
+	if command -v timeout >/dev/null 2>&1; then
+		timeout 20 "$@"
+	else
+		"$@"
+	fi
+}
+
+sha1() {	# sha1sum, or shasum as macOS has it
+	if command -v sha1sum >/dev/null 2>&1; then
+		sha1sum "$@"
+	else
+		shasum "$@"
+	fi
+}
+
 
 # SASI hard disk: the protocol of Lobo's driver XWINI.MAC, and the ROM boots it
 if ./test_sasi > /dev/null; then
@@ -56,19 +72,20 @@ fi
 opts=""
 ./max80 -T -t 0.01 -F d:800:0 >/dev/null 2>&1 && opts="${opts}d800 "
 ./max80 -T -t 0.01 -F d:1a:0 >/dev/null 2>&1 || opts="${opts}no1a "
-timeout 20 ./max80 -T -t 0 >/dev/null 2>&1 </dev/null; [ $? = 2 ] && opts="${opts}not0 "
+t20 ./max80 -T -t 0 >/dev/null 2>&1 </dev/null; [ $? = 2 ] && opts="${opts}not0 "
 ./max80 -T -t 0.01 -i a:/dev/null@nan >/dev/null 2>&1 || opts="${opts}nonan "
 check "-F d:800 taken, d:1a, -t 0 and -i @nan refused" \
 	"d800 no1a not0 nonan " "$opts"
 
-# xcpmz80, built in ../xcpmz80, boots to its prompt and lists its disk
-X=../xcpmz80/build/xcpmz80.imd
+# xcpmz80, built in XCPMZ80, boots to its prompt and lists its disk
+: "${XCPMZ80:=../../max80_xcpmz80}"
+X=$XCPMZ80/build/xcpmz80.imd
 if [ -f "$X" ]; then
 	out=$(./max80 -K -a "$X" -t 15 -e 'A:\>' -k 'DIR\r')
 	check "xcpmz80 boots to its sign-on" "XCP/M-Z80" "$out"
 	check "and DIR lists its files" "LDFONT   COM" "$out"
 else
-	echo "skip xcpmz80 boot (make it in ../xcpmz80 first)"
+	echo "skip xcpmz80 boot (make it in $XCPMZ80 first)"
 fi
 
 if ./test_track > /dev/null; then
@@ -76,6 +93,14 @@ if ./test_track > /dev/null; then
 else
 	echo "FAIL track unit test:"; ./test_track; fail=1
 fi
+
+# Run from another folder with no -r, the ROM is the one beside the
+# program's own folder; a -r that is not there is still an error
+here=$(pwd)
+out=$(cd / && "$here/max80" -q -T -t 1 2>&1 >/dev/null && echo started)
+check "with no -r, the ROM beside the program, run from elsewhere" "started" "$out"
+out=$(cd / && "$here/max80" -r /no/such.e12 -q -T -t 1 2>&1 >/dev/null || echo refused)
+check "and a -r that is not there is refused" "cannot read the 512-byte boot ROM" "$out"
 
 if [ -n "${ZEXDOC:-}" ]; then
 	out=$(./cpmtest "$ZEXDOC")
