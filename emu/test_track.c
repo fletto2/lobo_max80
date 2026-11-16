@@ -328,9 +328,17 @@ int main(void)
 		static const uint8_t im[] = { 'I', 'M', 'D', ' ', 0x1a,
 		    5, 0, 0, 0, 2,			/* cylinder 0: none */
 		    5, 1, 0, 1, 1, 0, 2, 0xe5 };	/* 1: one sector */
+#ifdef _WIN32
+		/* no /tmp on Windows */
+		char path[MAX_PATH];
+		snprintf(path, sizeof path, "%s\\test_track_XXXXXX",
+		    getenv("TEMP") ? getenv("TEMP") : ".");
+		FILE *f = _mktemp(path) ? fopen(path, "wb") : NULL;
+#else
 		char path[] = "/tmp/test_track_XXXXXX";
 		int fd = mkstemp(path);
 		FILE *f = fdopen(fd, "wb");
+#endif
 
 		fwrite(im, 1, sizeof im, f);
 		fclose(f);
@@ -660,6 +668,32 @@ int main(void)
 	expect(frame_draw(&g) && g.rows == 24 && g.cell_h == 16 && g.h == 32 * 16 + 12 + 1 - 32,
 	    "  the frame 24 rows of 16 lines, 525 lines less the vsyncs");
 	memcpy(crtc, lobo, 16);
+
+	/* the monitor takes no vsync within 1/70 s of the last
+	   one. A CRTC frame of 4 rows of 8 lines is 32 lines of 120
+	   characters, 3840 clocks: the CRTC gives a vsync every frame,
+	   the monitor takes one in every 8, 30720 clocks, 61.9 Hz */
+	static const uint8_t shortf[16] = { 0x77, 0x50, 0x61, 0x06, 3, 0,
+	    3, 3, 0, 7, 0x20, 0, 0, 0, 0, 0 };
+	memcpy(crtc, shortf, 16);
+	memset(&rs, 0, sizeof(rs));
+	raster_frame();
+	int took = 0, gap_ok = 1, last = -1;
+	was_vs = 0;
+	for (int line = 0; line < 32 * 80; line++) {
+		raster_line();
+		if (rs.in_vs && !was_vs) {
+			if (last >= 0 && (unsigned long long)(line - last) * 120 < VS_MIN)
+				gap_ok = 0;
+			last = line;
+			took++;
+		}
+		was_vs = rs.in_vs;
+	}
+	expect(gap_ok && took == 10,
+	    "a vsync within 1/70 s of the last is not taken");
+	memcpy(crtc, lobo, 16);
+	memset(&rs, 0, sizeof(rs));
 
 	/* -V stretches video accesses */
 	vlatch = 0xf0;

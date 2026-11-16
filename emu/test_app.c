@@ -7,6 +7,9 @@
 #define main max80_main
 #include "max80.c"
 #undef main
+#ifdef _WIN32
+#include <direct.h>	/* _mkdir */
+#endif
 
 static int fails;
 
@@ -53,12 +56,22 @@ static void make_image(const char *path, int eight)
 
 int main(void)
 {
-	char dir[] = "/tmp/max80_test_app_XXXXXX", a[300], b[300], c[300], why[200];
+	char a[300], b[300], c[300], why[200];
+#ifdef _WIN32
+	/* no /tmp and no mkdtemp on Windows */
+	char dir[MAX_PATH];
+	snprintf(dir, sizeof dir, "%s\\max80_test_app_XXXXXX",
+	    getenv("TEMP") ? getenv("TEMP") : ".");
+	if (!_mktemp(dir) || _mkdir(dir) != 0)
+		return perror("mkdir"), 2;
+#else
+	char dir[] = "/tmp/max80_test_app_XXXXXX";
+	if (!mkdtemp(dir))
+		return perror("mkdtemp"), 2;
+#endif
 
 	mech = 0;
 	quick = 1;
-	if (!mkdtemp(dir))
-		return perror("mkdtemp"), 2;
 	snprintf(a, sizeof a, "%s/eight.imd", dir);
 	snprintf(b, sizeof b, "%s/five.imd", dir);
 	snprintf(c, sizeof c, "%s/saved.imd", dir);
@@ -115,6 +128,9 @@ int main(void)
 	expect(disks[1].wprot, "write-protect goes on");
 	app_set_wprot(1, 0);
 	expect(!disks[1].wprot, "  and off");
+	app_set_dips(0x81);
+	expect(app_dips() == 0x81 && dipsw == 0x81, "the DIP switches are set");
+	app_set_dips(2);
 	app_set_fast(1);
 	expect(app_fast(), "fast goes on");
 	app_set_fast(0);

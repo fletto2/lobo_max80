@@ -24,7 +24,9 @@ interrupt right after `LD A,I` (`test_iff.c`), the window's keys
 out and built beside this repo (or `XCPMZ80` says where), a boot of
 xcpmz80. `test_sound.py` checks beeps recorded with `-s`, and
 `test_frame.py` a frame saved with `-p`. `frame2png.py frame.pgm
-out.png` turns such a frame into a PNG.
+out.png` turns such a frame into a PNG, cut to the text area, or
+whole when a program drew outside it by changing the CRTC
+mid-frame.
 
 ## Run
 
@@ -53,7 +55,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-T` | Draw in the terminal, not a window. |
 | `-k keys` | Type these keys at the prompt. `\r` is Enter, `\e` ESC, `\U \D \L \R` the arrows, `\1` to `\4` F1 to F4, `\B` BREAK, `\E` an Enter with no wait, `\P` a second's pause. |
 | `-e text` | The prompt `-k` waits for, default `A>`, or several as `A>\|B>`. |
-| `-K` | Type letters in the case written under xcpmz80, which boots with Caps Lock on. It follows xcpmz80's Caps Lock flag, KCAPS at F52Fh, read as each key goes down, so F1 or VI turning it off does not swap the case. |
+| `-K` | Type letters in the case written under xcpmz80, which boots with Caps Lock on. It follows xcpmz80's Caps Lock flag, KCAPS at F52Fh, read as each key goes down, so F1 turning it off does not swap the case. VI undoes Caps Lock for its command keys, so a -K script presses F1 before it starts VI. |
 | `-t seconds` | Run this many emulated seconds with no window, print the screen and exit. More than 0, up to 10000000. |
 | `-p frame.pgm` | With `-t`, also save the last frame as a PGM image. |
 | `-s sound.wav` | Record the beeps to a WAV file. |
@@ -67,7 +69,7 @@ Disk images are IMD files, and a loaded image is never written to.
 | `-x port` | A card on the expansion bus at this port, in hex, that reads back the last byte written. |
 | `-m 128\|64\|64f` | The RAM fitted. 64 leaves out bank B, which reads FFh; 64f reads back the last byte written. |
 | `-C` | Hold the clock chip's TIME SET button down. |
-| `-B` | Draw each character as the beam passes it: the default, kept so that `-q` can have it. |
+| `-B` | Draw each character as the beam passes it: the default, kept so that `-q` can have it. A vsync less than 1/70 s after the last one the monitor took starts no new frame, as a monitor's vertical oscillator ignores it. |
 | `-q` | The idealised timing of before, for speed: no drive mechanics, no beam, no wait states on video RAM, font RAM and SLORAM. `-M` and `-B` turn theirs back on. |
 | `-V T` | Stretch each video and font RAM access by a further 0 to T T-states, at random. |
 | `-L` | At exit, print how many FDC commands had Lost Data. |

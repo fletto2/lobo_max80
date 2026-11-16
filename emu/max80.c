@@ -101,12 +101,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <termios.h>
 #include <time.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <libgen.h>
+#ifdef _WIN32
+/* The Windows build, MinGW-w64, is the window only: no terminal
+   mode */
+#include <windows.h>
+#undef near		/* old 16-bit keywords, names in this file */
+#undef far
+#ifndef NAME_MAX
+#define NAME_MAX 255
+#endif
+#else
+#include <termios.h>
+#include <fcntl.h>
+#endif
 #include <sys/stat.h>
 #ifdef __linux__
 #include <strings.h>
@@ -2476,6 +2487,7 @@ static void screen_text(char *buf, size_t size)
 	}
 }
 
+#ifndef _WIN32		/* the terminal's screen, no terminal on Windows */
 static void screen_draw(void)
 {
 	char line[400];
@@ -2508,6 +2520,7 @@ static void screen_draw(void)
 		printf("\x1b[%d;%dH", cur_r + 1, cur_c + 1);
 	fflush(stdout);
 }
+#endif
 
 /* ---- Video frame: the CRTC timing drawn as dots ---- */
 
@@ -2572,11 +2585,18 @@ struct geom {
  * characters early. Interlace (R8 bit 0) falls back to frame_draw.
  */
 #define RAST_H 1024
+// The monitor's vertical oscillator takes no vsync less than 1/70 s
+// after the last one it took: a CRTC set up mid-frame, or a burst
+// while the registers change, may give vsyncs that close, and they
+// start no new frame on the screen
+#define VS_MIN (CPU_HZ * 3ULL / 8 / 70)
 static uint8_t rast_img[2][FRAME_W * RAST_H];
 static struct {
 	unsigned long long at;	/* character clocks done */
 	int hc, ra, vc, adj, in_adj, hdisp, vdisp, ma_row;
 	int hs_left, vs_left, in_vs;
+	unsigned long vs_gap;	/* character clocks since the monitor's last vsync */
+	int vs_seen;		/* it has taken one */
 	int hs_end;		/* R2 + R3 as at the last hsync's start */
 	int y, w;		/* the line being drawn, the widest line */
 	int cur;		/* rast_img being drawn */
@@ -2611,6 +2631,7 @@ static void raster_line(void)
 	int vtot = (crtc[4] & 0x7f) * m + m - 1, vmask = il ? 0xff : 0x7f;
 	int adjl = (crtc[5] & 0x1f) + (il && rs.odd);
 
+	rs.vs_gap += crtc[0] + 1;
 	if (rs.in_vs && --rs.vs_left == 0) {	/* the end of vsync */
 		rs.in_vs = 0;
 		rs.shown_w = rs.w;
@@ -2637,9 +2658,12 @@ static void raster_line(void)
 	} else
 		rs.ra = (rs.ra + m) & 0x1f;
 	if (!rs.in_adj && rs.ra == (il ? rs.odd : 0) &&
-	    rs.vc == (crtc[7] & 0x7f) * m && !rs.in_vs) {
+	    rs.vc == (crtc[7] & 0x7f) * m && !rs.in_vs &&
+	    (rs.vs_gap >= VS_MIN || !rs.vs_seen)) {
 		rs.in_vs = 1;
 		rs.vs_left = 16;	/* fixed in the HD46505R */
+		rs.vs_gap = 0;
+		rs.vs_seen = 1;
 	}
 }
 
@@ -2893,8 +2917,8 @@ enum { K_UP = 0x80, K_DOWN, K_LEFT, K_RIGHT, K_F1, K_F2, K_F3, K_F4,
 /*
  * -K: type letters in the case written under xcpmz80, which boots with
  * Caps Lock on: SHIFT for lower case while it is on. Its flag is KCAPS,
- * F52Fh in the I/O block, so A1's 752Fh, 0 on and 20h off (VI turns it
- * off while it runs), read as each key goes down.
+ * F52Fh in the I/O block, so A1's 752Fh, 0 on and 20h off (F1 flips
+ * it), read as each key goes down.
  */
 static int caps_swap;
 
@@ -3135,8 +3159,9 @@ static void key_tick(void)
 
 /* ---- Terminal ---- */
 
-static struct termios saved_tio;
 static int tty;
+#ifndef _WIN32
+static struct termios saved_tio;
 
 static void tty_restore(void)
 {
@@ -3164,6 +3189,7 @@ static void tty_raw(void)
 	fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
 	printf("\x1b[2J");
 }
+#endif
 
 /* ---- Window (SDL2): the frame as dots, keys typed into it ---- */
 
@@ -3187,7 +3213,7 @@ static int win_open(void)
 		return 1;
 	}
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-	win = SDL_CreateWindow("MAX-80", SDL_WINDOWPOS_CENTERED,
+	win = SDL_CreateWindow(MAX80_APP_NAME, SDL_WINDOWPOS_CENTERED,
 	    SDL_WINDOWPOS_CENTERED, 1024, 768,
 	    SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
 	ren = win ? SDL_CreateRenderer(win, -1, 0) : NULL;
@@ -3219,6 +3245,68 @@ static void win_sound(const int16_t *snd)
 	if (audio && SDL_GetQueuedAudioSize(audio) < RATE / 10 * 2)
 		SDL_QueueAudio(audio, snd, TICK_SAMPLES * 2);
 }
+
+#ifdef GUI_APP
+/* The machine switched off in the app: a black window, so named, with
+   the Lobo Systems logo from Contents/Resources if it is there, on
+   Windows from the exe's own resources */
+#ifdef _WIN32
+#include "win/resource.h"
+#else
+static char logo_path[4096];
+#endif
+
+static void win_off(int off)
+{
+	static int was = -1;
+	static SDL_Texture *logo;
+	static int logo_w, logo_h, logo_tried;
+
+	if (off != was) {
+		SDL_SetWindowTitle(win, off ? MAX80_APP_NAME " (off)" : MAX80_APP_NAME);
+		was = off;
+	}
+	if (off) {
+		SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+		SDL_RenderClear(ren);
+		if (!logo_tried) {
+			SDL_Surface *s = NULL;
+#ifdef _WIN32
+			HRSRC h = FindResourceA(NULL, MAKEINTRESOURCEA(IDR_LOGO),
+			    MAKEINTRESOURCEA(10));	/* RT_RCDATA */
+			HGLOBAL g = h ? LoadResource(NULL, h) : NULL;
+			void *p = g ? LockResource(g) : NULL;
+
+			if (p)
+				s = SDL_LoadBMP_RW(SDL_RWFromConstMem(p,
+				    (int)SizeofResource(NULL, h)), 1);
+#else
+			if (logo_path[0])
+				s = SDL_LoadBMP(logo_path);
+#endif
+			logo_tried = 1;
+			if (s) {
+				logo = SDL_CreateTextureFromSurface(ren, s);
+				logo_w = s->w;
+				logo_h = s->h;
+				SDL_FreeSurface(s);
+			}
+		}
+		if (logo) {
+			int ww, wh;
+			SDL_Rect r;
+
+			SDL_GetRendererOutputSize(ren, &ww, &wh);
+			r.w = ww * 2 / 5;
+			r.h = r.w * logo_h / logo_w;
+			r.x = (ww - r.w) / 2;
+			r.y = (wh - r.h) / 2;
+			SDL_RenderCopy(ren, logo, NULL, &r);
+		}
+		SDL_RenderPresent(ren);
+	}
+}
+#endif
 
 static void win_draw(void)
 {
@@ -3327,14 +3415,14 @@ static int win_events(void)
 	while (SDL_PollEvent(&e)) {
 		switch (e.type) {
 		case SDL_QUIT:
-#ifdef MAC_APP
-			if (!mac_quit())	/* unsaved disks: the user said no */
+#ifdef GUI_APP
+			if (!gui_quit())	/* unsaved disks: the user said no */
 				break;
 #endif
 			return 1;
-#ifdef MAC_APP
+#ifdef GUI_APP
 		case SDL_DROPFILE:
-			mac_drop(e.drop.file);
+			gui_drop(e.drop.file);
 			SDL_free(e.drop.file);
 			break;
 #endif
@@ -3381,8 +3469,8 @@ static int win_events(void)
 				if (e.key.keysym.mod & KMOD_CTRL) {
 					int k = e.key.keysym.sym;
 					if (k == SDLK_RIGHTBRACKET)
-#ifdef MAC_APP
-						if (mac_quit())
+#ifdef GUI_APP
+						if (gui_quit())
 #endif
 						return 1;
 					if (k >= SDLK_a && k <= SDLK_z)
@@ -3398,6 +3486,7 @@ static int win_events(void)
 }
 #endif
 
+#ifndef _WIN32
 /* Terminal input into the key queue. The arrows (ESC [ A-D) and F1-F4
    (ESC O P-S) arrive as escape sequences, other bytes as they are. */
 static void tty_keys(const char *in, int n)
@@ -3415,6 +3504,52 @@ static void tty_keys(const char *in, int n)
 		key_queue(&ch, 1);
 	}
 }
+#endif
+
+#ifdef _WIN32
+/* Windows has no realpath: the full path, if that folder or file is
+   there. Names compare without case, as the file system does */
+static char *realpath(const char *p, char *out)
+{
+	if (!_fullpath(out, p, PATH_MAX))
+		return NULL;
+	return GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES ? out : NULL;
+}
+#define path_cmp _stricmp
+#else
+#define path_cmp strcmp
+#endif
+
+/* A file's volume and number, st_dev and st_ino on POSIX. Windows'
+   stat gives every file st_ino 0, so it asks the file system.
+   0 if the file is there */
+static int file_id(const char *path, unsigned long long id[2])
+{
+#ifdef _WIN32
+	BY_HANDLE_FILE_INFORMATION fi;
+	HANDLE h = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE |
+	    FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS,
+	    NULL);
+	int ok;
+
+	if (h == INVALID_HANDLE_VALUE)
+		return -1;
+	ok = GetFileInformationByHandle(h, &fi);
+	CloseHandle(h);
+	if (!ok)
+		return -1;
+	id[0] = fi.dwVolumeSerialNumber;
+	id[1] = (unsigned long long)fi.nFileIndexHigh << 32 | fi.nFileIndexLow;
+#else
+	struct stat s;
+
+	if (stat(path, &s) != 0)
+		return -1;
+	id[0] = s.st_dev;
+	id[1] = s.st_ino;
+#endif
+	return 0;
+}
 
 /* The folder a file is in, resolved, or "" */
 static void folder_of(const char *path, char *out)
@@ -3429,12 +3564,12 @@ static void folder_of(const char *path, char *out)
 /* The same file: one inode if both are there, else one folder and name */
 static int same_file(const char *a, const char *b)
 {
-	struct stat sa, sb;
+	unsigned long long ia[2], ib[2];
 	char da[PATH_MAX], db[PATH_MAX], ta[PATH_MAX], tb[PATH_MAX];
 	char ba[NAME_MAX + 1], bb[NAME_MAX + 1];
 
-	if (stat(a, &sa) == 0 && stat(b, &sb) == 0)
-		return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+	if (file_id(a, ia) == 0 && file_id(b, ib) == 0)
+		return ia[0] == ib[0] && ia[1] == ib[1];
 	folder_of(a, da);
 	folder_of(b, db);
 	snprintf(ta, sizeof ta, "%s", a);
@@ -3443,7 +3578,7 @@ static int same_file(const char *a, const char *b)
 	   overwrites, and the two names would compare equal */
 	snprintf(ba, sizeof ba, "%s", basename(ta));
 	snprintf(bb, sizeof bb, "%s", basename(tb));
-	return da[0] && !strcmp(da, db) && !strcmp(ba, bb);
+	return da[0] && !path_cmp(da, db) && !path_cmp(ba, bb);
 }
 
 /*
@@ -3453,7 +3588,7 @@ static int same_file(const char *a, const char *b)
 static int save_allowed(const char *path)
 {
 	char dir[PATH_MAX], other[PATH_MAX];
-	struct stat a, b;
+	unsigned long long a[2], b[2];
 
 	folder_of(path, dir);
 	if (!dir[0]) {
@@ -3465,14 +3600,14 @@ static int save_allowed(const char *path)
 		int name = i < 4 ? 'A' + i : 'H';
 		if (!p)
 			continue;
-		if (stat(path, &a) == 0 && stat(p, &b) == 0 &&
-		    a.st_dev == b.st_dev && a.st_ino == b.st_ino) {
+		if (file_id(path, a) == 0 && file_id(p, b) == 0 &&
+		    a[0] == b[0] && a[1] == b[1]) {
 			fprintf(stderr, "%s: that is the image in drive %c, -w "
 			    "writes a new file\n", path, name);
 			return 0;
 		}
 		folder_of(p, other);
-		if (!strcmp(dir, other)) {
+		if (!path_cmp(dir, other)) {
 			fprintf(stderr, "%s: the folder of the image in drive %c, "
 			    "-w writes elsewhere\n", path, name);
 			return 0;
@@ -3483,7 +3618,37 @@ static int save_allowed(const char *path)
 
 static void sleep_until(struct timespec *t)
 {
-#ifdef __APPLE__
+#if defined(_WIN32)
+	/* A high-resolution waitable timer (Windows 10 1803 on), else Sleep
+	   with the 1 ms timer period, for the time left to t */
+	static HANDLE timer;
+	static int tried;
+	struct timespec now;
+	long long ns;
+
+	if (!tried) {
+		tried = 1;
+		timer = CreateWaitableTimerExW(NULL, NULL,
+		    0x00000002 /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */,
+		    TIMER_ALL_ACCESS);
+		if (!timer)
+			timeBeginPeriod(1);
+	}
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	ns = (long long)(t->tv_sec - now.tv_sec) * 1000000000LL +
+	    t->tv_nsec - now.tv_nsec;
+	if (ns <= 0)
+		return;
+	if (timer) {
+		LARGE_INTEGER due;
+		due.QuadPart = -(ns / 100);	/* relative, in 100 ns */
+		if (SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE)) {
+			WaitForSingleObject(timer, INFINITE);
+			return;
+		}
+	}
+	Sleep((DWORD)(ns / 1000000));
+#elif defined(__APPLE__)
 	/* macOS has no clock_nanosleep: sleep the time left to t. */
 	struct timespec now, d;
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -3896,6 +4061,16 @@ void app_set_wprot(int d, int on)
 		disks[d].wprot = !!on;
 }
 
+void app_set_dips(int v)
+{
+	dipsw = v & 0xff;
+}
+
+int app_dips(void)
+{
+	return dipsw;
+}
+
 void app_set_fast(int on)
 {
 	run_fast = !!on;
@@ -3918,8 +4093,8 @@ int main(int argc, char **argv)
 #ifdef HAVE_SDL
 	window = 1;
 #endif
-#ifdef MAC_APP
-	mac_args(&argc, &argv);	/* the saved settings, launched from Finder */
+#ifdef GUI_APP
+	gui_args(&argc, &argv);	/* the saved settings, launched from Finder or Explorer */
 #endif
 	while ((opt = getopt(argc, argv, "r:a:b:c:d:h:n:R:3:w:D:fk:e:t:Tp:s:gl:o:i:I:F:x:m:ACBqV:S:LKMG:N:")) != -1) {
 		switch (opt) {
@@ -4232,6 +4407,27 @@ int main(int argc, char **argv)
 		(int)(slash - argv[0]), argv[0]) < (int)sizeof near &&
 	    (f = fopen(near, "rb")))
 		rompath = near;
+#ifdef _WIN32
+	/* argv[0] may hold no folder, or backslashes: the exe's own folder,
+	   the ROM beside it as in the zip, or the checkout's */
+	{
+		char exe[MAX_PATH];
+		DWORD n = GetModuleFileNameA(NULL, exe, sizeof exe);
+		char *bs = n && n < sizeof exe ? strrchr(exe, '\\') : NULL;
+		if (bs) {
+			*bs = 0;
+			if (!f && !rom_given &&
+			    snprintf(near, sizeof near, "%s\\max80.e12", exe) < (int)sizeof near &&
+			    (f = fopen(near, "rb")))
+				rompath = near;
+			if (!f && !rom_given &&
+			    snprintf(near, sizeof near, "%s\\..\\reference\\rom\\max80.e12",
+				exe) < (int)sizeof near &&
+			    (f = fopen(near, "rb")))
+				rompath = near;
+		}
+	}
+#endif
 #ifdef __APPLE__
 	/* in MAX-80.app, Contents/Resources beside Contents/MacOS */
 	if (!f && !rom_given && slash &&
@@ -4239,9 +4435,34 @@ int main(int argc, char **argv)
 		(int)(slash - argv[0]), argv[0]) < (int)sizeof near &&
 	    (f = fopen(near, "rb")))
 		rompath = near;
+#ifdef MAC_APP
+	if (slash)
+		snprintf(logo_path, sizeof logo_path,
+		    "%.*s/../Resources/lobo_logo.bmp", (int)(slash - argv[0]),
+		    argv[0]);
+#endif
 #endif
 	if (!f || fread(rom, 1, 512, f) != 512) {
 		fprintf(stderr, "%s: cannot read the 512-byte boot ROM\n", rompath);
+#if defined(GUI_APP) && defined(_WIN32)
+		/* the app has no console: say it in a box, with what to get */
+		{
+			char dir[MAX_PATH], msg[MAX_PATH + 512];
+			DWORD n = GetModuleFileNameA(NULL, dir, sizeof dir);
+			char *bs = n && n < sizeof dir ? strrchr(dir, '\\') : NULL;
+
+			if (bs)
+				*bs = 0;
+			snprintf(msg, sizeof msg,
+			    "MAX-80 needs the boot ROM to start, and %s it.\n\n"
+			    "The file is max80.e12, the Lobo MAX-80 boot ROM v1.3, "
+			    "512 bytes, CRC32 CF316F25.\n\n"
+			    "Put it in the same folder as MAX-80.exe:\n%s",
+			    f ? "the file found is not 512 bytes" : "could not find",
+			    bs ? dir : "(the folder of MAX-80.exe)");
+			MessageBoxA(NULL, msg, MAX80_APP_NAME, MB_OK | MB_ICONERROR);
+		}
+#endif
 		return 1;
 	}
 	fclose(f);
@@ -4263,9 +4484,9 @@ int main(int argc, char **argv)
 	if (window && win_open())
 		return 1;
 #endif
-#ifdef MAC_APP
+#ifdef GUI_APP
 	if (window)
-		mac_init();
+		gui_init();
 #endif
 	if (inst && !debug)
 		return fprintf(stderr, "-N names the debug sockets, it needs -g\n"), 2;
@@ -4279,8 +4500,14 @@ int main(int argc, char **argv)
 		return fprintf(stderr, "-g: debug sockets are built on Linux only\n"), 2;
 #endif
 	}
+#ifdef _WIN32
+	if (!seconds && !window)
+		return fprintf(stderr, "The Windows build has no terminal mode: "
+		    "the window, or -t\n"), 2;
+#else
 	if (!seconds && !window)
 		tty_raw();
+#endif
 
 	struct timespec next;
 	clock_gettime(CLOCK_MONOTONIC, &next);
@@ -4292,6 +4519,21 @@ int main(int argc, char **argv)
 	   and the run time keep step with the CPU */
 	unsigned long long tick_end = cpu.cycles;
 	for (;;) {
+#ifdef GUI_APP
+		/* The app opens with the machine off, so it does not boot with
+		   no disk in: it runs once the user powers it on */
+		if (window) {
+			win_off(!gui_on());
+			if (!gui_on()) {
+				if (win_events())
+					break;
+				struct timespec ts = { 0, 1000000000L / 60 };
+				nanosleep(&ts, NULL);
+				clock_gettime(CLOCK_MONOTONIC, &next);
+				continue;
+			}
+		}
+#endif
 		unsigned long long from = tick_end;
 		unsigned long beeps_before = beep_count;
 		int16_t snd[TICK_SAMPLES];
@@ -4319,9 +4561,9 @@ int main(int argc, char **argv)
 		if (tty && beep_count != beeps_before)
 			fputc('\a', stdout);	/* the terminal bell */
 		key_tick();
-#ifdef MAC_APP
+#ifdef GUI_APP
 		if (window)
-			mac_tick();
+			gui_tick();
 #endif
 		ticks++;
 #ifdef __linux__
@@ -4369,6 +4611,7 @@ int main(int argc, char **argv)
 			}
 		}
 #endif
+#ifndef _WIN32
 		if (!window) {
 			char in[64];
 			int n = read(0, in, sizeof(in));
@@ -4382,6 +4625,7 @@ int main(int argc, char **argv)
 				screen_draw();
 			}
 		}
+#endif
 		if (!run_fast) {
 			next.tv_nsec += 1000000000L / 60;
 			if (next.tv_nsec >= 1000000000L) {

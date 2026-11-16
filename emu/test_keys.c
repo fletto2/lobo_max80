@@ -5,6 +5,7 @@
  * SDL events are pushed and read by win_events itself, with no window.
  * Built with max80.c itself, its main renamed, and SDL2.
  */
+#define SDL_MAIN_HANDLED	/* main stays main on Windows */
 #define main max80_main
 #include "max80.c"
 #undef main

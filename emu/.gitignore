@@ -7,3 +7,6 @@ test_iff
 test_dev
 test_app
 build/
+# SDL2 MinGW development release for the Windows build, not in git
+win/sdl2/
+*.exe

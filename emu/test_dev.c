@@ -9,6 +9,10 @@
 #define main max80_main
 #include "max80.c"
 #undef main
+#ifdef _WIN32		/* MinGW has neither */
+#define setenv(n, v, o) _putenv_s(n, v)
+#define unsetenv(n) _putenv_s(n, "")
+#endif
 
 static int fails;
 

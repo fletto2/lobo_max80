@@ -9,6 +9,12 @@
 
 #include <stdint.h>
 
+#ifdef MAX80_START
+#define MAX80_APP_NAME "MAX-80 Start"
+#else
+#define MAX80_APP_NAME "MAX-80"
+#endif
+
 /* Drives are 0 to 3, A: to D: */
 
 /* Puts an .imd in drive d. 0 done, 1 busy (the FDC has a command
@@ -29,17 +35,22 @@ int app_changed(int d);
 int app_kind(int d);
 /* Write-protect, at once */
 void app_set_wprot(int d, int on);
+/* The DIP switch byte, as the machine reads it */
+void app_set_dips(int v);
+int app_dips(void);
 /* Fast: no pacing to real time, at once */
 void app_set_fast(int on);
 int app_fast(void);
 
-#ifdef MAC_APP
-/* The emulator calls these, from main() and the window code */
-void mac_args(int *argc, char ***argv);	/* the saved settings, at launch */
-void mac_init(void);			/* once the window is open */
-void mac_tick(void);			/* each tick: inserts that were busy */
-int mac_quit(void);			/* 1 to quit: unsaved disks asked about */
-void mac_drop(const char *path);	/* a file dropped on the window */
+#ifdef GUI_APP
+/* The emulator calls these, from main() and the window code. A GUI
+   front end, built with GUI_APP, fills them */
+void gui_args(int *argc, char ***argv);	/* the saved settings, at launch */
+void gui_init(void);			/* once the window is open */
+void gui_tick(void);			/* each tick: inserts that were busy */
+int gui_quit(void);			/* 1 to quit: unsaved disks asked about */
+void gui_drop(const char *path);	/* a file dropped on the window */
+int gui_on(void);			/* 0 while the machine is switched off */
 #endif
 
 #endif

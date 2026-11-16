@@ -3,7 +3,9 @@
 Usage: frame2png.py frame.pgm out.png [XSCALE YSCALE]
 
 The picture is cut to the 80 x 24 text area the frame's cell comment
-gives, with a border of one cell around it. Each dot is drawn XSCALE
+gives, with a border of one cell around it. A frame with dots outside
+that area, from a program that changes the CRTC mid-frame, is kept
+whole. Each dot is drawn XSCALE
 wide and YSCALE high, 2 and 3 by default, close to the aspect the cell
 comment gives, a dot about 1.5 times as high as it is wide. Python 3
 only, no libraries.
@@ -43,9 +45,22 @@ def read_pgm(path):
         pixels = bytes(p * 255 // top for p in pixels)
     if cells:
         x0, y0, cw, ch, cols, rows = cells
-        left, top = max(0, x0 - cw), max(0, y0 - ch)
-        right = min(w, x0 + (cols + 1) * cw)
-        bottom = min(h, y0 + (rows + 1) * ch)
+        # The cells are the registers' layout when the frame was saved.
+        # A program that changes the CRTC mid-frame, as a split screen
+        # of three CRTC frames does, drew outside them: then the whole
+        # frame is kept, as the monitor shows it, the same size and
+        # place every time
+        lx, ly, rx, ry = x0, y0, x0 + cols * cw, y0 + rows * ch
+        inside = all(not any(pixels[y * w:(y + 1) * w]) or
+                     (ly <= y < ry and not any(pixels[y * w:y * w + max(lx, 0)])
+                      and not any(pixels[y * w + rx:(y + 1) * w]))
+                     for y in range(h))
+        if inside:
+            left, top = max(0, lx - cw), max(0, ly - ch)
+            right = min(w, rx + cw)
+            bottom = min(h, ry + ch)
+        else:
+            left, top, right, bottom = 0, 0, w, h
         pixels = b''.join(pixels[y * w + left:y * w + right]
                           for y in range(top, bottom))
         w, h = right - left, bottom - top
