@@ -310,8 +310,12 @@ int main(void)
 
 		key_for('\n', &k);
 		expect(k.row == 6 && k.bit == 0 && !k.ctrl, "LF types ENTER");
+		expect(tick_cycle(1000000ULL) == 83012272128ULL &&
+		    tick_count(83012272128ULL) == 1000000ULL,
+		    "tick cycle and count are exact with 64-bit products");
 		expect(tick_cycle(30000000ULL) > tick_cycle(29000000ULL) &&
-		    tick_cycle(30000000ULL) / 30000000ULL == tick_cycle(1000) / 1000,
+		    tick_cycle(30000000ULL) / 30000000ULL == tick_cycle(1000) / 1000 &&
+		    tick_count(tick_cycle(30000000ULL)) == 30000000ULL,
 		    "the tick's cycle does not wrap after 5 days");
 	}
 
