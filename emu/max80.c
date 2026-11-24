@@ -137,8 +137,22 @@
  * due at cycle n * IRQ_NUM / IRQ_DEN */
 #define IRQ_NUM (CPU_HZ * 131072ULL)
 #define IRQ_DEN 8000000ULL
-/* Tick n's cycle, and the ticks before cycle c, in 128 bits: n * IRQ_NUM
-   passes 2^64 after about 5 emulated days */
+/* Tick n's cycle, and the ticks before cycle c. In 128 bits, n * IRQ_NUM
+   passes 2^64 after about 5 emulated days. A compiler without __int128
+   reduces the ratio by 512, to fit both halves in 32 bits, and divides
+   the count before multiplying. */
+#ifndef __SIZEOF_INT128__
+#define TICK_NUM (IRQ_NUM / 512)
+#define TICK_DEN (IRQ_DEN / 512)
+static unsigned long long tick_cycle(unsigned long long n)
+{
+	return n / TICK_DEN * TICK_NUM + n % TICK_DEN * TICK_NUM / TICK_DEN;
+}
+static unsigned long long tick_count(unsigned long long c)
+{
+	return c / TICK_NUM * TICK_DEN + c % TICK_NUM * TICK_DEN / TICK_NUM;
+}
+#else
 static unsigned long long tick_cycle(unsigned long long n)
 {
 	return (unsigned long long)((unsigned __int128)n * IRQ_NUM / IRQ_DEN);
@@ -147,6 +161,7 @@ static unsigned long long tick_count(unsigned long long c)
 {
 	return (unsigned long long)((unsigned __int128)c * IRQ_DEN / IRQ_NUM);
 }
+#endif
 
 /* ---- Disks: an .imd file held in memory ---- */
 
